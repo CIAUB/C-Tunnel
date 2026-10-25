@@ -57,6 +57,16 @@ func row(r Result) string {
 	return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), fmt.Sprintf("%d/%d", done, total), bar(float64(done)/float64(total)))
 }
 
+func mbps(v float64) string {
+	if v <= 0 {
+		return "-"
+	}
+	if v >= 1000 {
+		return fmt.Sprintf("%.2f Gbps", v/1000)
+	}
+	return fmt.Sprintf("%.1f Mbps", v)
+}
+
 func rule() string { return strings.Repeat("─", 64) }
 
 // Board redraws the live table in place on a terminal; elsewhere it prints nothing
@@ -127,7 +137,7 @@ func Verdict(title string, rows []Result) string {
 			return gi < gj
 		}
 		if gi == 0 {
-			return rs[i].Mbps > rs[j].Mbps
+			return rs[i].Speed() > rs[j].Speed()
 		}
 		return rs[i].Received > rs[j].Received
 	})
@@ -142,17 +152,15 @@ func Verdict(title string, rows []Result) string {
 		b.WriteString(row(r) + "\n")
 	}
 	b.WriteString("\n" + rule() + "\n\nWorks steadily:\n\n")
+	fmt.Fprintf(&b, "   %-13s %-10s %-16s %-13s %s\n", "METHOD", "FAMILY", "LATENCY", "IRAN→KHAREJ", "KHAREJ→IRAN")
 	n := 0
 	for _, r := range rs {
 		if r.Status() != "ok" {
 			continue
 		}
 		n++
-		speed := "-"
-		if r.Mbps > 0 {
-			speed = fmt.Sprintf("%.1f Mbps", r.Mbps)
-		}
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs), speed)
+		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %-13s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
+			mbps(r.DownMbps), mbps(r.UpMbps))
 	}
 	if n == 0 {
 		b.WriteString("Nothing came back steadily. Check the iran server's firewall: UDP 7712 and\nIP protocols 4, 41, 47, 50, 97 and 115 must be open during the test.\n")
@@ -162,17 +170,18 @@ func Verdict(title string, rows []Result) string {
 
 // Best summarizes the recommended settings for the measured path.
 type Best struct {
-	Method       string
-	Reason       string
-	Mbps         float64
-	RTTms        float64
-	JitterMs     float64
-	LossPct      float64
-	PathMTU      int
-	TunnelMTU    int
-	DownloadMbps float64
-	UploadMbps   float64
-	TCPError     string
+	Method          string
+	Reason          string
+	DownMbps        float64 // iran → kharej
+	UpMbps          float64 // kharej → iran
+	RTTms           float64
+	JitterMs        float64
+	LossPct         float64
+	PathMTU         int
+	TunnelMTU       int
+	TCPIranToKharej float64
+	TCPKharejToIran float64
+	TCPError        string
 }
 
 func BestSettings(rows []Result, pathMTU int) Best {
@@ -183,7 +192,7 @@ func BestSettings(rows []Result, pathMTU int) Best {
 		sent += r.Sent
 		got += r.Received
 		if r.Method == b.Method {
-			b.Mbps, b.RTTms, b.JitterMs = r.Mbps, r.RTTms, r.JitterMs
+			b.DownMbps, b.UpMbps, b.RTTms, b.JitterMs = r.DownMbps, r.UpMbps, r.RTTms, r.JitterMs
 			if r.Sent > 0 {
 				b.LossPct = 100 * float64(r.Sent-r.Received) / float64(r.Sent)
 			}
@@ -201,15 +210,17 @@ func BestSettings(rows []Result, pathMTU int) Best {
 
 func (b Best) String() string {
 	var s strings.Builder
-	row := func(k, v, note string) { fmt.Fprintf(&s, "%-14s %-26s %s\n", k, v, note) }
+	row := func(k, v, note string) { fmt.Fprintf(&s, "%-16s %-14s %s\n", k, v, note) }
 	s.WriteString("BEST SETTINGS\n" + rule() + "\n\n")
 	row("SETTING", "VALUE", "MEASURED")
 	s.WriteString("\n")
 	if b.Method == "" {
 		row("Method", "-", b.Reason)
 	} else {
-		row("Method", b.Method, fmt.Sprintf("%.1f Mbps, %.1f ms ±%.1f, %.0f%% loss", b.Mbps, b.RTTms, b.JitterMs, b.LossPct))
+		row("Method", b.Method, fmt.Sprintf("%.1f ms ±%.1f, %.0f%% loss", b.RTTms, b.JitterMs, b.LossPct))
 		row("", "", b.Reason)
+		row("Iran → Kharej", mbps(b.DownMbps), b.Method+" packets at full rate for 1 s")
+		row("Kharej → Iran", mbps(b.UpMbps), b.Method+" packets at full rate for 1 s")
 	}
 	switch {
 	case b.PathMTU >= 1500:
@@ -225,11 +236,12 @@ func (b Best) String() string {
 	if b.TCPError != "" {
 		row("TCP speed", "-", b.TCPError)
 	} else {
-		row("TCP speed", fmt.Sprintf("↓ %.1f / ↑ %.1f Mbps", b.DownloadMbps, b.UploadMbps), "4 streams, bytes confirmed by the receiver")
+		row("TCP Iran→Kharej", mbps(b.TCPIranToKharej), "4 TCP streams, bytes confirmed by the receiver")
+		row("TCP Kharej→Iran", mbps(b.TCPKharejToIran), "4 TCP streams, bytes confirmed by the receiver")
 	}
 	if b.LossPct > 0 && b.Method != "rudp-fec" {
 		row("FEC", "rudp-fec", "the path loses packets")
 	}
-	s.WriteString("\n" + rule() + "\n")
+	s.WriteString("\nMethod speeds are measured with packets shaped like that method; the TCP\nrows show what the raw path carries.\n\n" + rule() + "\n")
 	return s.String()
 }

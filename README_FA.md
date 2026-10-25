@@ -170,14 +170,18 @@ RESULT  FAMILY     METHOD        STATUS    ECHOES  PROGRESS
 
 Works steadily:
 
-🟢 6to4          L3-Direct  42.1 ms ±0.8     212.4 Mbps
-🟢 dtls-1.3      UDP-Crypt  42.3 ms ±0.9     187.9 Mbps
+   METHOD        FAMILY     LATENCY          IRAN→KHAREJ   KHAREJ→IRAN
+🟢 6to4          L3-Direct  42.1 ms ±0.8     1.12 Gbps     418.6 Mbps
+🟢 dtls-1.3      UDP-Crypt  42.3 ms ±0.9     1.05 Gbps     402.3 Mbps
 
 BEST SETTINGS
-Method         6to4                       212.4 Mbps, 42.1 ms ±0.8, 0% loss
-Path MTU       1500                       full-size packets pass
-Tunnel MTU     1440                       path MTU minus 6to4 overhead
-TCP speed      ↓ 248.0 / ↑ 231.6 Mbps     4 streams, bytes confirmed by the receiver
+Method           6to4           42.1 ms ±0.8, 0% loss
+Iran → Kharej    1.12 Gbps      6to4 packets at full rate for 1 s
+Kharej → Iran    418.6 Mbps     6to4 packets at full rate for 1 s
+Path MTU         1500           full-size packets pass
+Tunnel MTU       1440           path MTU minus 6to4 overhead
+TCP Iran→Kharej  1.18 Gbps      4 TCP streams, bytes confirmed by the receiver
+TCP Kharej→Iran  431.0 Mbps     4 TCP streams, bytes confirmed by the receiver
 ```
 
 در زمان تست، روی سرور ایران پورت UDP 7712، پورت TCP 7711 و پروتکل‌های 4، 41، 47، 50، 97 و 115 باید باز باشند.

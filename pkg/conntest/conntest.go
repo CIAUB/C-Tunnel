@@ -1,10 +1,10 @@
 // Package conntest checks which tunnel methods actually pass between two servers.
 //
-// The iran server runs a responder that echoes probe packets back. The kharej server
-// sends, for every method, packets that look like that method on the wire: raw GRE,
-// IPIP, SIT, EtherIP, L2TPv3 and ESP packets, and UDP datagrams with the WireGuard,
-// VXLAN, GENEVE, FOU, GUE and UDP-Crypt headers. A method whose probes come back
-// is not blocked between the two servers.
+// The iran server runs a responder. The kharej server sends, for every method, packets
+// that look like that method on the wire: raw GRE, IPIP, SIT, EtherIP, L2TPv3 and ESP
+// packets, and UDP datagrams with the WireGuard, VXLAN, GENEVE, FOU, GUE and UDP-Crypt
+// headers. Echoes tell whether a method passes; then each working method is streamed
+// at full rate in both directions to measure its speed.
 package conntest
 
 import (
@@ -17,9 +17,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ctunnel/pkg/catalog"
@@ -34,7 +36,7 @@ const (
 	replyWait      = 1500 * time.Millisecond
 	bodyLen        = 480
 	tokenLen       = 16
-	trailerLen     = 1 + 2 + 8 + tokenLen // method index, seq, send time (ns), token
+	trailerLen     = 1 + 1 + 2 + 8 + tokenLen // kind, method index, seq, send time (ns), token
 	frameSecret    = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
 )
 
@@ -76,11 +78,37 @@ func NewToken() string {
 	return hex.EncodeToString(b)
 }
 
-// Responder echoes probes that carry the token. Stop it by cancelling ctx.
+// Packet kinds, carried in the first trailer byte.
+const (
+	kindEcho     = 0 // echoed back by the responder
+	kindUpload   = 1 // kharej → iran, counted by the responder
+	kindDownload = 2 // iran → kharej, counted by the kharej side
+)
+
+// Control messages travel as plain UDP to the responder's port:
+// "CTCTL1" cmd idx duration(ms, 2B) nonce(4B) token(16B); replies add a byte count.
+const ctlMagic = "CTCTL1"
+
+const (
+	ctlCountStart = 'U' // reset the upload counter for a method
+	ctlCountRead  = 'R' // read the upload counter
+	ctlSend       = 'D' // stream a method to the requester for duration
+)
+
+// Responder echoes probes that carry the token, counts uploads and streams downloads.
+// Stop it by cancelling ctx.
 type Responder struct {
 	UDPAddr  string
 	RawOpen  []int // protocols with a working raw socket
 	RawError error
+
+	token  []byte
+	ps     []probe
+	udp    *net.UDPConn
+	raw    map[int]net.PacketConn
+	mu     sync.Mutex
+	counts map[int]int64
+	nonces map[uint32]bool
 }
 
 func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error) {
@@ -92,7 +120,10 @@ func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error
 	if err != nil {
 		return nil, fmt.Errorf("listen udp :%d: %w", udpPort, err)
 	}
-	r := &Responder{UDPAddr: uc.LocalAddr().String()}
+	_ = uc.SetReadBuffer(8 << 20)
+	_ = uc.SetWriteBuffer(8 << 20)
+	r := &Responder{UDPAddr: uc.LocalAddr().String(), token: token, ps: probes(), udp: uc,
+		raw: map[int]net.PacketConn{}, counts: map[int]int64{}, nonces: map[uint32]bool{}}
 	conns := []net.PacketConn{uc}
 	for _, p := range RawProtocols {
 		pc, err := net.ListenPacket(fmt.Sprintf("ip4:%d", p), "0.0.0.0")
@@ -101,10 +132,11 @@ func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error
 			continue
 		}
 		r.RawOpen = append(r.RawOpen, p)
+		r.raw[p] = pc
 		conns = append(conns, pc)
 	}
 	for _, c := range conns {
-		go echo(c, token)
+		go r.serve(c)
 	}
 	go func() {
 		<-ctx.Done()
@@ -115,7 +147,7 @@ func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error
 	return r, nil
 }
 
-func echo(c net.PacketConn, token []byte) {
+func (r *Responder) serve(c net.PacketConn) {
 	buf := make([]byte, 65535)
 	for {
 		n, src, err := c.ReadFrom(buf)
@@ -125,11 +157,98 @@ func echo(c net.PacketConn, token []byte) {
 			}
 			continue
 		}
-		if n < trailerLen || string(buf[n-tokenLen:n]) != string(token) {
+		pkt := buf[:n]
+		if n < trailerLen || string(pkt[n-tokenLen:]) != string(r.token) {
 			continue
 		}
-		_, _ = c.WriteTo(buf[:n], src)
+		if ua, ok := src.(*net.UDPAddr); ok && n == len(ctlMagic)+8+tokenLen && string(pkt[:len(ctlMagic)]) == ctlMagic {
+			r.control(pkt, ua)
+			continue
+		}
+		switch pkt[n-trailerLen] {
+		case kindEcho:
+			_, _ = c.WriteTo(pkt, src)
+		case kindUpload:
+			r.mu.Lock()
+			r.counts[int(pkt[n-trailerLen+1])] += int64(n)
+			r.mu.Unlock()
+		}
 	}
+}
+
+func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
+	o := len(ctlMagic)
+	cmd, idx := pkt[o], int(pkt[o+1])
+	dur := time.Duration(binary.BigEndian.Uint16(pkt[o+2:o+4])) * time.Millisecond
+	nonce := binary.BigEndian.Uint32(pkt[o+4 : o+8])
+	if idx >= len(r.ps) || dur > 5*time.Second {
+		return
+	}
+	r.mu.Lock()
+	var count int64
+	switch cmd {
+	case ctlCountStart:
+		r.counts[idx] = 0
+	case ctlCountRead:
+		count = r.counts[idx]
+	case ctlSend:
+		if !r.nonces[nonce] {
+			r.nonces[nonce] = true
+			p := r.ps[idx]
+			dst := net.Addr(from)
+			conn := net.PacketConn(r.udp)
+			if p.proto != 0 {
+				dst, conn = &net.IPAddr{IP: from.IP}, r.raw[p.proto]
+			}
+			if conn != nil {
+				go stream(conn, dst, p, idx, kindDownload, r.token, dur)
+			}
+		}
+	}
+	r.mu.Unlock()
+	reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
+	reply = append(reply, pkt[:o+8]...)
+	reply = binary.BigEndian.AppendUint64(reply, uint64(count))
+	reply = append(reply, r.token...)
+	_, _ = r.udp.WriteTo(reply, from)
+}
+
+// stream sends full-size packets shaped like method p from several goroutines, as fast
+// as the socket accepts them, for dur. It returns the number of bytes sent.
+func stream(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token []byte, dur time.Duration) int64 {
+	workers := min(4, runtime.NumCPU())
+	end := time.Now().Add(dur)
+	var total atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			hdr := p.header()
+			pkt := make([]byte, max(len(hdr)+64+trailerLen, speedPacket))
+			copy(pkt, hdr)
+			_, _ = rand.Read(pkt[len(hdr) : len(pkt)-trailerLen])
+			t := pkt[len(pkt)-trailerLen:]
+			t[0], t[1] = kind, byte(idx)
+			copy(t[12:], token)
+			seq := uint16(w << 12)
+			var sent int64
+			for time.Now().Before(end) {
+				for i := 0; i < 64; i++ {
+					seq++
+					binary.BigEndian.PutUint16(t[2:4], seq)
+					if n, err := c.WriteTo(pkt, dst); err == nil {
+						sent += int64(n)
+					} else {
+						time.Sleep(100 * time.Microsecond) // socket buffer full
+					}
+				}
+			}
+			total.Add(sent)
+		}(w)
+	}
+	wg.Wait()
+	return total.Load()
 }
 
 // Result is the outcome for one method.
@@ -140,10 +259,14 @@ type Result struct {
 	Received int     `json:"received"`
 	RTTms    float64 `json:"rtt_ms"`
 	JitterMs float64 `json:"jitter_ms"`
-	Mbps     float64 `json:"mbps"`
+	UpMbps   float64 `json:"up_mbps"`   // kharej → iran
+	DownMbps float64 `json:"down_mbps"` // iran → kharej
 	Skipped  string  `json:"skipped,omitempty"`
 	Phase    string  `json:"-"` // "", "echo", "speed-queued", "speed" while the test runs
 }
+
+// Speed is the slower of the two directions, which is what a tunnel can carry both ways.
+func (r Result) Speed() float64 { return min(r.UpMbps, r.DownMbps) }
 
 func (r Result) Status() string {
 	switch {
@@ -256,7 +379,8 @@ type session struct {
 	raw     map[int]net.PacketConn
 	ps      []probe
 	mu      sync.Mutex
-	handler func(idx int, seq uint16, sentNs int64, size int)
+	handler func(kind byte, idx int, seq uint16, sentNs int64, size int)
+	ctl     chan []byte
 }
 
 func (s *session) close() {
@@ -266,7 +390,7 @@ func (s *session) close() {
 	}
 }
 
-func (s *session) setHandler(h func(idx int, seq uint16, sentNs int64, size int)) {
+func (s *session) setHandler(h func(kind byte, idx int, seq uint16, sentNs int64, size int)) {
 	s.mu.Lock()
 	s.handler = h
 	s.mu.Unlock()
@@ -286,8 +410,15 @@ func (s *session) receive(c net.PacketConn) {
 		if n < trailerLen || string(pkt[n-tokenLen:]) != string(s.token) {
 			continue
 		}
+		if string(pkt[:min(n, len(ctlMagic))]) == ctlMagic {
+			select {
+			case s.ctl <- append([]byte(nil), pkt...):
+			default:
+			}
+			continue
+		}
 		t := pkt[n-trailerLen:]
-		idx := int(t[0])
+		idx := int(t[1])
 		if idx >= len(s.ps) {
 			continue
 		}
@@ -295,7 +426,7 @@ func (s *session) receive(c net.PacketConn) {
 		h := s.handler
 		s.mu.Unlock()
 		if h != nil {
-			h(idx, binary.BigEndian.Uint16(t[1:3]), int64(binary.BigEndian.Uint64(t[3:11])), n)
+			h(t[0], idx, binary.BigEndian.Uint16(t[2:4]), int64(binary.BigEndian.Uint64(t[4:12])), n)
 		}
 	}
 }
@@ -305,10 +436,10 @@ func (s *session) send(idx int, seq uint16, body []byte) int {
 	p := s.ps[idx]
 	pkt := append(p.header(), body...)
 	var t [trailerLen]byte
-	t[0] = byte(idx)
-	binary.BigEndian.PutUint16(t[1:3], seq)
-	binary.BigEndian.PutUint64(t[3:11], uint64(time.Now().UnixNano()))
-	copy(t[11:], s.token)
+	t[0], t[1] = kindEcho, byte(idx)
+	binary.BigEndian.PutUint16(t[2:4], seq)
+	binary.BigEndian.PutUint64(t[4:12], uint64(time.Now().UnixNano()))
+	copy(t[12:], s.token)
 	pkt = append(pkt, t[:]...)
 	if p.proto == 0 {
 		_, _ = s.udp.WriteTo(pkt, s.udpDst)
@@ -328,12 +459,13 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	if err != nil || len(token) != tokenLen {
 		return nil, errors.New("bad token in link")
 	}
-	s := &session{host: net.ParseIP(l.Host), token: token, ps: probes(), raw: map[int]net.PacketConn{}}
+	s := &session{host: net.ParseIP(l.Host), token: token, ps: probes(), raw: map[int]net.PacketConn{}, ctl: make(chan []byte, 16)}
 	s.udpDst = &net.UDPAddr{IP: s.host, Port: l.UDPPort}
 	if s.udp, err = net.ListenUDP("udp4", nil); err != nil {
 		return nil, err
 	}
-	_ = s.udp.SetReadBuffer(4 << 20)
+	_ = s.udp.SetReadBuffer(8 << 20)
+	_ = s.udp.SetWriteBuffer(8 << 20)
 	for _, p := range RawProtocols {
 		if pc, err := net.ListenPacket(fmt.Sprintf("ip4:%d", p), "0.0.0.0"); err == nil {
 			s.raw[p] = pc
@@ -382,7 +514,10 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	// Phase 1: echoes.
 	rtts := make([][]float64, len(s.ps))
 	seen := map[[2]int]bool{}
-	s.setHandler(func(idx int, seq uint16, sentNs int64, _ int) {
+	s.setHandler(func(kind byte, idx int, seq uint16, sentNs int64, _ int) {
+		if kind != kindEcho {
+			return
+		}
 		rowsMu.Lock()
 		defer rowsMu.Unlock()
 		k := [2]int{idx, int(seq)}
@@ -438,9 +573,9 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		rows[probeRow[i]].Phase = "speed"
 		rowsMu.Unlock()
 		notify()
-		mbps := s.throughput(ctx, i)
+		up, down := s.throughput(ctx, i)
 		rowsMu.Lock()
-		rows[probeRow[i]].Mbps = mbps
+		rows[probeRow[i]].UpMbps, rows[probeRow[i]].DownMbps = up, down
 		rows[probeRow[i]].Phase = ""
 		rowsMu.Unlock()
 		notify()
@@ -452,57 +587,77 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 }
 
 const (
-	speedDuration = 1500 * time.Millisecond
+	speedDuration = time.Second
 	speedPacket   = 1200
-	speedWindow   = 192 // packets in flight
 )
 
-// throughput streams full-size probes of method idx for speedDuration, keeping at most
-// speedWindow unanswered, and returns the echoed payload rate in Mbit/s (one direction).
-func (s *session) throughput(ctx context.Context, idx int) float64 {
-	var mu sync.Mutex
-	var gotBytes, gotPkts int64
-	s.setHandler(func(i int, _ uint16, _ int64, size int) {
-		if i != idx {
-			return
+// control sends one control message and waits for its reply, retrying on loss.
+func (s *session) control(ctx context.Context, cmd byte, idx int, dur time.Duration) (int64, bool) {
+	var nonce [4]byte
+	_, _ = rand.Read(nonce[:])
+	msg := []byte(ctlMagic)
+	msg = append(msg, cmd, byte(idx))
+	msg = binary.BigEndian.AppendUint16(msg, uint16(dur/time.Millisecond))
+	msg = append(msg, nonce[:]...)
+	msg = append(msg, s.token...)
+	for attempt := 0; attempt < 4; attempt++ {
+		_, _ = s.udp.WriteTo(msg, s.udpDst)
+		deadline := time.After(400 * time.Millisecond)
+		for {
+			select {
+			case <-ctx.Done():
+				return 0, false
+			case <-deadline:
+			case r := <-s.ctl:
+				o := len(ctlMagic)
+				if len(r) >= o+16 && string(r[o+4:o+8]) == string(nonce[:]) {
+					return int64(binary.BigEndian.Uint64(r[o+8 : o+16])), true
+				}
+				continue
+			}
+			break
 		}
-		mu.Lock()
-		gotBytes += int64(size)
-		gotPkts++
-		mu.Unlock()
+	}
+	return 0, false
+}
+
+// throughput streams method idx at full rate for speedDuration in each direction and
+// returns the rates that arrived, in Mbit/s: up is kharej → iran, down is iran → kharej.
+func (s *session) throughput(ctx context.Context, idx int) (up, down float64) {
+	p := s.ps[idx]
+	toMbps := func(b int64) float64 { return float64(b) * 8 / speedDuration.Seconds() / 1e6 }
+
+	// kharej → iran: the responder counts what arrives.
+	if _, ok := s.control(ctx, ctlCountStart, idx, 0); ok {
+		conn, dst := net.PacketConn(s.udp), net.Addr(s.udpDst)
+		if p.proto != 0 {
+			conn, dst = s.raw[p.proto], &net.IPAddr{IP: s.host}
+		}
+		stream(conn, dst, p, idx, kindUpload, s.token, speedDuration)
+		_ = sleep(ctx, 300*time.Millisecond)
+		if n, ok := s.control(ctx, ctlCountRead, idx, 0); ok {
+			up = toMbps(n)
+		}
+	}
+
+	// iran → kharej: count what arrives here.
+	var mu sync.Mutex
+	var got int64
+	s.setHandler(func(kind byte, i int, _ uint16, _ int64, size int) {
+		if kind == kindDownload && i == idx {
+			mu.Lock()
+			got += int64(size)
+			mu.Unlock()
+		}
 	})
 	defer s.setHandler(nil)
-	hdr := len(s.ps[idx].header())
-	body := make([]byte, max(64, speedPacket-hdr-trailerLen))
-	_, _ = rand.Read(body)
-
-	start := time.Now()
-	end := start.Add(speedDuration)
-	var sent int64
-	lastProgress, lastGot := time.Now(), int64(0)
-	for time.Now().Before(end) && ctx.Err() == nil {
+	if _, ok := s.control(ctx, ctlSend, idx, speedDuration); ok {
+		_ = sleep(ctx, speedDuration+400*time.Millisecond)
 		mu.Lock()
-		got := gotPkts
+		down = toMbps(got)
 		mu.Unlock()
-		if got != lastGot {
-			lastGot, lastProgress = got, time.Now()
-		}
-		// A full window with no echoes for 50 ms means packets were lost: let more out.
-		if sent-got >= speedWindow && time.Since(lastProgress) < 50*time.Millisecond {
-			time.Sleep(200 * time.Microsecond)
-			continue
-		}
-		if sent-got >= speedWindow {
-			sent, lastProgress = got, time.Now()
-		}
-		s.send(idx, uint16(sent), body)
-		sent++
 	}
-	elapsed := time.Since(start)
-	time.Sleep(300 * time.Millisecond) // late echoes of the last window
-	mu.Lock()
-	defer mu.Unlock()
-	return float64(gotBytes) * 8 / elapsed.Seconds() / 1e6
+	return up, down
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {
@@ -549,12 +704,12 @@ func Recommend(results []Result) (method, reason string) {
 	fastest := 0.0
 	for _, r := range results {
 		by[r.Method] = r
-		if r.Status() == "ok" && r.Mbps > fastest {
-			fastest = r.Mbps
+		if r.Status() == "ok" && r.Speed() > fastest {
+			fastest = r.Speed()
 		}
 	}
 	for _, m := range preference {
-		if r := by[m]; r.Status() == "ok" && r.Mbps >= 0.9*fastest {
+		if r := by[m]; r.Status() == "ok" && r.Speed() >= 0.9*fastest {
 			return m, "passes every probe and is among the fastest on this path"
 		}
 	}
