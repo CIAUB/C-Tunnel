@@ -406,39 +406,38 @@ func connTestIran() {
 	_, _ = reader.ReadString('\n')
 }
 
-// RunConnTest runs the kharej side and prints the results; shared by the menu and the CLI.
+// RunConnTest runs the kharej side and prints the live board, the verdict and the
+// best settings; shared by the menu and the CLI.
 func RunConnTest(raw string) error {
 	link, err := conntest.DecodeLink(raw)
 	if err != nil {
 		return err
 	}
-	Info("Testing " + strconv.Itoa(len(catalog.Methods)) + " methods against " + link.Host + "...")
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	results, err := conntest.Run(ctx, link)
+
+	board := conntest.NewBoard(os.Stdout, link.Host)
+	rows, err := conntest.Run(ctx, link, board.Update)
 	if err != nil {
 		return err
 	}
-	Title("Methods")
-	fmt.Print(conntest.Format(results))
+	board.Clear()
+	fmt.Print(conntest.Verdict(link.Host, rows))
 
-	Info("Measuring speed (about 10 seconds)...")
-	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), 10)
-	Title("Path")
-	if sr.LossPct >= 100 {
-		KV("Speed", "TCP port "+strconv.Itoa(link.TCPPort)+" is not reachable")
-	} else {
-		KV("Latency", fmt.Sprintf("%.1f ms (jitter %.1f ms)", sr.AvgMs, sr.JitterMs))
-		KV("Download", fmt.Sprintf("%.1f Mbps", sr.DownloadMbps))
-		KV("Upload", fmt.Sprintf("%.1f Mbps", sr.UploadMbps))
+	fmt.Println()
+	Info("Measuring path MTU and TCP speed...")
+	best := conntest.BestSettings(rows, conntest.PathMTU(ctx, link))
+	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), 5)
+	switch {
+	case sr.LossPct >= 100:
+		best.TCPError = "TCP port " + strconv.Itoa(link.TCPPort) + " not reachable"
+	case sr.SpeedError != "":
+		best.TCPError = sr.SpeedError
+	default:
+		best.DownloadMbps, best.UploadMbps = sr.DownloadMbps, sr.UploadMbps
 	}
-
-	Title("Recommendation")
-	method, reason := conntest.Recommend(results)
-	if method != "" {
-		fmt.Printf("   %s→ %s%s\n", Bold+White, method, Reset)
-	}
-	Subtle(reason)
+	fmt.Println()
+	fmt.Print(best.String())
 	return nil
 }
 
@@ -447,7 +446,6 @@ func connTestKharej(raw string) {
 		return
 	}
 	Header()
-	Title("Connection Test — Kharej")
 	if err := RunConnTest(raw); err != nil {
 		Err(err.Error())
 	}

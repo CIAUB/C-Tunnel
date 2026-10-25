@@ -53,7 +53,7 @@ func TestRecommendPrefersKernelThenCrypt(t *testing.T) {
 	if m, _ := Recommend([]Result{{Method: "gre", Sent: 10}}); m != "" {
 		t.Fatal("nothing passed but a method was recommended")
 	}
-	if !strings.Contains(Format(r), "gre") {
-		t.Fatal("Format lost a row")
+	if !strings.Contains(Verdict("x", r), "gre") {
+		t.Fatal("Verdict lost a row")
 	}
 }

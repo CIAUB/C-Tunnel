@@ -160,16 +160,26 @@ sudo ctunnel status
 | Шифрование на скорости ядра | `xfrm-ipsec`, `wireguard` |
 | С другой стороны MikroTik | `gre`, `ipip`, `eoip`, `vxlan`, `wireguard` |
 
-Не уверены? Сначала запустите **0) Connection Test** на иранском сервере (он выдаст ссылку `ctunnel-test://`), затем на зарубежном сервере вставьте эту ссылку. Каждый метод будет помечен как `ok`, `unstable` или `blocked`, скорость канала будет измерена, и будет предложен лучший метод:
+Не уверены? Сначала запустите **0) Connection Test** на иранском сервере (он выдаст ссылку `ctunnel-test://`), затем на зарубежном сервере вставьте эту ссылку. Живая таблица показывает ход проверки каждого метода. Каждый метод будет помечен как `ok`, `unstable` или `blocked`; измеряются скорость каждого рабочего метода, MTU пути и скорость TCP, и предлагается лучший метод с подходящим MTU:
 
 ```text
-METHOD        FAMILY     RESULT    ECHOES  RTT
-6to4          L3-Direct  ok        10/10   42.1 ms ±0.8
-dtls-1.3      UDP-Crypt  ok        10/10   42.3 ms ±0.9
-gre           L3-Direct  blocked   0/10    -
-wireguard     L3-Direct  blocked   0/10    -
+RESULT  FAMILY     METHOD        STATUS    ECHOES  PROGRESS
 
-→ 6to4
+🟢      L3-Direct  6to4          OK        10/10   ▰▰▰▰▰▰▰▰ 100%
+🟢      UDP-Crypt  dtls-1.3      OK        10/10   ▰▰▰▰▰▰▰▰ 100%
+🟡      UDP-Crypt  quic-v1       UNSTABLE  7/10    ▰▰▰▰▰▰▱▱  70%
+🔴      L3-Direct  gre           BLOCKED   0/10    ▱▱▱▱▱▱▱▱   0%
+
+Works steadily:
+
+🟢 6to4          L3-Direct  42.1 ms ±0.8     212.4 Mbps
+🟢 dtls-1.3      UDP-Crypt  42.3 ms ±0.9     187.9 Mbps
+
+BEST SETTINGS
+Method         6to4                       212.4 Mbps, 42.1 ms ±0.8, 0% loss
+Path MTU       1500                       full-size packets pass
+Tunnel MTU     1440                       path MTU minus 6to4 overhead
+TCP speed      ↓ 248.0 / ↑ 231.6 Mbps     4 streams, bytes confirmed by the receiver
 ```
 
 На время теста на иранском сервере должны быть открыты UDP 7712, TCP 7711 и IP-протоколы 4, 41, 47, 50, 97 и 115.

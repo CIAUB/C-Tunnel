@@ -140,11 +140,15 @@ type Result struct {
 	Received int     `json:"received"`
 	RTTms    float64 `json:"rtt_ms"`
 	JitterMs float64 `json:"jitter_ms"`
+	Mbps     float64 `json:"mbps"`
 	Skipped  string  `json:"skipped,omitempty"`
+	Phase    string  `json:"-"` // "", "echo", "speed-queued", "speed" while the test runs
 }
 
 func (r Result) Status() string {
 	switch {
+	case r.Phase == "echo":
+		return "testing"
 	case r.Skipped != "":
 		return "skipped"
 	case r.Received == 0:
@@ -243,125 +247,271 @@ func probes() []probe {
 	return out
 }
 
-// Run sends Probes packets per method to l.Host and collects the echoes.
-func Run(ctx context.Context, l Link) ([]Result, error) {
+// session holds the sockets of one test run on the kharej side.
+type session struct {
+	host    net.IP
+	token   []byte
+	udp     *net.UDPConn
+	udpDst  *net.UDPAddr
+	raw     map[int]net.PacketConn
+	ps      []probe
+	mu      sync.Mutex
+	handler func(idx int, seq uint16, sentNs int64, size int)
+}
+
+func (s *session) close() {
+	_ = s.udp.Close()
+	for _, c := range s.raw {
+		_ = c.Close()
+	}
+}
+
+func (s *session) setHandler(h func(idx int, seq uint16, sentNs int64, size int)) {
+	s.mu.Lock()
+	s.handler = h
+	s.mu.Unlock()
+}
+
+func (s *session) receive(c net.PacketConn) {
+	buf := make([]byte, 65535)
+	for {
+		n, src, err := c.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		if a, ok := src.(*net.IPAddr); ok && !a.IP.Equal(s.host) {
+			continue
+		}
+		pkt := buf[:n]
+		if n < trailerLen || string(pkt[n-tokenLen:]) != string(s.token) {
+			continue
+		}
+		t := pkt[n-trailerLen:]
+		idx := int(t[0])
+		if idx >= len(s.ps) {
+			continue
+		}
+		s.mu.Lock()
+		h := s.handler
+		s.mu.Unlock()
+		if h != nil {
+			h(idx, binary.BigEndian.Uint16(t[1:3]), int64(binary.BigEndian.Uint64(t[3:11])), n)
+		}
+	}
+}
+
+// send builds one probe for method idx with bodySize random bytes.
+func (s *session) send(idx int, seq uint16, body []byte) int {
+	p := s.ps[idx]
+	pkt := append(p.header(), body...)
+	var t [trailerLen]byte
+	t[0] = byte(idx)
+	binary.BigEndian.PutUint16(t[1:3], seq)
+	binary.BigEndian.PutUint64(t[3:11], uint64(time.Now().UnixNano()))
+	copy(t[11:], s.token)
+	pkt = append(pkt, t[:]...)
+	if p.proto == 0 {
+		_, _ = s.udp.WriteTo(pkt, s.udpDst)
+	} else if c, ok := s.raw[p.proto]; ok {
+		_, _ = c.WriteTo(pkt, &net.IPAddr{IP: s.host})
+	}
+	return len(pkt)
+}
+
+// Progress is called with a copy of all rows whenever one of them changes.
+type Progress func(rows []Result)
+
+// Run probes every method against the responder in l: first Probes echoes per method,
+// then, for each method that answered every echo, a short throughput test.
+func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	token, err := hex.DecodeString(l.TokenHex)
 	if err != nil || len(token) != tokenLen {
 		return nil, errors.New("bad token in link")
 	}
-	host := net.ParseIP(l.Host)
-	ps := probes()
-
-	type sample struct{ rtts []float64 }
-	var mu sync.Mutex
-	got := make([]sample, len(ps))
-	seen := map[[2]uint16]bool{}
-	record := func(pkt []byte) {
-		if len(pkt) < trailerLen || string(pkt[len(pkt)-tokenLen:]) != string(token) {
-			return
-		}
-		t := pkt[len(pkt)-trailerLen:]
-		idx, seq := int(t[0]), binary.BigEndian.Uint16(t[1:3])
-		sent := int64(binary.BigEndian.Uint64(t[3:11]))
-		if idx >= len(ps) {
-			return
-		}
-		mu.Lock()
-		defer mu.Unlock()
-		key := [2]uint16{uint16(idx), seq}
-		if seen[key] {
-			return
-		}
-		seen[key] = true
-		got[idx].rtts = append(got[idx].rtts, float64(time.Now().UnixNano()-sent)/1e6)
-	}
-
-	udp, err := net.ListenUDP("udp4", nil)
-	if err != nil {
+	s := &session{host: net.ParseIP(l.Host), token: token, ps: probes(), raw: map[int]net.PacketConn{}}
+	s.udpDst = &net.UDPAddr{IP: s.host, Port: l.UDPPort}
+	if s.udp, err = net.ListenUDP("udp4", nil); err != nil {
 		return nil, err
 	}
-	conns := []net.PacketConn{udp}
-	raw := map[int]net.PacketConn{}
+	_ = s.udp.SetReadBuffer(4 << 20)
 	for _, p := range RawProtocols {
 		if pc, err := net.ListenPacket(fmt.Sprintf("ip4:%d", p), "0.0.0.0"); err == nil {
-			raw[p] = pc
-			conns = append(conns, pc)
+			s.raw[p] = pc
 		}
 	}
-	defer func() {
-		for _, c := range conns {
-			_ = c.Close()
-		}
-	}()
-	for _, c := range conns {
-		go func(c net.PacketConn) {
-			buf := make([]byte, 65535)
-			for {
-				n, src, err := c.ReadFrom(buf)
-				if err != nil {
-					return
-				}
-				if a, ok := src.(*net.IPAddr); ok && !a.IP.Equal(host) {
-					continue
-				}
-				record(buf[:n])
-			}
-		}(c)
+	defer s.close()
+	go s.receive(s.udp)
+	for _, c := range s.raw {
+		go s.receive(c)
 	}
 
-	udpDst := &net.UDPAddr{IP: host, Port: l.UDPPort}
-	ipDst := &net.IPAddr{IP: host}
-	body := make([]byte, bodyLen)
-	for seq := 0; seq < Probes; seq++ {
-		for i, p := range ps {
-			_, _ = rand.Read(body)
-			pkt := append(p.header(), body...)
-			var t [trailerLen]byte
-			t[0] = byte(i)
-			binary.BigEndian.PutUint16(t[1:3], uint16(seq))
-			binary.BigEndian.PutUint64(t[3:11], uint64(time.Now().UnixNano()))
-			copy(t[11:], token)
-			pkt = append(pkt, t[:]...)
-			if p.proto == 0 {
-				_, _ = udp.WriteTo(pkt, udpDst)
-			} else if c, ok := raw[p.proto]; ok {
-				_, _ = c.WriteTo(pkt, ipDst)
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(probeInterval):
-		}
-	}
-	select {
-	case <-ctx.Done():
-	case <-time.After(replyWait):
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
+	// Rows follow the catalog order; probeRow maps a probe index to its row.
+	var rows []Result
+	probeRow := make([]int, len(s.ps))
 	byName := map[string]int{}
-	for i, p := range ps {
+	for i, p := range s.ps {
 		byName[p.method] = i
 	}
-	var out []Result
 	for _, m := range catalog.Methods {
 		r := Result{Method: m.Name, Family: string(m.Family), Sent: Probes}
 		i, ok := byName[m.Name]
 		switch {
 		case !ok:
 			r.Skipped = "needs IPv6 on both servers"
-		case ps[i].proto != 0 && raw[ps[i].proto] == nil:
+		case s.ps[i].proto != 0 && s.raw[s.ps[i].proto] == nil:
 			r.Skipped = "raw sockets need root"
 		default:
-			rtts := got[i].rtts
-			r.Received = len(rtts)
-			r.RTTms, r.JitterMs = stats(rtts)
+			r.Phase = "echo"
+			r.Sent = 0
+			probeRow[i] = len(rows)
 		}
-		out = append(out, r)
+		rows = append(rows, r)
 	}
-	return out, nil
+	var rowsMu sync.Mutex
+	notify := func() {
+		if progress == nil {
+			return
+		}
+		rowsMu.Lock()
+		cp := append([]Result(nil), rows...)
+		rowsMu.Unlock()
+		progress(cp)
+	}
+	active := func(i int) bool { return rows[probeRow[i]].Skipped == "" }
+
+	// Phase 1: echoes.
+	rtts := make([][]float64, len(s.ps))
+	seen := map[[2]int]bool{}
+	s.setHandler(func(idx int, seq uint16, sentNs int64, _ int) {
+		rowsMu.Lock()
+		defer rowsMu.Unlock()
+		k := [2]int{idx, int(seq)}
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		rtts[idx] = append(rtts[idx], float64(time.Now().UnixNano()-sentNs)/1e6)
+		rows[probeRow[idx]].Received = len(rtts[idx])
+	})
+	body := make([]byte, bodyLen)
+	notify()
+	for seq := 0; seq < Probes; seq++ {
+		for i := range s.ps {
+			if !active(i) {
+				continue
+			}
+			_, _ = rand.Read(body)
+			s.send(i, uint16(seq), body)
+			rowsMu.Lock()
+			rows[probeRow[i]].Sent = seq + 1
+			rowsMu.Unlock()
+		}
+		notify()
+		if !sleep(ctx, probeInterval) {
+			return nil, ctx.Err()
+		}
+	}
+	if !sleep(ctx, replyWait) {
+		return nil, ctx.Err()
+	}
+	rowsMu.Lock()
+	for i := range s.ps {
+		if !active(i) {
+			continue
+		}
+		r := &rows[probeRow[i]]
+		r.RTTms, r.JitterMs = stats(rtts[i])
+		r.Phase = ""
+		if r.Status() == "ok" {
+			r.Phase = "speed-queued"
+		}
+	}
+	rowsMu.Unlock()
+	notify()
+
+	// Phase 2: throughput of every method that answered all echoes, one at a time.
+	for i := range s.ps {
+		if !active(i) || rows[probeRow[i]].Phase != "speed-queued" {
+			continue
+		}
+		rowsMu.Lock()
+		rows[probeRow[i]].Phase = "speed"
+		rowsMu.Unlock()
+		notify()
+		mbps := s.throughput(ctx, i)
+		rowsMu.Lock()
+		rows[probeRow[i]].Mbps = mbps
+		rows[probeRow[i]].Phase = ""
+		rowsMu.Unlock()
+		notify()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	return rows, nil
+}
+
+const (
+	speedDuration = 1500 * time.Millisecond
+	speedPacket   = 1200
+	speedWindow   = 192 // packets in flight
+)
+
+// throughput streams full-size probes of method idx for speedDuration, keeping at most
+// speedWindow unanswered, and returns the echoed payload rate in Mbit/s (one direction).
+func (s *session) throughput(ctx context.Context, idx int) float64 {
+	var mu sync.Mutex
+	var gotBytes, gotPkts int64
+	s.setHandler(func(i int, _ uint16, _ int64, size int) {
+		if i != idx {
+			return
+		}
+		mu.Lock()
+		gotBytes += int64(size)
+		gotPkts++
+		mu.Unlock()
+	})
+	defer s.setHandler(nil)
+	hdr := len(s.ps[idx].header())
+	body := make([]byte, max(64, speedPacket-hdr-trailerLen))
+	_, _ = rand.Read(body)
+
+	start := time.Now()
+	end := start.Add(speedDuration)
+	var sent int64
+	lastProgress, lastGot := time.Now(), int64(0)
+	for time.Now().Before(end) && ctx.Err() == nil {
+		mu.Lock()
+		got := gotPkts
+		mu.Unlock()
+		if got != lastGot {
+			lastGot, lastProgress = got, time.Now()
+		}
+		// A full window with no echoes for 50 ms means packets were lost: let more out.
+		if sent-got >= speedWindow && time.Since(lastProgress) < 50*time.Millisecond {
+			time.Sleep(200 * time.Microsecond)
+			continue
+		}
+		if sent-got >= speedWindow {
+			sent, lastProgress = got, time.Now()
+		}
+		s.send(idx, uint16(sent), body)
+		sent++
+	}
+	elapsed := time.Since(start)
+	time.Sleep(300 * time.Millisecond) // late echoes of the last window
+	mu.Lock()
+	defer mu.Unlock()
+	return float64(gotBytes) * 8 / elapsed.Seconds() / 1e6
+}
+
+func sleep(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
 }
 
 func stats(v []float64) (avg, jitter float64) {
@@ -391,16 +541,21 @@ var preference = []string{
 	"dtls-1.3", "quic-v1", "srtp-direct", "wg-stealth", "openvpn-dco", "dnscrypt-udp", "ntp-direct", "rudp-fec",
 }
 
-// Recommend picks the first fully working method by preference; if none passes every
-// probe, the best partly working one, preferring rudp-fec for lossy paths.
+// Recommend picks, among methods that answered every probe, the first in preference
+// order whose speed is within 10% of the fastest. If none answered every probe it
+// falls back to rudp-fec or to the least lossy method.
 func Recommend(results []Result) (method, reason string) {
 	by := map[string]Result{}
+	fastest := 0.0
 	for _, r := range results {
 		by[r.Method] = r
+		if r.Status() == "ok" && r.Mbps > fastest {
+			fastest = r.Mbps
+		}
 	}
 	for _, m := range preference {
-		if by[m].Status() == "ok" {
-			return m, "passes every probe; it is the fastest working option on this path"
+		if r := by[m]; r.Status() == "ok" && r.Mbps >= 0.9*fastest {
+			return m, "passes every probe and is among the fastest on this path"
 		}
 	}
 	if by["rudp-fec"].Received > 0 {
@@ -416,24 +571,4 @@ func Recommend(results []Result) (method, reason string) {
 		return best.Method, "the least lossy method on this path"
 	}
 	return "", "no probe came back: check that UDP and the IP protocols are open on the iran server's firewall"
-}
-
-// Format renders the results as a terminal table, working methods first.
-func Format(results []Result) string {
-	order := map[string]int{"ok": 0, "unstable": 1, "blocked": 2, "skipped": 3}
-	rs := append([]Result(nil), results...)
-	sort.SliceStable(rs, func(i, j int) bool { return order[rs[i].Status()] < order[rs[j].Status()] })
-	var b strings.Builder
-	fmt.Fprintf(&b, "%-13s %-10s %-9s %-7s %s\n", "METHOD", "FAMILY", "RESULT", "ECHOES", "RTT")
-	for _, r := range rs {
-		echoes, rtt := fmt.Sprintf("%d/%d", r.Received, r.Sent), "-"
-		if r.Received > 0 {
-			rtt = fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs)
-		}
-		if r.Skipped != "" {
-			echoes, rtt = "-", r.Skipped
-		}
-		fmt.Fprintf(&b, "%-13s %-10s %-9s %-7s %s\n", r.Method, r.Family, r.Status(), echoes, rtt)
-	}
-	return b.String()
 }

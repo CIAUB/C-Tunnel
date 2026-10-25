@@ -160,16 +160,26 @@ To add another kharej server, repeat step 1 with its IP. It gets `10.77.2.0/30`,
 | Encryption at kernel speed | `xfrm-ipsec`, `wireguard` |
 | MikroTik on the other side | `gre`, `ipip`, `eoip`, `vxlan`, `wireguard` |
 
-Not sure? Run **0) Connection Test** on the Iran server first (it prints a `ctunnel-test://` link), then on the kharej server paste the link. You get every method marked `ok`, `unstable` or `blocked`, the path speed and a recommended method:
+Not sure? Run **0) Connection Test** on the Iran server first (it prints a `ctunnel-test://` link), then on the kharej server paste the link. A live table shows each method being tested. You get every method marked `ok`, `unstable` or `blocked`, the speed of every working method, the path MTU, the TCP speed and a recommended method with its MTU:
 
 ```text
-METHOD        FAMILY     RESULT    ECHOES  RTT
-6to4          L3-Direct  ok        10/10   42.1 ms ±0.8
-dtls-1.3      UDP-Crypt  ok        10/10   42.3 ms ±0.9
-gre           L3-Direct  blocked   0/10    -
-wireguard     L3-Direct  blocked   0/10    -
+RESULT  FAMILY     METHOD        STATUS    ECHOES  PROGRESS
 
-→ 6to4
+🟢      L3-Direct  6to4          OK        10/10   ▰▰▰▰▰▰▰▰ 100%
+🟢      UDP-Crypt  dtls-1.3      OK        10/10   ▰▰▰▰▰▰▰▰ 100%
+🟡      UDP-Crypt  quic-v1       UNSTABLE  7/10    ▰▰▰▰▰▰▱▱  70%
+🔴      L3-Direct  gre           BLOCKED   0/10    ▱▱▱▱▱▱▱▱   0%
+
+Works steadily:
+
+🟢 6to4          L3-Direct  42.1 ms ±0.8     212.4 Mbps
+🟢 dtls-1.3      UDP-Crypt  42.3 ms ±0.9     187.9 Mbps
+
+BEST SETTINGS
+Method         6to4                       212.4 Mbps, 42.1 ms ±0.8, 0% loss
+Path MTU       1500                       full-size packets pass
+Tunnel MTU     1440                       path MTU minus 6to4 overhead
+TCP speed      ↓ 248.0 / ↑ 231.6 Mbps     4 streams, bytes confirmed by the receiver
 ```
 
 During the test the Iran server needs UDP 7712, TCP 7711 and IP protocols 4, 41, 47, 50, 97 and 115 open.
