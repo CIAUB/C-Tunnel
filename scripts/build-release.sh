@@ -14,7 +14,7 @@ for arch in amd64 arm64; do
     CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath -ldflags="${LDFLAGS}" -o "dist/c-tunnel/bin/ctunnel-linux-${arch}" ./cmd/ctunnel
     CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath -ldflags="${LDFLAGS}" -o "dist/c-tunnel/bin/ctunnel-engine-linux-${arch}" ./cmd/ctunnel-engine
 done
-cp -r install.sh README.md README_FA.md scripts systemd dist/c-tunnel/
+cp -r install.sh README.md README_FA.md README_RU.md scripts systemd dist/c-tunnel/
 tar -C dist -czf dist/c-tunnel.tar.gz c-tunnel
 (cd dist && sha256sum c-tunnel.tar.gz > c-tunnel.tar.gz.sha256)
 echo "dist/c-tunnel.tar.gz (v${VERSION})"
