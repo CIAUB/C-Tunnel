@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>C-Tunnel</title>
+<style>
+:root {
+  --bg: #070707; --s1: #111; --s2: #181818; --s3: #202020;
+  --ln: rgba(255,255,255,.08); --ln2: rgba(255,255,255,.15);
+  --tx: #fafafa; --tx2: #dcdcdc; --mu: #8e8e8e; --dim: #6a6a6a;
+  --ac: #ef4444; --ac2: #dc2626; --ac-soft: rgba(239,68,68,.12); --ac-line: rgba(239,68,68,.3);
+  --ok: #22c55e; --wr: #f59e0b; --er: #ef4444;
+  --field: #0c0c0c;
+  --card: color-mix(in srgb, var(--s1) 86%, transparent);
+  --edge: rgba(255,255,255,.09);
+  --glow: radial-gradient(1200px 600px at 50% 110%, rgba(220,38,38,.10), transparent 70%),
+          radial-gradient(900px 500px at 0% 0%, rgba(220,38,38,.06), transparent 60%);
+  --r-lg: 18px; --r: 12px; --r-sm: 9px;
+  --ease: cubic-bezier(.32,.72,0,1);
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f2f2f2; --s1: #fff; --s2: #fafafa; --s3: #f1f1f1;
+    --ln: rgba(0,0,0,.09); --ln2: rgba(0,0,0,.16);
+    --tx: #0a0a0a; --tx2: #2e2e2e; --mu: #636363; --dim: #8a8a8a;
+    --ac: #dc2626; --ac2: #b91c1c; --ac-soft: rgba(220,38,38,.09); --ac-line: rgba(220,38,38,.28);
+    --field: #fff; --edge: rgba(0,0,0,.08);
+    --glow: radial-gradient(1200px 600px at 50% 110%, rgba(220,38,38,.06), transparent 70%);
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+body { min-height: 100dvh; background: var(--glow), var(--bg); background-attachment: fixed; color: var(--tx); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+.num { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+
+.card { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%); }
+.icon-sq { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-sm); background: var(--ac-soft); color: var(--ac); border: 1px solid var(--ac-line); }
+.icon-sq svg { width: 18px; height: 18px; }
+.k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); font-weight: 560; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid var(--ln2); background: var(--s2); cursor: pointer; font-weight: 560; font-size: 13px; transition: background-color 150ms, border-color 150ms, transform 120ms var(--ease); }
+.btn:hover { border-color: var(--mu); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .55; cursor: progress; }
+.btn svg { width: 16px; height: 16px; }
+.btn.primary { background: linear-gradient(180deg, var(--ac), var(--ac2)); border-color: transparent; color: #fff; box-shadow: 0 8px 22px -10px rgba(239,68,68,.7); }
+.btn.ghost { background: transparent; }
+.btn.danger { color: var(--er); }
+.btn.sm { min-height: 32px; padding: 0 11px; font-size: 12px; }
+.btn.square { width: 46px; height: 46px; padding: 0; border-radius: var(--r); }
+.btn.square svg { width: 20px; height: 20px; }
+:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
+label { display: block; font-size: 12px; color: var(--mu); margin-bottom: 6px; font-weight: 520; }
+input, select, textarea { width: 100%; min-height: 42px; padding: 9px 12px; background: var(--field); border: 1px solid var(--ln2); border-radius: var(--r-sm); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 3px var(--ac-soft); }
+.hint { font-size: 12px; color: var(--dim); margin-top: 6px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stack { display: grid; gap: 14px; }
+
+.gate { min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
+.gate form { width: 100%; max-width: 380px; padding: 28px; display: grid; gap: 18px; }
+.gate p { color: var(--mu); font-size: 13px; }
+
+.shell { max-width: 1420px; margin: 0 auto; padding: 24px 20px 48px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.logo { flex: none; width: 50px; height: 50px; border-radius: 13px; display: grid; place-items: center; color: #fff; background: linear-gradient(180deg, #f05252, #c81e1e); box-shadow: 0 10px 26px -10px rgba(239,68,68,.75), inset 0 1px 0 rgba(255,255,255,.25); }
+.logo svg { width: 24px; height: 24px; stroke-width: 2.1; }
+.brand b { display: block; font-size: 19px; letter-spacing: -.02em; font-weight: 680; }
+.brand span { display: block; font-size: 12.5px; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+header.card { display: flex; align-items: center; gap: 28px; padding: 16px 20px; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 26px; flex: 1; min-width: 0; }
+.fact { min-width: 0; }
+.fact .k { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 450; }
+.fact div:last-child { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.menu-wrap { position: relative; margin-left: auto; }
+.menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 220px; padding: 6px; display: grid; gap: 2px; background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r); box-shadow: 0 22px 50px -20px rgba(0,0,0,.8); }
+.menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: none; cursor: pointer; text-align: left; font-size: 13.5px; }
+.menu button:hover { background: var(--s3); }
+.menu svg { width: 16px; height: 16px; color: var(--mu); }
+
+.gauges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.gauge { padding: 24px 16px 20px; display: grid; justify-items: center; gap: 4px; text-align: center; }
+.ring { position: relative; width: 132px; height: 132px; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { stroke-width: 7; }
+.ring .track { stroke: var(--s3); }
+.ring .val { stroke: var(--ac); transition: stroke-dashoffset .6s var(--ease); }
+.ring .lbl { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: 22px; }
+.ring .lbl b { font-size: 28px; font-weight: 640; }
+.ring .lbl small { font-size: 12px; color: var(--mu); }
+.gauge .k { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.gauge .k svg { width: 15px; height: 15px; }
+.gauge .sub { font-size: 13px; color: var(--tx2); }
+
+.stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+.stat { display: flex; align-items: center; gap: 14px; padding: 18px; min-width: 0; }
+.stat > div:last-child { min-width: 0; }
+.stat .v { font-size: 18px; font-weight: 660; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#s-load { white-space: normal; line-height: 1.2; }
+
+.section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 2px 0; }
+.section-head h2 { font-size: 17px; font-weight: 650; }
+.pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--ln2); color: var(--mu); }
+.section-head .acts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.tunnels { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.empty { grid-column: 1 / -1; padding: 56px 16px; text-align: center; color: var(--mu); }
+.tun { padding: 18px; display: grid; gap: 14px; }
+.tun-top { display: flex; align-items: center; gap: 12px; }
+.tun-top .name { font-weight: 660; font-size: 16px; }
+.tun-top .meth { font-size: 12.5px; color: var(--mu); }
+.state { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--s3); color: var(--mu); }
+.state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state.up { color: var(--ok); background: rgba(34,197,94,.1); }
+.state.warn { color: var(--wr); background: rgba(245,158,11,.1); }
+.state.bad { color: var(--er); background: rgba(239,68,68,.1); }
+.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; padding: 14px 0; border-top: 1px solid var(--ln); border-bottom: 1px solid var(--ln); }
+.kv .k { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 450; }
+.kv div div:last-child { font-weight: 560; overflow-wrap: anywhere; }
+.tun .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.tun .row .btn.danger { margin-left: auto; }
+
+dialog { margin: auto; width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); color: var(--tx); background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r-lg); padding: 0; box-shadow: 0 30px 80px -30px rgba(0,0,0,.9); }
+dialog.wide { width: min(760px, calc(100vw - 24px)); }
+dialog::backdrop { background: rgba(0,0,0,.6); backdrop-filter: blur(4px); }
+dialog form, dialog > div { padding: 22px; display: grid; gap: 16px; }
+dialog h3 { font-size: 17px; font-weight: 650; }
+dialog .foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+details summary { cursor: pointer; color: var(--mu); font-size: 13px; }
+details[open] summary { margin-bottom: 14px; }
+pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: var(--r-sm); padding: 12px 14px; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all; color: var(--tx2); max-height: 40vh; overflow: auto; }
+.toast { position: fixed; z-index: 50; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: min(520px, calc(100vw - 24px)); padding: 12px 16px; border-radius: var(--r); background: var(--s2); border: 1px solid var(--ac-line); box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); font-size: 13.5px; }
+.toast.ok { border-color: rgba(34,197,94,.4); }
+
+@media (max-width: 1180px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) {
+  header.card { flex-wrap: wrap; gap: 16px; }
+  .facts { order: 3; flex-basis: 100%; }
+  .gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .shell { padding: 14px 12px 40px; gap: 14px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat { padding: 14px; gap: 10px; }
+  .stat .icon-sq { width: 34px; height: 34px; }
+  .stat .v { font-size: 15px; }
+  .gauges { gap: 10px; }
+  .ring { width: 104px; height: 104px; }
+  .ring .lbl b { font-size: 22px; }
+  .ring .lbl { gap: 14px; }
+  .tunnels { grid-template-columns: minmax(0, 1fr); }
+  .grid2 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 24 24"><path d="M3 19V12a9 9 0 0 1 18 0v7"/><path d="M7.5 19v-6a4.5 4.5 0 0 1 9 0v6"/><path d="M3 19h18"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+  <symbol id="i-mem" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M11 11h2M16 11h2"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><path d="M3 13l2.5-7A2 2 0 0 1 7.4 4.6h9.2a2 2 0 0 1 1.9 1.4L21 13"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 16.5h.01M11 16.5h.01"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 9h14l-3-3M20 15H6l3 3"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+  <symbol id="i-load" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-exit" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+</svg>
+
+<main id="gate" class="gate" hidden>
+  <form id="login-form" class="card">
+    <div class="brand"><div class="logo"><svg><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span>Panel login</span></div></div>
+    <p>Enter the login code shown in <code>sudo ctunnel</code> → Web Panel.</p>
+    <div>
+      <label for="login-code">Login code</label>
+      <input id="login-code" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn primary" type="submit">Log in</button>
+  </form>
+</main>
+
+<div id="app" class="shell" hidden>
+  <header class="card">
+    <div class="brand"><div class="logo"><svg><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span id="h-host"></span></div></div>
+    <div class="facts">
+      <div class="fact"><div class="k">OS</div><div id="h-os">—</div></div>
+      <div class="fact"><div class="k">Uptime</div><div id="h-up" class="num">—</div></div>
+      <div class="fact"><div class="k">IPv4</div><div id="h-v4" class="num">—</div></div>
+      <div class="fact"><div class="k">IPv6</div><div id="h-v6" class="num">—</div></div>
+      <div class="fact"><div class="k">Version</div><div id="h-ver" class="num">—</div></div>
+    </div>
+    <div class="menu-wrap">
+      <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-gear"/></svg></button>
+      <div id="menu" class="menu" hidden>
+        <button type="button" id="m-test"><svg><use href="#i-gauge"/></svg>Link test</button>
+        <button type="button" id="m-restart"><svg><use href="#i-refresh"/></svg>Restart all tunnels</button>
+        <button type="button" id="m-optimize"><svg><use href="#i-bolt"/></svg>Apply kernel tuning</button>
+        <button type="button" id="m-logout"><svg><use href="#i-exit"/></svg>Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="gauges">
+    <div class="card gauge" data-g="cpu"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-cpu"/></svg>CPU</div><div class="sub num"></div></div>
+    <div class="card gauge" data-g="mem"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-mem"/></svg>Memory</div><div class="sub num"></div></div>
+    <div class="card gauge" data-g="disk"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-disk"/></svg>Disk</div><div class="sub num"></div></div>
+    <div class="card gauge" data-g="swap"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-swap"/></svg>Swap</div><div class="sub num"></div></div>
+  </section>
+
+  <section class="stats">
+    <div class="card stat"><div class="icon-sq"><svg><use href="#i-down"/></svg></div><div><div class="k">Download</div><div id="s-rx" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg><use href="#i-up"/></svg></div><div><div class="k">Upload</div><div id="s-tx" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg><use href="#i-in"/></svg></div><div><div class="k">Total in</div><div id="s-rxt" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg><use href="#i-out"/></svg></div><div><div class="k">Total out</div><div id="s-txt" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg><use href="#i-load"/></svg></div><div><div class="k">Load</div><div id="s-load" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg><use href="#i-link"/></svg></div><div><div class="k">Tunnels</div><div id="s-tun" class="v num">—</div></div></div>
+  </section>
+
+  <div class="section-head">
+    <h2>Tunnels</h2><span id="t-count" class="pill">0</span>
+    <div class="acts">
+      <button id="btn-import" class="btn" type="button"><svg><use href="#i-link"/></svg>Add from link</button>
+      <button id="btn-new" class="btn primary" type="button"><svg><use href="#i-plus"/></svg>New tunnel</button>
+    </div>
+  </div>
+  <section id="tunnels" class="tunnels"></section>
+</div>
+
+<dialog id="dlg-new" class="wide">
+  <form id="create-form" method="dialog">
+    <h3>New tunnel</h3>
+    <div class="grid2">
+      <div><label for="f-role">This server is</label>
+        <select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
+      <div><label for="f-remote">Remote server IP</label><input id="f-remote" class="num" required></div>
+    </div>
+    <div><label for="f-method">Method</label><select id="f-method"></select></div>
+    <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
+      <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
+      <p class="hint">listen=target. Leave empty to forward nothing.</p></div>
+    <details>
+      <summary>Advanced — empty fields are set automatically</summary>
+      <div class="stack">
+        <div class="grid2">
+          <div><label for="f-name">Name (max 9)</label><input id="f-name" maxlength="9" placeholder="t1"></div>
+          <div><label for="f-local">This server IP</label><input id="f-local" class="num"></div>
+        </div>
+        <div class="grid2">
+          <div><label for="f-index">Subnet index (10.77.N.0/30)</label><input id="f-index" type="number" min="1" max="250" placeholder="next free"></div>
+          <div><label for="f-port">UDP port</label><input id="f-port" type="number" min="0" max="65535"></div>
+        </div>
+        <div class="grid2">
+          <div><label for="f-mtu">MTU</label><input id="f-mtu" type="number" min="576" max="9000"></div>
+          <div><label for="f-rate">Rate limit (Mbit/s)</label><input id="f-rate" type="number" min="0"></div>
+        </div>
+        <div class="grid2">
+          <div><label for="f-lanes">GRE lanes</label><input id="f-lanes" type="number" min="1" max="8"></div>
+          <div><label for="f-tid">EoIP tunnel-id</label><input id="f-tid" type="number" min="0" max="65535"></div>
+        </div>
+      </div>
+    </details>
+    <div class="foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-import">
+  <form id="import-form" method="dialog">
+    <h3>Add from link</h3>
+    <div><label for="i-link">Link printed on the other server</label><textarea id="i-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
+    <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="9"></div>
+    <div class="foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-test">
+  <form id="test-form" method="dialog">
+    <h3>Link test</h3>
+    <div class="grid2">
+      <div><label for="t-host">Server IP</label><input id="t-host" class="num" placeholder="203.0.113.10 or 10.77.1.2" required></div>
+      <div><label for="t-port">Responder port</label><input id="t-port" class="num" type="number" min="1" max="65535" value="7711"></div>
+    </div>
+    <p class="hint">Run <code>ctunnel speedtest-server</code> on that server first. Testing a tunnel IP measures the tunnel itself.</p>
+    <pre id="t-out" class="out" hidden></pre>
+    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="t-btn" class="btn primary" type="submit">Run test</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-link" class="wide">
+  <div>
+    <h3 id="d-title"></h3>
+    <p class="hint">On the other server: <code>sudo ctunnel</code> → Setup Kharej, or <code>ctunnel apply-link '…'</code></p>
+    <pre id="d-link" class="out"></pre>
+    <div id="d-mt-wrap" class="stack"><div class="k">MikroTik peer (RouterOS 7)</div><pre id="d-mt" class="out"></pre></div>
+    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="d-copy" class="btn primary" type="button">Copy link</button></div>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let csrf = "", methods = [], timer = 0;
+
+function toast(msg, ok) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast" + (ok ? " ok" : "");
+  t.hidden = false;
+  clearTimeout(toast.h);
+  toast.h = setTimeout(() => { t.hidden = true; }, ok ? 3000 : 7000);
+}
+
+async function api(path, opts = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401) { showGate(); throw new Error("Logged out"); }
+  if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+  return data;
+}
+
+function showGate() {
+  clearInterval(timer);
+  timer = 0;
+  $("app").hidden = true;
+  $("gate").hidden = false;
+  $("login-code").focus();
+}
+
+function bytes(n) {
+  const u = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : Math.round(n)) + " " + u[i];
+}
+function uptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return (d ? d + "d " : "") + h + "h " + m + "m";
+}
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+const CIRC = 2 * Math.PI * 52;
+function gauge(name, pct, sub) {
+  const g = document.querySelector('[data-g="' + name + '"]');
+  const p = Math.max(0, Math.min(100, pct || 0));
+  const arc = g.querySelector(".val");
+  arc.style.strokeDasharray = CIRC;
+  arc.style.strokeDashoffset = CIRC * (1 - p / 100);
+  g.querySelector("b").textContent = Math.round(p);
+  g.querySelector(".sub").textContent = sub;
+}
+
+function renderSystem(s, version, tunnels) {
+  $("h-host").textContent = s.hostname || "";
+  $("h-os").textContent = s.os || "—";
+  $("h-up").textContent = uptime(s.uptime_sec || 0);
+  $("h-v4").textContent = s.ipv4 || "—";
+  $("h-v6").textContent = s.ipv6 || "—";
+  $("h-ver").textContent = "v" + version;
+  gauge("cpu", s.cpu_pct, s.cores + (s.cores === 1 ? " core" : " cores"));
+  gauge("mem", s.mem_total ? 100 * s.mem_used / s.mem_total : 0, bytes(s.mem_used) + " / " + bytes(s.mem_total));
+  gauge("disk", s.disk_total ? 100 * s.disk_used / s.disk_total : 0, bytes(s.disk_used) + " / " + bytes(s.disk_total));
+  gauge("swap", s.swap_total ? 100 * s.swap_used / s.swap_total : 0, bytes(s.swap_used) + " / " + bytes(s.swap_total));
+  $("s-rx").textContent = bytes(s.rx_rate) + "/s";
+  $("s-tx").textContent = bytes(s.tx_rate) + "/s";
+  $("s-rxt").textContent = bytes(s.rx_total);
+  $("s-txt").textContent = bytes(s.tx_total);
+  $("s-load").textContent = s.load.map(v => v.toFixed(2)).join(", ");
+  $("s-tun").textContent = tunnels.filter(t => t.state === "up").length + " / " + tunnels.length;
+}
+
+function stateClass(s) {
+  if (s === "up") return "up";
+  if (s === "no link" || s === "activating") return "warn";
+  return "bad";
+}
+
+function kv(parent, key, value) {
+  const d = el("div");
+  d.append(el("div", "k", key), el("div", "num", value));
+  parent.appendChild(d);
+}
+
+function button(label, cls, onClick) {
+  const b = el("button", "btn sm " + (cls || ""), label);
+  b.type = "button";
+  b.onclick = onClick;
+  return b;
+}
+
+function icon(id) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  const use = document.createElementNS(ns, "use");
+  use.setAttribute("href", "#" + id);
+  svg.appendChild(use);
+  return svg;
+}
+
+function renderTunnels(list) {
+  const box = $("tunnels");
+  box.textContent = "";
+  $("t-count").textContent = list.length;
+  if (!list.length) {
+    box.appendChild(el("div", "empty", "No tunnels yet. Create one with New tunnel, or add one from the other server's link."));
+    return;
+  }
+  for (const t of list) {
+    const card = el("article", "card tun");
+    const top = el("div", "tun-top");
+    const ic = el("div", "icon-sq");
+    ic.appendChild(icon("i-link"));
+    const title = el("div");
+    title.append(el("div", "name", t.name), el("div", "meth", t.method + " · " + t.role));
+    top.append(ic, title, el("span", "state " + stateClass(t.state), t.state));
+    const info = el("div", "kv");
+    kv(info, "Peer", t.remote_ip + (t.port ? " : " + t.port : ""));
+    kv(info, "Tunnel IP", t.tun_local4 + " → " + t.tun_remote4);
+    kv(info, "Forwards", (t.ports || []).join(", ") || "—");
+    kv(info, "RX / TX", bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes));
+    const row = el("div", "row");
+    row.append(
+      button("Setup link", "", () => showLink(t.name, t.setup_link, t.mikrotik)),
+      button("Restart", "", e => run(e.target, () => api("/api/tunnels/" + encodeURIComponent(t.name) + "/restart", { method: "POST" }), "Restarted " + t.name)),
+      button("Delete", "danger", e => {
+        if (confirm("Delete tunnel " + t.name + "? Its interface and port forwards are removed.")) {
+          run(e.target, () => api("/api/tunnels/" + encodeURIComponent(t.name), { method: "DELETE" }), "Deleted " + t.name);
+        }
+      })
+    );
+    card.append(top, info, row);
+    box.appendChild(card);
+  }
+}
+
+function fillMethods(list) {
+  methods = list;
+  const sel = $("f-method");
+  const groups = {};
+  for (const m of methods) {
+    if (!groups[m.Family]) {
+      groups[m.Family] = el("optgroup");
+      groups[m.Family].label = m.Family;
+      sel.appendChild(groups[m.Family]);
+    }
+    const o = el("option", "", m.Name + " — " + m.Title);
+    o.value = m.Name;
+    groups[m.Family].appendChild(o);
+  }
+  syncForm();
+}
+
+async function refresh() {
+  try {
+    const data = await api("/api/overview");
+    csrf = data.csrf_token;
+    $("gate").hidden = true;
+    $("app").hidden = false;
+    if (!methods.length) fillMethods(data.methods);
+    renderSystem(data.system, data.version, data.tunnels);
+    renderTunnels(data.tunnels);
+    if (!timer) timer = setInterval(refresh, 4000);
+  } catch (_) { /* a 401 already switched to the login screen */ }
+}
+
+async function run(btn, fn, okMsg) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fn();
+    if (r && r.ok === false) toast(r.error); else if (okMsg) toast(okMsg, true);
+    await refresh();
+    return r;
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function showLink(name, link, mikrotik) {
+  $("d-title").textContent = "Setup link for " + name;
+  $("d-link").textContent = link;
+  $("d-mt").textContent = mikrotik || "";
+  $("d-mt-wrap").hidden = !mikrotik;
+  $("dlg-link").showModal();
+}
+
+document.querySelectorAll("[data-close]").forEach(b => { b.onclick = () => b.closest("dialog").close(); });
+$("btn-new").onclick = () => $("dlg-new").showModal();
+$("btn-import").onclick = () => $("dlg-import").showModal();
+$("d-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("d-link").textContent); toast("Copied", true); }
+  catch (_) { toast("Copy failed: select the link and copy it by hand"); }
+};
+
+function setMenu(open) {
+  $("menu").hidden = !open;
+  $("menu-btn").setAttribute("aria-expanded", String(open));
+}
+$("menu-btn").onclick = e => { e.stopPropagation(); setMenu($("menu").hidden); };
+document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) setMenu(false); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") setMenu(false); });
+$("m-test").onclick = () => { setMenu(false); $("dlg-test").showModal(); };
+$("m-restart").onclick = () => { setMenu(false); run(null, () => api("/api/tunnels/all/restart", { method: "POST" }), "All tunnels restarted"); };
+$("m-optimize").onclick = () => { setMenu(false); run(null, () => api("/api/optimize", { method: "POST" }), "Kernel tuning applied"); };
+$("m-logout").onclick = async () => { setMenu(false); await api("/api/logout", { method: "POST" }).catch(() => {}); csrf = ""; showGate(); };
+
+function num(id) {
+  const v = $(id).value.trim();
+  return v === "" ? 0 : parseInt(v, 10);
+}
+
+function syncForm() {
+  const m = methods.find(x => x.Name === $("f-method").value);
+  $("fwd-wrap").hidden = $("f-role").value !== "iran" || ["sit", "ip6ip6"].includes($("f-method").value);
+  if (m) $("f-remote").placeholder = m.IPv6Underlay ? "IPv6 address" : "203.0.113.10";
+}
+$("f-role").onchange = syncForm;
+$("f-method").onchange = syncForm;
+
+$("create-form").onsubmit = e => {
+  e.preventDefault();
+  const iran = $("f-role").value === "iran";
+  const body = {
+    role: $("f-role").value, method: $("f-method").value,
+    remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
+    index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"),
+    rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"),
+    ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
+  };
+  run(e.submitter, () => api("/api/tunnels", { method: "POST", body: JSON.stringify(body) }), "Tunnel created").then(r => {
+    if (r && r.setup_link) { $("dlg-new").close(); e.target.reset(); syncForm(); showLink(r.name, r.setup_link, r.mikrotik); }
+  });
+};
+
+$("import-form").onsubmit = e => {
+  e.preventDefault();
+  const body = { link: $("i-link").value.trim(), name: $("i-name").value.trim() };
+  run(e.submitter, () => api("/api/import", { method: "POST", body: JSON.stringify(body) }), "Tunnel created from link").then(r => {
+    if (r && r.name) { $("dlg-import").close(); e.target.reset(); }
+  });
+};
+
+$("test-form").onsubmit = async e => {
+  e.preventDefault();
+  const out = $("t-out");
+  out.hidden = false;
+  out.textContent = "Testing, about 10 seconds…";
+  const r = await run($("t-btn"), () => api("/api/linktest", {
+    method: "POST", body: JSON.stringify({ host: $("t-host").value.trim(), port: num("t-port") })
+  }));
+  out.textContent = r ? r.text : "Test failed.";
+};
+
+$("login-form").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) });
+    $("login-code").value = "";
+    await refresh();
+  } catch (err) { toast(err.message); }
+};
+
+refresh();
+</script>
+</body>
+</html>

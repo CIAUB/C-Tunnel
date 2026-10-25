@@ -1,0 +1,16 @@
+[Unit]
+Description=C-Tunnel engine tunnel %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/lib/ctunnel/ctunnel-kernel up %i
+ExecStart=/usr/local/bin/ctunnel-engine -config /etc/ctunnel/tunnels/%i.env
+ExecStopPost=/usr/local/lib/ctunnel/ctunnel-kernel down %i
+Restart=always
+RestartSec=2
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

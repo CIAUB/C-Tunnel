@@ -1,0 +1,13 @@
+[Unit]
+Description=C-Tunnel kernel tunnel %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/ctunnel/ctunnel-kernel up %i
+ExecStop=/usr/local/lib/ctunnel/ctunnel-kernel down %i
+
+[Install]
+WantedBy=multi-user.target
