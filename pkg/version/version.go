@@ -3,3 +3,6 @@
 package version
 
 var Version = "0.1.0"
+
+// Telegram is the project channel shown in the CLI and the web panel.
+const Telegram = "https://t.me/CiAUB"

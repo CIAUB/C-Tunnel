@@ -35,7 +35,8 @@ func Logo() {
 / /__/_____/ / / / /_/ / / / / / / /  __/ /  
 \____/      /_/  \__,_/_/ /_/_/ /_/\___/_/   `
 	fmt.Printf("%s%s%s%s\n", Bold, Red, logo, Reset)
-	fmt.Printf(" %sC-Tunnel v%s — kernel and encrypted UDP tunnels, one iran to many kharej%s\n\n", Gray, version.Version, Reset)
+	fmt.Printf(" %sC-Tunnel v%s — kernel and encrypted UDP tunnels, one iran to many kharej%s\n", Gray, version.Version, Reset)
+	fmt.Printf(" %sTelegram: %s%s\n\n", Gray, version.Telegram, Reset)
 }
 
 func Rule() {

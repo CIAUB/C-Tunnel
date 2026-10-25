@@ -80,7 +80,13 @@ header.card { display: flex; align-items: center; gap: 28px; padding: 16px 20px;
 .fact { min-width: 0; }
 .fact .k { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 450; }
 .fact div:last-child { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
-.menu-wrap { position: relative; margin-left: auto; }
+.menu-wrap { position: relative; }
+a.btn { text-decoration: none; color: inherit; }
+.hdr-acts { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.btn.tg { min-height: 46px; border-radius: var(--r); }
+.tg-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 13px; color: var(--mu); text-decoration: none; }
+.tg-link:hover { color: var(--tx); }
+.tg-link svg, .btn.tg svg { width: 16px; height: 16px; }
 .menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 220px; padding: 6px; display: grid; gap: 2px; background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r); box-shadow: 0 22px 50px -20px rgba(0,0,0,.8); }
 .menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: none; cursor: pointer; text-align: left; font-size: 13.5px; }
 .menu button:hover { background: var(--s3); }
@@ -141,12 +147,14 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
 
 @media (max-width: 1180px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) {
-  header.card { flex-wrap: wrap; gap: 16px; }
+  header.card { flex-wrap: wrap; gap: 12px; }
   .facts { order: 3; flex-basis: 100%; }
   .gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 560px) {
   .shell { padding: 14px 12px 40px; gap: 14px; }
+  .btn.tg { width: 46px; padding: 0; }
+  .btn.tg span { display: none; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .stat { padding: 14px; gap: 10px; }
   .stat .icon-sq { width: 34px; height: 34px; }
@@ -180,6 +188,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
   <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5"/></symbol>
   <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-tg" viewBox="0 0 24 24"><path d="M21.5 4.5L2.8 11.7c-.8.3-.8 1.4 0 1.7l4.6 1.6 1.8 5.6c.2.7 1.1.9 1.6.4l2.6-2.5 4.8 3.5c.6.4 1.4.1 1.6-.6L22.8 5.8c.2-.9-.6-1.6-1.3-1.3z"/><path d="M7.4 15l10.8-7.3-8.6 8.9"/></symbol>
   <symbol id="i-exit" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
 </svg>
 
@@ -192,6 +201,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
       <input id="login-code" type="password" autocomplete="current-password" required>
     </div>
     <button class="btn primary" type="submit">Log in</button>
+    <a class="tg-link" href="https://t.me/CiAUB" target="_blank" rel="noopener noreferrer"><svg><use href="#i-tg"/></svg>Telegram channel: @CiAUB</a>
   </form>
 </main>
 
@@ -205,6 +215,8 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
       <div class="fact"><div class="k">IPv6</div><div id="h-v6" class="num">—</div></div>
       <div class="fact"><div class="k">Version</div><div id="h-ver" class="num">—</div></div>
     </div>
+    <div class="hdr-acts">
+    <a class="btn tg" href="https://t.me/CiAUB" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg><use href="#i-tg"/></svg><span>Telegram</span></a>
     <div class="menu-wrap">
       <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-gear"/></svg></button>
       <div id="menu" class="menu" hidden>
@@ -213,6 +225,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
         <button type="button" id="m-optimize"><svg><use href="#i-bolt"/></svg>Apply kernel tuning</button>
         <button type="button" id="m-logout"><svg><use href="#i-exit"/></svg>Log out</button>
       </div>
+    </div>
     </div>
   </header>
 
