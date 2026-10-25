@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/conntest"
 	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
@@ -34,20 +35,22 @@ func loadStore() (*catalog.Store, bool) {
 func RunInteractiveMenu() {
 	for {
 		Header()
+		Opt("0", "Connection Test", "which methods pass between two servers, and speed")
 		Opt("1", "Setup Iran", "new tunnel from this server to a kharej server")
 		Opt("2", "Setup Kharej", "paste the link printed on the iran server")
 		Opt("3", "Tunnels", "status, link, restart, forwards, delete")
-		Opt("4", "Link Test", "latency, loss and speed to another server")
-		Opt("5", "Web Panel", "address, login code, port")
-		Opt("6", "Optimize", "BBR, buffers, forwarding")
-		Opt("7", "Backup & Restore", "all tunnels in one file")
-		Opt("8", "Update", "latest GitHub release")
-		Opt("9", "Uninstall", "remove tunnels and C-Tunnel")
-		Opt("0", "Exit", "")
+		Opt("4", "Web Panel", "address, login code, port")
+		Opt("5", "Optimize", "BBR, buffers, forwarding")
+		Opt("6", "Backup & Restore", "all tunnels in one file")
+		Opt("7", "Update", "latest GitHub release")
+		Opt("8", "Uninstall", "remove tunnels and C-Tunnel")
+		Opt("9", "Exit", "")
 		fmt.Println()
 		Rule()
 
 		switch Ask("Enter your choice [0-9]", "") {
+		case "0":
+			ConnectionTestScreen()
 		case "1":
 			setupWizard("iran")
 		case "2":
@@ -55,18 +58,16 @@ func RunInteractiveMenu() {
 		case "3":
 			tunnelsMenu()
 		case "4":
-			LinkTestScreen()
-		case "5":
 			webPanelMenu()
-		case "6":
+		case "5":
 			optimizeScreen()
-		case "7":
+		case "6":
 			backupRestoreMenu()
-		case "8":
+		case "7":
 			updateMenu()
-		case "9":
+		case "8":
 			uninstallScreen()
-		case "0", "q", "exit":
+		case "9", "q", "exit":
 			fmt.Println()
 			return
 		}
@@ -351,10 +352,112 @@ func tunnelActions(st *catalog.Store, tc catalog.TunnelConfig) {
 
 // ─── Link test ───────────────────────────────────────────────────────────────
 
-func LinkTestScreen() {
+// ConnectionTestScreen finds out which methods pass between two servers (run it on the
+// iran server first, then on the kharej server) and measures speed.
+func ConnectionTestScreen() {
 	Header()
-	switch ChooseOpt("Link Test", []MenuOpt{
-		{"Run test", "measure to a server that runs the responder"},
+	switch ChooseOpt("Connection Test", []MenuOpt{
+		{"This server is Iran", "start the test responder and get a link"},
+		{"This server is Kharej", "paste the iran server's link and run the test"},
+		{"Speed test", "latency, loss and speed to any IP, e.g. a tunnel IP"},
+	}) {
+	case 1:
+		connTestIran()
+	case 2:
+		connTestKharej(Ask("Paste the ctunnel-test:// link from the iran server", ""))
+	case 3:
+		speedTestScreen()
+	}
+}
+
+func connTestIran() {
+	Header()
+	Title("Connection Test — Iran")
+	host := Ask("This server's public IP", detectIP("udp4", "8.8.8.8:80"))
+	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	r, err := conntest.Serve(ctx, link.UDPPort, link.TokenHex)
+	if err != nil {
+		Err(err.Error())
+		Pause()
+		return
+	}
+	_, stop, err := speedtest.StartServer(fmt.Sprintf(":%d", link.TCPPort))
+	if err != nil {
+		Err(err.Error())
+		Pause()
+		return
+	}
+	defer stop()
+
+	Ok(fmt.Sprintf("Responder ready: UDP %d, TCP %d, IP protocols %v", link.UDPPort, link.TCPPort, r.RawOpen))
+	if r.RawError != nil && len(r.RawOpen) < len(conntest.RawProtocols) {
+		Warn("Some IP protocols could not be opened: " + r.RawError.Error())
+	}
+	Subtle("If a firewall runs here, allow those ports and protocols during the test.")
+	Title("Run This On The Kharej Server")
+	Subtle("ctunnel → 0) Connection Test → This server is Kharej, then paste:")
+	fmt.Printf("\n   %s%s%s\n\n", Bold+White, conntest.EncodeLink(link), Reset)
+	Subtle("or: sudo ctunnel conntest '" + conntest.EncodeLink(link) + "'")
+	fmt.Println()
+	Info("Waiting for the test. Press Enter to stop the responder.")
+	_, _ = reader.ReadString('\n')
+}
+
+// RunConnTest runs the kharej side and prints the results; shared by the menu and the CLI.
+func RunConnTest(raw string) error {
+	link, err := conntest.DecodeLink(raw)
+	if err != nil {
+		return err
+	}
+	Info("Testing " + strconv.Itoa(len(catalog.Methods)) + " methods against " + link.Host + "...")
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	results, err := conntest.Run(ctx, link)
+	if err != nil {
+		return err
+	}
+	Title("Methods")
+	fmt.Print(conntest.Format(results))
+
+	Info("Measuring speed (about 10 seconds)...")
+	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), 10)
+	Title("Path")
+	if sr.LossPct >= 100 {
+		KV("Speed", "TCP port "+strconv.Itoa(link.TCPPort)+" is not reachable")
+	} else {
+		KV("Latency", fmt.Sprintf("%.1f ms (jitter %.1f ms)", sr.AvgMs, sr.JitterMs))
+		KV("Download", fmt.Sprintf("%.1f Mbps", sr.DownloadMbps))
+		KV("Upload", fmt.Sprintf("%.1f Mbps", sr.UploadMbps))
+	}
+
+	Title("Recommendation")
+	method, reason := conntest.Recommend(results)
+	if method != "" {
+		fmt.Printf("   %s→ %s%s\n", Bold+White, method, Reset)
+	}
+	Subtle(reason)
+	return nil
+}
+
+func connTestKharej(raw string) {
+	if raw == "" {
+		return
+	}
+	Header()
+	Title("Connection Test — Kharej")
+	if err := RunConnTest(raw); err != nil {
+		Err(err.Error())
+	}
+	Pause()
+}
+
+func speedTestScreen() {
+	Header()
+	switch ChooseOpt("Speed Test", []MenuOpt{
+		{"Run test", "to a server that runs the responder"},
 		{"Start responder", "let the other server test against this one"},
 	}) {
 	case 1:
@@ -633,4 +736,24 @@ func StatusTable() {
 		return
 	}
 	printStatusTable(st)
+}
+
+// ConnTestServer runs the iran side of the connection test until interrupted.
+func ConnTestServer(host string) {
+	if host == "" {
+		host = detectIP("udp4", "8.8.8.8:80")
+	}
+	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken()}
+	r, err := conntest.Serve(context.Background(), link.UDPPort, link.TokenHex)
+	if err != nil {
+		Err(err.Error())
+		os.Exit(1)
+	}
+	if _, _, err := speedtest.StartServer(fmt.Sprintf(":%d", link.TCPPort)); err != nil {
+		Err(err.Error())
+		os.Exit(1)
+	}
+	fmt.Printf("responder ready: UDP %d, TCP %d, IP protocols %v\n", link.UDPPort, link.TCPPort, r.RawOpen)
+	fmt.Printf("on the kharej server run:\n  sudo ctunnel conntest '%s'\n", conntest.EncodeLink(link))
+	select {}
 }

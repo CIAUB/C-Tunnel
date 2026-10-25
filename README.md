@@ -75,7 +75,7 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 | **Loss recovery** | `rudp-fec` adds one XOR parity packet per two data packets and rebuilds a lost packet without retransmission |
 | **MikroTik** | Ready-to-paste RouterOS 7 commands for `gre`, `ipip`, `6to4`, `eoip`, `vxlan` and `wireguard` |
 | **Web panel** | HTTPS, server gauges, live traffic, create, import, restart and delete tunnels, link test |
-| **Link test** | Latency, jitter, loss and 4-stream throughput, followed by a suggested method |
+| **Connection test** | Sends real GRE, IPIP, SIT, ESP, WireGuard, VXLAN, QUIC, DTLS… packets between the two servers, shows which methods pass or are blocked, measures speed and recommends the best one |
 | **Persistent** | Every tunnel is a systemd unit, so it comes back after a reboot and is rebuilt cleanly on restart |
 
 ## Requirements
@@ -160,7 +160,19 @@ To add another kharej server, repeat step 1 with its IP. It gets `10.77.2.0/30`,
 | Encryption at kernel speed | `xfrm-ipsec`, `wireguard` |
 | MikroTik on the other side | `gre`, `ipip`, `eoip`, `vxlan`, `wireguard` |
 
-Not sure? Run `ctunnel speedtest-server` on one server and `ctunnel linktest <its IP>` on the other. C-Tunnel measures the link and suggests a method.
+Not sure? Run **0) Connection Test** on the Iran server first (it prints a `ctunnel-test://` link), then on the kharej server paste the link. You get every method marked `ok`, `unstable` or `blocked`, the path speed and a recommended method:
+
+```text
+METHOD        FAMILY     RESULT    ECHOES  RTT
+6to4          L3-Direct  ok        10/10   42.1 ms ±0.8
+dtls-1.3      UDP-Crypt  ok        10/10   42.3 ms ±0.9
+gre           L3-Direct  blocked   0/10    -
+wireguard     L3-Direct  blocked   0/10    -
+
+→ 6to4
+```
+
+During the test the Iran server needs UDP 7712, TCP 7711 and IP protocols 4, 41, 47, 50, 97 and 115 open.
 
 ## All methods
 
@@ -218,7 +230,7 @@ Not sure? Run `ctunnel speedtest-server` on one server and `ctunnel linktest <it
 
 ## Web panel
 
-`sudo ctunnel` → **5) Web Panel** → **Start**, then open:
+`sudo ctunnel` → **4) Web Panel** → **Start**, then open:
 
 ```text
 https://<server-ip>:8443
@@ -235,7 +247,9 @@ Log in with the code shown in the same menu. The certificate is self-signed, so 
 | `ctunnel up\|restart\|down NAME` | Control one tunnel |
 | `ctunnel link NAME` | Setup link and MikroTik commands for the other side |
 | `ctunnel apply-link 'ctunnel://…'` | Create and start a tunnel from a link |
-| `ctunnel linktest HOST` | Latency, loss and throughput to HOST |
+| `ctunnel conntest-server` | Iran side of the connection test, prints a link |
+| `ctunnel conntest 'ctunnel-test://…'` | Kharej side: which methods pass, speed, recommendation |
+| `ctunnel linktest HOST` | Latency, loss and throughput to HOST, e.g. a tunnel IP |
 | `ctunnel speedtest-server` | Responder for `linktest` (TCP 7711) |
 | `ctunnel optimize` | BBR + fq, 64 MB socket buffers, IP forwarding |
 | `ctunnel panel` | Run the web panel in the foreground |

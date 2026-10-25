@@ -79,7 +79,7 @@ flowchart LR
 | **بازیابی packet loss** | `rudp-fec` به ازای هر دو بسته یک بسته‌ی parity می‌فرستد و بسته‌ی گم‌شده را بدون ارسال دوباره می‌سازد |
 | **میکروتیک** | دستورهای آماده‌ی RouterOS 7 برای `gre`، `ipip`، `6to4`، `eoip`، `vxlan` و `wireguard` |
 | **پنل وب** | HTTPS، گیج‌های سرور، ترافیک زنده، ساخت، وارد کردن، ری‌استارت و حذف تانل، تست لینک |
-| **تست لینک** | پینگ، jitter، loss و سرعت با ۴ استریم، به‌همراه پیشنهاد روش |
+| **تست اتصال** | بسته‌های واقعی GRE، IPIP، SIT، ESP، WireGuard، VXLAN، QUIC، DTLS و… را بین دو سرور می‌فرستد، نشان می‌دهد کدام روش رد می‌شود و کدام بسته است، سرعت را اندازه می‌گیرد و بهترین روش را پیشنهاد می‌دهد |
 | **ماندگار** | هر تانل یک سرویس systemd است؛ بعد از ریبوت برمی‌گردد و با ری‌استارت از نو و تمیز ساخته می‌شود |
 
 ## پیش‌نیازها
@@ -158,7 +158,19 @@ sudo ctunnel status
 | رمزنگاری با سرعت کرنل | `xfrm-ipsec`، `wireguard` |
 | طرف مقابل میکروتیک است | `gre`، `ipip`، `eoip`، `vxlan`، `wireguard` |
 
-مطمئن نیستید؟ روی یک سرور `ctunnel speedtest-server` و روی سرور دیگر `ctunnel linktest <IP آن سرور>` را بزنید. C-Tunnel لینک را اندازه می‌گیرد و یک روش پیشنهاد می‌دهد.
+مطمئن نیستید؟ اول روی سرور ایران **0) Connection Test** را بزنید (یک لینک `ctunnel-test://` می‌دهد)، بعد روی سرور خارج همان گزینه را بزنید و لینک را بچسبانید. کنار هر روش `ok`، `unstable` یا `blocked` نوشته می‌شود، سرعت مسیر اندازه گرفته می‌شود و بهترین روش پیشنهاد می‌شود:
+
+```text
+METHOD        FAMILY     RESULT    ECHOES  RTT
+6to4          L3-Direct  ok        10/10   42.1 ms ±0.8
+dtls-1.3      UDP-Crypt  ok        10/10   42.3 ms ±0.9
+gre           L3-Direct  blocked   0/10    -
+wireguard     L3-Direct  blocked   0/10    -
+
+→ 6to4
+```
+
+در زمان تست، روی سرور ایران پورت UDP 7712، پورت TCP 7711 و پروتکل‌های 4، 41، 47، 50، 97 و 115 باید باز باشند.
 
 ## همه‌ی روش‌ها
 
@@ -216,7 +228,7 @@ sudo ctunnel status
 
 ## پنل وب
 
-`sudo ctunnel` ← **5) Web Panel** ← **Start**، بعد این آدرس را باز کنید:
+`sudo ctunnel` ← **4) Web Panel** ← **Start**، بعد این آدرس را باز کنید:
 
 ```text
 https://<server-ip>:8443
@@ -233,7 +245,9 @@ https://<server-ip>:8443
 | `ctunnel up\|restart\|down NAME` | روشن، ری‌استارت یا خاموش کردن یک تانل |
 | `ctunnel link NAME` | لینک راه‌اندازی و دستورهای میکروتیک برای طرف مقابل |
 | `ctunnel apply-link 'ctunnel://…'` | ساختن و روشن کردن تانل از روی لینک |
-| `ctunnel linktest HOST` | پینگ، loss و سرعت تا HOST |
+| `ctunnel conntest-server` | سمت ایران تست اتصال؛ لینک تست را می‌دهد |
+| `ctunnel conntest 'ctunnel-test://…'` | سمت خارج: کدام روش‌ها رد می‌شوند، سرعت و پیشنهاد |
+| `ctunnel linktest HOST` | پینگ، loss و سرعت تا HOST، مثلاً IP تانل |
 | `ctunnel speedtest-server` | پاسخ‌دهنده برای `linktest` (پورت TCP 7711) |
 | `ctunnel optimize` | BBR + fq، بافر ۶۴ مگابایتی و IP forwarding |
 | `ctunnel panel` | اجرای پنل وب در پیش‌زمینه |

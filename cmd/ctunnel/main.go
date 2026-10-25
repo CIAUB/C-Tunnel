@@ -45,6 +45,21 @@ func main() {
 		}
 		applyLink(args[0])
 
+	case "conntest":
+		if len(args) != 1 {
+			log.Fatal("usage: ctunnel conntest 'ctunnel-test://...'   (get the link with: ctunnel conntest-server on the iran server)")
+		}
+		if err := cli.RunConnTest(args[0]); err != nil {
+			log.Fatal(err)
+		}
+
+	case "conntest-server":
+		host := ""
+		if len(args) > 0 {
+			host = args[0]
+		}
+		cli.ConnTestServer(host)
+
 	case "linktest":
 		fs := flag.NewFlagSet("linktest", flag.ExitOnError)
 		port := fs.Int("port", speedtest.DefaultSpeedPort, "responder port")
@@ -103,6 +118,8 @@ func main() {
   up|restart|down <name>       start, restart or stop a tunnel
   link <name>                  print the setup link for the other server
   apply-link 'ctunnel://...'   create and start the tunnel from a link
+  conntest-server [ip]         iran side of the connection test: prints a link
+  conntest 'ctunnel-test://…'  kharej side: which methods pass, speed, recommendation
   linktest [-port N] <host>    latency, loss and speed to <host>
   speedtest-server [-port N]   responder for linktest (default 7711/tcp)
   panel [-port N]              run the web panel in the foreground
