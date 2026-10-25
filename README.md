@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CIAUB/C-Tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/CIAUB/C-Tunnel?color=b91c1c&label=release" alt="Release"></a>
+  <a href="https://github.com/CIAUB/C-Tunnel/commits/main"><img src="https://img.shields.io/badge/version-0.1.0-b91c1c" alt="Version 0.1.0"></a>
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
@@ -12,6 +12,12 @@
 
 <p align="center">
   <b>English</b> · <a href="README_FA.md">فارسی</a> · <a href="README_RU.md">Русский</a>
+</p>
+
+<p align="center">
+  <a href="https://nowpayments.io/embeds/donation-widget?api_key=8373139c-0aec-4e38-b34c-88dd005cfc1c" target="_blank" rel="noreferrer noopener">
+    <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments" />
+  </a>
 </p>
 
 <p align="center">
@@ -40,7 +46,6 @@
 - [Troubleshooting](#troubleshooting)
 - [Building from source](#building-from-source)
 - [Community](#community)
-- [Support](#support)
 
 ## How it works
 
@@ -84,13 +89,23 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 
 ## Installation
 
+One command, on **both** servers:
+
 ```bash
-curl -fL https://github.com/CIAUB/C-Tunnel/releases/latest/download/c-tunnel.tar.gz | tar -xz
-sudo bash c-tunnel/install.sh
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
+```
+
+It always installs the latest version from the `main` branch. Before installing, every file
+(binaries, kernel helper and systemd units) is checked against `bin/SHA256SUMS` from the same
+commit. If any checksum differs, the install stops and nothing is changed.
+
+Then open the menu:
+
+```bash
 sudo ctunnel
 ```
 
-Install on **both** servers. To update later, choose **Update** in the menu or run the same commands again. Running tunnels are kept.
+To update, choose **Update** in the menu or run the install command again. Running tunnels are kept.
 
 ## Quick start
 
@@ -260,11 +275,13 @@ journalctl -u ctunnel@t1 -u ctunnel-engine@t1 -n 50
 git clone https://github.com/CIAUB/C-Tunnel.git
 cd C-Tunnel
 go test ./...
-sudo bash install.sh                      # builds and installs
-bash scripts/build-release.sh 0.1.0       # dist/c-tunnel.tar.gz
+sudo bash install.sh            # installs from the checkout, builds if bin/ is missing
+bash scripts/build-bin.sh       # rebuilds bin/ and bin/SHA256SUMS
 ```
 
-Pushing a `v*` tag builds the release archive in GitHub Actions. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together.
+On every push to `main`, GitHub Actions runs the tests, rebuilds `bin/` and `bin/SHA256SUMS` and
+commits them, so the install command always gets binaries that match the code.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together.
 
 > The UDP-Crypt methods make packets look like DTLS, QUIC, RTP and the others to simple filters. They are not full implementations of those protocols.
 
@@ -272,14 +289,6 @@ Pushing a `v*` tag builds the release archive in GitHub Actions. [docs/ARCHITECT
 
 - News, releases and support: Telegram channel [@CiAUB](https://t.me/CiAUB)
 - Bugs and feature requests: [GitHub Issues](https://github.com/CIAUB/C-Tunnel/issues)
-
-### Support
-
-<p align="center">
-  <a href="https://nowpayments.io/embeds/donation-widget?api_key=8373139c-0aec-4e38-b34c-88dd005cfc1c" target="_blank" rel="noreferrer noopener">
-    <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments" />
-  </a>
-</p>
 
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=8B0000&height=100&section=footer" alt="Footer" />

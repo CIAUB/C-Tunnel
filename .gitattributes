@@ -1,2 +1,4 @@
 *.sh text eol=lf
 *.service text eol=lf
+bin/SHA256SUMS text eol=lf
+bin/ctunnel-* binary

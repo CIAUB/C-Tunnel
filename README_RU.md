@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CIAUB/C-Tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/CIAUB/C-Tunnel?color=b91c1c&label=release" alt="Release"></a>
+  <a href="https://github.com/CIAUB/C-Tunnel/commits/main"><img src="https://img.shields.io/badge/version-0.1.0-b91c1c" alt="Version 0.1.0"></a>
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
@@ -12,6 +12,12 @@
 
 <p align="center">
   <a href="README.md">English</a> · <a href="README_FA.md">فارسی</a> · <b>Русский</b>
+</p>
+
+<p align="center">
+  <a href="https://nowpayments.io/embeds/donation-widget?api_key=8373139c-0aec-4e38-b34c-88dd005cfc1c" target="_blank" rel="noreferrer noopener">
+    <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments" />
+  </a>
 </p>
 
 <p align="center">
@@ -40,7 +46,6 @@
 - [Решение проблем](#решение-проблем)
 - [Сборка из исходников](#сборка-из-исходников)
 - [Сообщество](#сообщество)
-- [Поддержка](#поддержка)
 
 ## Как это работает
 
@@ -84,13 +89,23 @@ flowchart LR
 
 ## Установка
 
+Одна команда на **обоих** серверах:
+
 ```bash
-curl -fL https://github.com/CIAUB/C-Tunnel/releases/latest/download/c-tunnel.tar.gz | tar -xz
-sudo bash c-tunnel/install.sh
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
+```
+
+Всегда устанавливается последняя версия из ветки `main`. Перед установкой каждый файл (бинарники,
+скрипт ядра и юниты systemd) сверяется с `bin/SHA256SUMS` из того же коммита. Если хотя бы одна
+контрольная сумма не совпадает, установка прерывается и в системе ничего не меняется.
+
+Затем откройте меню:
+
+```bash
 sudo ctunnel
 ```
 
-Установите на **оба** сервера. Для обновления выберите **Update** в меню или выполните те же команды ещё раз. Работающие туннели сохраняются.
+Для обновления выберите **Update** в меню или выполните команду установки ещё раз. Работающие туннели сохраняются.
 
 ## Быстрый старт
 
@@ -260,11 +275,13 @@ journalctl -u ctunnel@t1 -u ctunnel-engine@t1 -n 50
 git clone https://github.com/CIAUB/C-Tunnel.git
 cd C-Tunnel
 go test ./...
-sudo bash install.sh                      # сборка и установка
-bash scripts/build-release.sh 0.1.0       # dist/c-tunnel.tar.gz
+sudo bash install.sh            # установка из этой папки (соберёт, если нет bin/)
+bash scripts/build-bin.sh       # пересобрать bin/ и bin/SHA256SUMS
 ```
 
-При push тега `v*` GitHub Actions собирает архив релиза. Устройство проекта описано в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+При каждом push в `main` GitHub Actions запускает тесты, пересобирает `bin/` и `bin/SHA256SUMS` и
+коммитит их, поэтому команда установки всегда получает бинарники, соответствующие коду.
+Устройство проекта описано в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 > Методы UDP-Crypt делают пакеты похожими на DTLS, QUIC, RTP и другие протоколы для простых фильтров, но не являются полными реализациями этих протоколов.
 
@@ -272,14 +289,6 @@ bash scripts/build-release.sh 0.1.0       # dist/c-tunnel.tar.gz
 
 - Новости, релизы и поддержка: Telegram-канал [@CiAUB](https://t.me/CiAUB)
 - Ошибки и предложения: [GitHub Issues](https://github.com/CIAUB/C-Tunnel/issues)
-
-### Поддержка
-
-<p align="center">
-  <a href="https://nowpayments.io/embeds/donation-widget?api_key=8373139c-0aec-4e38-b34c-88dd005cfc1c" target="_blank" rel="noreferrer noopener">
-    <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments" />
-  </a>
-</p>
 
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=8B0000&height=100&section=footer" alt="Footer" />

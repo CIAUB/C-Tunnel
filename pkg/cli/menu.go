@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -534,17 +536,18 @@ func updateMenu() {
 	Title("Update")
 	KV("Installed", version.Version)
 	KV("Repository", repo)
-	if tag := latestTag(repo); tag != "" {
-		KV("Latest release", tag)
+	if v := latestVersion(repo); v != "" {
+		KV("Latest on GitHub", v)
 	}
 	switch ChooseOpt("Update", []MenuOpt{
-		{"Update now", "download the latest release and reinstall"},
+		{"Update now", "install the latest version from GitHub (main branch)"},
 		{"Change repository", "use another GitHub repository"},
 	}) {
 	case 1:
-		asset := repo + "/releases/latest/download/c-tunnel.tar.gz"
-		Info("Downloading " + asset)
-		script := fmt.Sprintf(`set -e; d=$(mktemp -d); curl -fL --connect-timeout 15 %q -o "$d/ct.tgz"; tar -xzf "$d/ct.tgz" -C "$d"; bash "$d/c-tunnel/install.sh"; rm -rf "$d"`, asset)
+		slug := strings.TrimPrefix(repo, "https://github.com/")
+		installer := "https://raw.githubusercontent.com/" + slug + "/main/install.sh"
+		Info("Installing the latest version from the main branch (every file is SHA-256 checked)")
+		script := fmt.Sprintf(`set -e; f=$(mktemp); curl -fsSL --connect-timeout 15 %q -o "$f"; CTUNNEL_REPO=%q bash "$f"; rm -f "$f"`, installer, slug)
 		cmd := exec.Command("bash", "-c", script)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -565,21 +568,24 @@ func updateMenu() {
 	Pause()
 }
 
-func latestTag(repo string) string {
-	api := "https://api.github.com/repos/" + strings.TrimPrefix(repo, "https://github.com/") + "/releases/latest"
+// latestVersion reads the version declared on the main branch.
+func latestVersion(repo string) string {
+	url := "https://raw.githubusercontent.com/" + strings.TrimPrefix(repo, "https://github.com/") + "/main/pkg/version/version.go"
 	client := &http.Client{Timeout: 6 * time.Second}
-	resp, err := client.Get(api)
+	resp, err := client.Get(url)
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
-	var rel struct {
-		TagName string `json:"tag_name"`
-	}
-	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&rel) != nil {
+	if resp.StatusCode != http.StatusOK {
 		return ""
 	}
-	return rel.TagName
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	m := regexp.MustCompile(`var Version = "([^"]+)"`).FindSubmatch(b)
+	if m == nil {
+		return ""
+	}
+	return string(m[1])
 }
 
 func uninstallScreen() {
