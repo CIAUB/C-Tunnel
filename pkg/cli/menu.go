@@ -434,8 +434,7 @@ func RunConnTest(raw string) error {
 	case sr.SpeedError != "":
 		best.TCPError = sr.SpeedError
 	default:
-		// The responder runs on the iran server: its download is iran → kharej.
-		best.TCPIranToKharej, best.TCPKharejToIran = sr.DownloadMbps, sr.UploadMbps
+		best.TCPDownload, best.TCPUpload = sr.DownloadMbps, sr.UploadMbps
 	}
 	fmt.Println()
 	fmt.Print(best.String())

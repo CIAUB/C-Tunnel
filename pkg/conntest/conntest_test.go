@@ -33,18 +33,18 @@ func TestEveryIPv4MethodHasAProbe(t *testing.T) {
 	}
 }
 
-func TestRecommendPrefersKernelThenCrypt(t *testing.T) {
+func TestRecommendPicksFastestTotal(t *testing.T) {
 	r := []Result{
 		{Method: "gre", Sent: 10, Received: 0},
-		{Method: "dtls-1.3", Sent: 10, Received: 10},
-		{Method: "wireguard", Sent: 10, Received: 10},
+		{Method: "dtls-1.3", Sent: 10, Received: 10, DownMbps: 300, UpMbps: 100},
+		{Method: "wireguard", Sent: 10, Received: 10, DownMbps: 250, UpMbps: 200},
 	}
 	if m, _ := Recommend(r); m != "wireguard" {
-		t.Fatalf("got %s, want wireguard", m)
+		t.Fatalf("got %s, want wireguard (450 > 400 Mbps total)", m)
 	}
-	r[0].Received = 10
-	if m, _ := Recommend(r); m != "gre" {
-		t.Fatalf("got %s, want gre", m)
+	v := Verdict("x", r)
+	if strings.Index(v, "🟢 wireguard") > strings.Index(v, "🟢 dtls-1.3") {
+		t.Fatal("fastest method is not listed first")
 	}
 	lossy := []Result{{Method: "gre", Sent: 10, Received: 6}, {Method: "rudp-fec", Sent: 10, Received: 7}}
 	if m, _ := Recommend(lossy); m != "rudp-fec" {
@@ -52,8 +52,5 @@ func TestRecommendPrefersKernelThenCrypt(t *testing.T) {
 	}
 	if m, _ := Recommend([]Result{{Method: "gre", Sent: 10}}); m != "" {
 		t.Fatal("nothing passed but a method was recommended")
-	}
-	if !strings.Contains(Verdict("x", r), "gre") {
-		t.Fatal("Verdict lost a row")
 	}
 }

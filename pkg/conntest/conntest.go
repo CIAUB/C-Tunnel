@@ -259,14 +259,14 @@ type Result struct {
 	Received int     `json:"received"`
 	RTTms    float64 `json:"rtt_ms"`
 	JitterMs float64 `json:"jitter_ms"`
-	UpMbps   float64 `json:"up_mbps"`   // kharej → iran
-	DownMbps float64 `json:"down_mbps"` // iran → kharej
+	UpMbps   float64 `json:"up_mbps"`   // sent from this server (upload)
+	DownMbps float64 `json:"down_mbps"` // received by this server (download)
 	Skipped  string  `json:"skipped,omitempty"`
 	Phase    string  `json:"-"` // "", "echo", "speed-queued", "speed" while the test runs
 }
 
-// Speed is the slower of the two directions, which is what a tunnel can carry both ways.
-func (r Result) Speed() float64 { return min(r.UpMbps, r.DownMbps) }
+// Total is download plus upload, the number results are ranked by.
+func (r Result) Total() float64 { return r.UpMbps + r.DownMbps }
 
 func (r Result) Status() string {
 	switch {
@@ -689,41 +689,31 @@ func stats(v []float64) (avg, jitter float64) {
 	return avg, jitter / float64(len(s))
 }
 
-// preference lists methods from fastest / simplest to the most filter-resistant.
-var preference = []string{
-	"gre", "6to4", "ipip", "ecmp-lanes", "gretap", "eoip", "6to4-gre", "sit", "etherip", "l2tpv3",
-	"wireguard", "xfrm-ipsec", "vxlan", "geneve", "fou-gre", "gue-ipip",
-	"dtls-1.3", "quic-v1", "srtp-direct", "wg-stealth", "openvpn-dco", "dnscrypt-udp", "ntp-direct", "rudp-fec",
-}
-
-// Recommend picks, among methods that answered every probe, the first in preference
-// order whose speed is within 10% of the fastest. If none answered every probe it
-// falls back to rudp-fec or to the least lossy method.
+// Recommend picks the method that answered every probe with the highest total speed.
+// If none answered every probe it falls back to rudp-fec or to the least lossy method.
 func Recommend(results []Result) (method, reason string) {
 	by := map[string]Result{}
-	fastest := 0.0
+	best := ""
 	for _, r := range results {
 		by[r.Method] = r
-		if r.Status() == "ok" && r.Speed() > fastest {
-			fastest = r.Speed()
+		if r.Status() == "ok" && (best == "" || r.Total() > by[best].Total()) {
+			best = r.Method
 		}
 	}
-	for _, m := range preference {
-		if r := by[m]; r.Status() == "ok" && r.Speed() >= 0.9*fastest {
-			return m, "passes every probe and is among the fastest on this path"
-		}
+	if best != "" {
+		return best, "the fastest method that passed every probe"
 	}
 	if by["rudp-fec"].Received > 0 {
 		return "rudp-fec", "every method loses packets on this path; rudp-fec rebuilds lost packets"
 	}
-	best := Result{}
+	var least Result
 	for _, r := range results {
-		if r.Received > best.Received {
-			best = r
+		if r.Received > least.Received {
+			least = r
 		}
 	}
-	if best.Received > 0 {
-		return best.Method, "the least lossy method on this path"
+	if least.Received > 0 {
+		return least.Method, "the least lossy method on this path"
 	}
 	return "", "no probe came back: check that UDP and the IP protocols are open on the iran server's firewall"
 }

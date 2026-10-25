@@ -137,7 +137,7 @@ func Verdict(title string, rows []Result) string {
 			return gi < gj
 		}
 		if gi == 0 {
-			return rs[i].Speed() > rs[j].Speed()
+			return rs[i].Total() > rs[j].Total()
 		}
 		return rs[i].Received > rs[j].Received
 	})
@@ -152,15 +152,15 @@ func Verdict(title string, rows []Result) string {
 		b.WriteString(row(r) + "\n")
 	}
 	b.WriteString("\n" + rule() + "\n\nWorks steadily:\n\n")
-	fmt.Fprintf(&b, "   %-13s %-10s %-16s %-13s %s\n", "METHOD", "FAMILY", "LATENCY", "IRAN→KHAREJ", "KHAREJ→IRAN")
+	fmt.Fprintf(&b, "   %-13s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
 	n := 0
 	for _, r := range rs {
 		if r.Status() != "ok" {
 			continue
 		}
 		n++
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %-13s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
-			mbps(r.DownMbps), mbps(r.UpMbps))
+		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
+			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
 	}
 	if n == 0 {
 		b.WriteString("Nothing came back steadily. Check the iran server's firewall: UDP 7712 and\nIP protocols 4, 41, 47, 50, 97 and 115 must be open during the test.\n")
@@ -170,18 +170,18 @@ func Verdict(title string, rows []Result) string {
 
 // Best summarizes the recommended settings for the measured path.
 type Best struct {
-	Method          string
-	Reason          string
-	DownMbps        float64 // iran → kharej
-	UpMbps          float64 // kharej → iran
-	RTTms           float64
-	JitterMs        float64
-	LossPct         float64
-	PathMTU         int
-	TunnelMTU       int
-	TCPIranToKharej float64
-	TCPKharejToIran float64
-	TCPError        string
+	Method      string
+	Reason      string
+	DownMbps    float64 // iran → kharej
+	UpMbps      float64 // kharej → iran
+	RTTms       float64
+	JitterMs    float64
+	LossPct     float64
+	PathMTU     int
+	TunnelMTU   int
+	TCPDownload float64
+	TCPUpload   float64
+	TCPError    string
 }
 
 func BestSettings(rows []Result, pathMTU int) Best {
@@ -219,8 +219,8 @@ func (b Best) String() string {
 	} else {
 		row("Method", b.Method, fmt.Sprintf("%.1f ms ±%.1f, %.0f%% loss", b.RTTms, b.JitterMs, b.LossPct))
 		row("", "", b.Reason)
-		row("Iran → Kharej", mbps(b.DownMbps), b.Method+" packets at full rate for 1 s")
-		row("Kharej → Iran", mbps(b.UpMbps), b.Method+" packets at full rate for 1 s")
+		row("Download", mbps(b.DownMbps), b.Method+" packets at full rate for 1 s")
+		row("Upload", mbps(b.UpMbps), b.Method+" packets at full rate for 1 s")
 	}
 	switch {
 	case b.PathMTU >= 1500:
@@ -236,8 +236,8 @@ func (b Best) String() string {
 	if b.TCPError != "" {
 		row("TCP speed", "-", b.TCPError)
 	} else {
-		row("TCP Iran→Kharej", mbps(b.TCPIranToKharej), "4 TCP streams, bytes confirmed by the receiver")
-		row("TCP Kharej→Iran", mbps(b.TCPKharejToIran), "4 TCP streams, bytes confirmed by the receiver")
+		row("TCP download", mbps(b.TCPDownload), "4 TCP streams, bytes confirmed by the receiver")
+		row("TCP upload", mbps(b.TCPUpload), "4 TCP streams, bytes confirmed by the receiver")
 	}
 	if b.LossPct > 0 && b.Method != "rudp-fec" {
 		row("FEC", "rudp-fec", "the path loses packets")
