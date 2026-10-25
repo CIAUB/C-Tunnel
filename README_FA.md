@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CIAUB/C-Tunnel/commits/main"><img src="https://img.shields.io/badge/version-0.1.0-b91c1c" alt="Version 0.1.0"></a>
+  <a href="https://github.com/CIAUB/C-Tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/CIAUB/C-Tunnel?color=b91c1c&label=release" alt="Release"></a>
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
@@ -99,17 +99,17 @@ flowchart LR
 sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
 ```
 
-همیشه آخرین نسخه را از شاخه‌ی `main` نصب می‌کند. قبل از نصب، همه‌ی فایل‌ها (باینری‌ها، اسکریپت
-کرنل و سرویس‌های systemd) با `bin/SHA256SUMS` همان commit بررسی می‌شوند. اگر حتی یک فایل
-SHA-256 متفاوت داشته باشد، نصب متوقف می‌شود و هیچ چیزی تغییر نمی‌کند.
-
-بعد منو را باز کنید:
+نصب‌کننده همیشه آخرین [Release](https://github.com/CIAUB/C-Tunnel/releases/latest) را نصب می‌کند.
+باینری‌های مخصوص معماری سرور، اسکریپت کرنل و سرویس‌های systemd را دانلود می‌کند، هر فایل را با
+`SHA256SUMS` همان Release مقایسه می‌کند و فقط اگر همه یکی باشند نصب می‌کند. اگر فایلی خراب یا
+دستکاری‌شده باشد، نصب متوقف می‌شود و هیچ چیزی تغییر نمی‌کند.
 
 ```bash
 sudo ctunnel
 ```
 
-برای آپدیت، گزینه‌ی **Update** در منو را بزنید یا همان دستور نصب را دوباره اجرا کنید. تانل‌های فعلی حفظ می‌شوند.
+برای آپدیت، گزینه‌ی **Update** در منو را بزنید یا دستور نصب را دوباره اجرا کنید. تانل‌های فعلی حفظ
+می‌شوند. برای نصب یک نسخه‌ی مشخص، بعد از `sudo` بنویسید `CTUNNEL_VERSION=v0.1.0`.
 
 ## شروع سریع
 
@@ -273,13 +273,14 @@ journalctl -u ctunnel@t1 -u ctunnel-engine@t1 -n 50
 git clone https://github.com/CIAUB/C-Tunnel.git
 cd C-Tunnel
 go test ./...
-sudo bash install.sh            # install from this folder (builds if bin/ is missing)
-bash scripts/build-bin.sh       # rebuild bin/ and bin/SHA256SUMS
+sudo bash install.sh                  # build + install from this folder
+bash scripts/build-release.sh 0.1.0   # release files + SHA256SUMS in dist/
 ```
 
-با هر push به `main`، GitHub Actions تست‌ها را اجرا می‌کند، `bin/` و `bin/SHA256SUMS` را دوباره
-می‌سازد و commit می‌کند؛ پس دستور نصب همیشه باینری هم‌خوان با کد را می‌گیرد. ساختار کد در
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) توضیح داده شده است.
+**انتشار نسخه‌ی جدید:** نسخه را در `pkg/version/version.go` عوض کنید، commit کنید و یک tag بفرستید
+(`git tag v0.1.1 && git push origin v0.1.1`). GitHub Actions تست‌ها را اجرا می‌کند، همه‌ی فایل‌ها را
+همراه با `SHA256SUMS` می‌سازد و Release را منتشر می‌کند؛ دستور نصب از همان لحظه نسخه‌ی جدید را
+می‌گیرد. ساختار کد در [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) توضیح داده شده است.
 
 > روش‌های UDP-Crypt بسته‌ها را برای فیلترهای ساده شبیه DTLS، QUIC، RTP و بقیه نشان می‌دهند، ولی پیاده‌سازی کامل آن پروتکل‌ها نیستند.
 

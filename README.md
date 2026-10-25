@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CIAUB/C-Tunnel/commits/main"><img src="https://img.shields.io/badge/version-0.1.0-b91c1c" alt="Version 0.1.0"></a>
+  <a href="https://github.com/CIAUB/C-Tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/CIAUB/C-Tunnel?color=b91c1c&label=release" alt="Release"></a>
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
@@ -95,17 +95,17 @@ One command, on **both** servers:
 sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
 ```
 
-It always installs the latest version from the `main` branch. Before installing, every file
-(binaries, kernel helper and systemd units) is checked against `bin/SHA256SUMS` from the same
-commit. If any checksum differs, the install stops and nothing is changed.
-
-Then open the menu:
+The installer always installs the latest [release](https://github.com/CIAUB/C-Tunnel/releases/latest).
+It downloads the binaries for the server's architecture, the kernel helper and the systemd units,
+checks each file against the release's `SHA256SUMS`, and installs only if every hash matches.
+A corrupt or modified download stops the install and nothing is changed.
 
 ```bash
 sudo ctunnel
 ```
 
 To update, choose **Update** in the menu or run the install command again. Running tunnels are kept.
+To install a specific version, add `CTUNNEL_VERSION=v0.1.0` after `sudo`.
 
 ## Quick start
 
@@ -275,12 +275,13 @@ journalctl -u ctunnel@t1 -u ctunnel-engine@t1 -n 50
 git clone https://github.com/CIAUB/C-Tunnel.git
 cd C-Tunnel
 go test ./...
-sudo bash install.sh            # installs from the checkout, builds if bin/ is missing
-bash scripts/build-bin.sh       # rebuilds bin/ and bin/SHA256SUMS
+sudo bash install.sh                  # build and install from this checkout
+bash scripts/build-release.sh 0.1.0   # release assets and SHA256SUMS in dist/
 ```
 
-On every push to `main`, GitHub Actions runs the tests, rebuilds `bin/` and `bin/SHA256SUMS` and
-commits them, so the install command always gets binaries that match the code.
+**Publishing a release:** set the version in `pkg/version/version.go`, commit, then push a tag
+(`git tag v0.1.1 && git push origin v0.1.1`). GitHub Actions runs the tests, builds all assets with
+`SHA256SUMS` and publishes the release; the install command picks it up immediately.
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together.
 
 > The UDP-Crypt methods make packets look like DTLS, QUIC, RTP and the others to simple filters. They are not full implementations of those protocols.

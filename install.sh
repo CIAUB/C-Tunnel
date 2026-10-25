@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # C-Tunnel installer.
 #
-# Online, always the latest code on the main branch:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)
+#   sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
 #
-# Every file is checked against bin/SHA256SUMS from the same commit before anything is
-# installed. From a git checkout (sudo bash install.sh) the local files are used instead.
+# Downloads the latest GitHub Release, checks every file against the release's SHA256SUMS
+# and installs only if all of them match. Set CTUNNEL_VERSION=v0.1.0 to pick a version.
+# From a git checkout (sudo bash install.sh) it installs the local files instead.
 set -euo pipefail
 
 REPO="${CTUNNEL_REPO:-CIAUB/C-Tunnel}"
-REF="${CTUNNEL_REF:-main}"
+VERSION="${CTUNNEL_VERSION:-latest}"
 GO_VERSION="1.22.12"
 
 die() { echo "error: $*" >&2; exit 1; }
 
-[[ "${EUID:-$(id -u)}" -eq 0 ]] || die "run as root (sudo -i first, or: sudo bash install.sh)"
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || die "run as root: sudo bash -c \"\$(curl -sL https://raw.githubusercontent.com/${REPO}/main/install.sh)\""
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
 
 case "$(uname -m)" in
@@ -34,75 +34,78 @@ if [[ "${#missing[@]}" -gt 0 ]]; then
     apt-get update -qq && apt-get install -y -qq "${missing[@]}"
 fi
 
-FILES=(
-    "bin/ctunnel-linux-${ARCH}"
-    "bin/ctunnel-engine-linux-${ARCH}"
-    "scripts/ctunnel-kernel.sh"
-    "systemd/ctunnel@.service"
-    "systemd/ctunnel-engine@.service"
-    "systemd/ctunnel-panel.service"
+ASSETS=(
+    "ctunnel-linux-${ARCH}"
+    "ctunnel-engine-linux-${ARCH}"
+    "ctunnel-kernel.sh"
+    "ctunnel@.service"
+    "ctunnel-engine@.service"
+    "ctunnel-panel.service"
 )
 
-# Downloads FILES and bin/SHA256SUMS from one commit, so all files come from the same
-# build, and refuses to continue if any checksum differs.
-fetch_online() {
-    local commit url f
-    # Pin the branch to a commit; raw files of a branch can be served stale for a few minutes.
-    commit="$(curl -fsSL --connect-timeout 15 -H 'Accept: application/vnd.github.sha' \
-        "https://api.github.com/repos/${REPO}/commits/${REF}" 2>/dev/null || true)"
-    [[ "${commit}" =~ ^[0-9a-f]{40}$ ]] || commit="${REF}"
-    echo "Downloading C-Tunnel from github.com/${REPO} (${REF} @ ${commit:0:7})..."
-
-    SRC_DIR="$(mktemp -d)"
-    trap 'rm -rf "${SRC_DIR}"' EXIT
-    for f in bin/SHA256SUMS "${FILES[@]}"; do
-        url="https://raw.githubusercontent.com/${REPO}/${commit}/${f}"
-        mkdir -p "${SRC_DIR}/$(dirname "${f}")"
-        curl -fsSL --retry 3 --connect-timeout 15 "${url}" -o "${SRC_DIR}/${f}" || die "download failed: ${url}"
+# fetch_release downloads the assets and SHA256SUMS of one release into WORK and stops
+# before installing anything if a file is missing from SHA256SUMS or its hash differs.
+fetch_release() {
+    local base a line
+    if [[ "${VERSION}" == "latest" ]]; then
+        base="https://github.com/${REPO}/releases/latest/download"
+    else
+        [[ "${VERSION}" == v* ]] || VERSION="v${VERSION}"
+        base="https://github.com/${REPO}/releases/download/${VERSION}"
+    fi
+    echo "Downloading C-Tunnel (${VERSION}) from github.com/${REPO}..."
+    for a in SHA256SUMS "${ASSETS[@]}"; do
+        curl -fsSL --retry 3 --connect-timeout 15 "${base}/${a}" -o "${WORK}/${a}" \
+            || die "download failed: ${base}/${a}"
     done
 
     echo "Verifying SHA-256..."
-    local sums="${SRC_DIR}/bin/SHA256SUMS" line
-    for f in "${FILES[@]}"; do
-        line="$(grep -E "  ${f//./\\.}\$" "${sums}" || true)"
-        [[ -n "${line}" ]] || die "${f} is not listed in bin/SHA256SUMS. Nothing was installed."
-        (cd "${SRC_DIR}" && echo "${line}" | sha256sum -c --status) \
-            || die "checksum mismatch for ${f}: the download is corrupt or was modified. Nothing was installed."
+    for a in "${ASSETS[@]}"; do
+        line="$(grep -F "  ${a}" "${WORK}/SHA256SUMS" | grep -E "  ${a//./\\.}\$" || true)"
+        [[ -n "${line}" ]] || die "${a} is not listed in SHA256SUMS. Nothing was installed."
+        (cd "${WORK}" && echo "${line}" | sha256sum -c --status) \
+            || die "checksum mismatch for ${a}: the download is corrupt or was modified. Nothing was installed."
     done
-    echo "All ${#FILES[@]} files verified."
+    echo "All ${#ASSETS[@]} files verified."
 }
 
-build_from_source() {
-    if ! command -v go >/dev/null 2>&1; then
-        echo "Go not found; downloading Go ${GO_VERSION}..."
-        local tgz
-        tgz="$(mktemp)"
-        curl -fL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${tgz}"
-        rm -rf /usr/local/go && tar -C /usr/local -xzf "${tgz}" && rm -f "${tgz}"
-        export PATH="/usr/local/go/bin:${PATH}"
+# use_checkout lays out a local source tree like a release, building binaries if needed.
+use_checkout() {
+    local src="$1"
+    echo "Installing from ${src}..."
+    if [[ ! -f "${src}/bin/ctunnel-linux-${ARCH}" || ! -f "${src}/bin/ctunnel-engine-linux-${ARCH}" ]]; then
+        if ! command -v go >/dev/null 2>&1; then
+            echo "Go not found; downloading Go ${GO_VERSION}..."
+            curl -fL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${WORK}/go.tgz"
+            rm -rf /usr/local/go && tar -C /usr/local -xzf "${WORK}/go.tgz"
+            export PATH="/usr/local/go/bin:${PATH}"
+        fi
+        echo "Building from source..."
+        (cd "${src}" && mkdir -p bin \
+            && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-linux-${ARCH}" ./cmd/ctunnel \
+            && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-engine-linux-${ARCH}" ./cmd/ctunnel-engine)
     fi
-    echo "Building from source..."
-    (cd "${SRC_DIR}" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-linux-${ARCH}" ./cmd/ctunnel \
-        && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-engine-linux-${ARCH}" ./cmd/ctunnel-engine)
+    cp "${src}/bin/ctunnel-linux-${ARCH}" "${src}/bin/ctunnel-engine-linux-${ARCH}" "${src}/scripts/ctunnel-kernel.sh" "${src}"/systemd/*.service "${WORK}/"
 }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
 
 script="${BASH_SOURCE[0]:-}"
 if [[ -n "${script}" && -f "${script}" && -f "$(dirname "${script}")/scripts/ctunnel-kernel.sh" ]]; then
-    SRC_DIR="$(cd "$(dirname "${script}")" && pwd)"
-    echo "Installing from ${SRC_DIR}..."
-    [[ -f "${SRC_DIR}/bin/ctunnel-linux-${ARCH}" && -f "${SRC_DIR}/bin/ctunnel-engine-linux-${ARCH}" ]] || build_from_source
+    use_checkout "$(cd "$(dirname "${script}")" && pwd)"
 else
-    fetch_online
+    fetch_release
 fi
 
-install -m 0755 "${SRC_DIR}/bin/ctunnel-linux-${ARCH}" /usr/local/bin/ctunnel
-install -m 0755 "${SRC_DIR}/bin/ctunnel-engine-linux-${ARCH}" /usr/local/bin/ctunnel-engine
+install -m 0755 "${WORK}/ctunnel-linux-${ARCH}" /usr/local/bin/ctunnel
+install -m 0755 "${WORK}/ctunnel-engine-linux-${ARCH}" /usr/local/bin/ctunnel-engine
 ln -sf /usr/local/bin/ctunnel /usr/local/bin/c-tunnel
 install -d -m 0755 /usr/local/lib/ctunnel
-sed 's/\r$//' "${SRC_DIR}/scripts/ctunnel-kernel.sh" > /usr/local/lib/ctunnel/ctunnel-kernel
+sed 's/\r$//' "${WORK}/ctunnel-kernel.sh" > /usr/local/lib/ctunnel/ctunnel-kernel
 chmod 0755 /usr/local/lib/ctunnel/ctunnel-kernel
 for unit in ctunnel@.service ctunnel-engine@.service ctunnel-panel.service; do
-    sed 's/\r$//' "${SRC_DIR}/systemd/${unit}" > "/etc/systemd/system/${unit}"
+    sed 's/\r$//' "${WORK}/${unit}" > "/etc/systemd/system/${unit}"
     chmod 0644 "/etc/systemd/system/${unit}"
 done
 install -d -m 0700 /etc/ctunnel /etc/ctunnel/tunnels

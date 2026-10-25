@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -540,13 +538,13 @@ func updateMenu() {
 		KV("Latest on GitHub", v)
 	}
 	switch ChooseOpt("Update", []MenuOpt{
-		{"Update now", "install the latest version from GitHub (main branch)"},
+		{"Update now", "install the latest GitHub release"},
 		{"Change repository", "use another GitHub repository"},
 	}) {
 	case 1:
 		slug := strings.TrimPrefix(repo, "https://github.com/")
 		installer := "https://raw.githubusercontent.com/" + slug + "/main/install.sh"
-		Info("Installing the latest version from the main branch (every file is SHA-256 checked)")
+		Info("Installing the latest release (every file is SHA-256 checked)")
 		script := fmt.Sprintf(`set -e; f=$(mktemp); curl -fsSL --connect-timeout 15 %q -o "$f"; CTUNNEL_REPO=%q bash "$f"; rm -f "$f"`, installer, slug)
 		cmd := exec.Command("bash", "-c", script)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
@@ -568,24 +566,21 @@ func updateMenu() {
 	Pause()
 }
 
-// latestVersion reads the version declared on the main branch.
 func latestVersion(repo string) string {
-	url := "https://raw.githubusercontent.com/" + strings.TrimPrefix(repo, "https://github.com/") + "/main/pkg/version/version.go"
+	api := "https://api.github.com/repos/" + strings.TrimPrefix(repo, "https://github.com/") + "/releases/latest"
 	client := &http.Client{Timeout: 6 * time.Second}
-	resp, err := client.Get(url)
+	resp, err := client.Get(api)
 	if err != nil {
 		return ""
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	var rel struct {
+		TagName string `json:"tag_name"`
+	}
+	if resp.StatusCode != http.StatusOK || json.NewDecoder(resp.Body).Decode(&rel) != nil {
 		return ""
 	}
-	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	m := regexp.MustCompile(`var Version = "([^"]+)"`).FindSubmatch(b)
-	if m == nil {
-		return ""
-	}
-	return string(m[1])
+	return rel.TagName
 }
 
 func uninstallScreen() {

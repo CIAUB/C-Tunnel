@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CIAUB/C-Tunnel/commits/main"><img src="https://img.shields.io/badge/version-0.1.0-b91c1c" alt="Version 0.1.0"></a>
+  <a href="https://github.com/CIAUB/C-Tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/CIAUB/C-Tunnel?color=b91c1c&label=release" alt="Release"></a>
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
@@ -95,17 +95,17 @@ flowchart LR
 sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
 ```
 
-Всегда устанавливается последняя версия из ветки `main`. Перед установкой каждый файл (бинарники,
-скрипт ядра и юниты systemd) сверяется с `bin/SHA256SUMS` из того же коммита. Если хотя бы одна
-контрольная сумма не совпадает, установка прерывается и в системе ничего не меняется.
-
-Затем откройте меню:
+Установщик всегда ставит последний [релиз](https://github.com/CIAUB/C-Tunnel/releases/latest).
+Он скачивает бинарники для архитектуры сервера, скрипт ядра и юниты systemd, сверяет каждый файл
+с `SHA256SUMS` релиза и устанавливает только при совпадении всех хэшей. Повреждённый или изменённый
+файл прерывает установку, и в системе ничего не меняется.
 
 ```bash
 sudo ctunnel
 ```
 
-Для обновления выберите **Update** в меню или выполните команду установки ещё раз. Работающие туннели сохраняются.
+Для обновления выберите **Update** в меню или выполните команду установки ещё раз. Работающие
+туннели сохраняются. Чтобы установить конкретную версию, добавьте `CTUNNEL_VERSION=v0.1.0` после `sudo`.
 
 ## Быстрый старт
 
@@ -275,12 +275,13 @@ journalctl -u ctunnel@t1 -u ctunnel-engine@t1 -n 50
 git clone https://github.com/CIAUB/C-Tunnel.git
 cd C-Tunnel
 go test ./...
-sudo bash install.sh            # установка из этой папки (соберёт, если нет bin/)
-bash scripts/build-bin.sh       # пересобрать bin/ и bin/SHA256SUMS
+sudo bash install.sh                  # сборка и установка из этой папки
+bash scripts/build-release.sh 0.1.0   # файлы релиза и SHA256SUMS в dist/
 ```
 
-При каждом push в `main` GitHub Actions запускает тесты, пересобирает `bin/` и `bin/SHA256SUMS` и
-коммитит их, поэтому команда установки всегда получает бинарники, соответствующие коду.
+**Публикация релиза:** укажите версию в `pkg/version/version.go`, сделайте коммит и отправьте тег
+(`git tag v0.1.1 && git push origin v0.1.1`). GitHub Actions запустит тесты, соберёт все файлы вместе с
+`SHA256SUMS` и опубликует релиз; команда установки сразу начнёт его использовать.
 Устройство проекта описано в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 > Методы UDP-Crypt делают пакеты похожими на DTLS, QUIC, RTP и другие протоколы для простых фильтров, но не являются полными реализациями этих протоколов.
