@@ -76,16 +76,30 @@ func RunInteractiveMenu() {
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
-func chooseMethod() (catalog.MethodSpec, bool) {
+func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	fam := ChooseOpt("Tunnel Family", []MenuOpt{
 		{"L3 kernel", "6to4, gre, ipip, wireguard, ipsec... fastest, no anti-DPI"},
 		{"L2 kernel", "eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip"},
 		{"UDP-Crypt", "encrypted UDP that looks like DTLS, QUIC, RTP, DNS..."},
+		{"Reverse Tunnel", "Kharej dials into Iran (FRP-style reverse GRE, 6to4, IPIP, UDP-Crypt...)"},
 	})
-	families := []catalog.Family{"", catalog.FamilyKernelL3, catalog.FamilyKernelL2, catalog.FamilyUDPCrypt}
 	if fam == 0 {
-		return catalog.MethodSpec{}, false
+		return catalog.MethodSpec{}, false, false
 	}
+	reverse := false
+	if fam == 4 {
+		reverse = true
+		Header()
+		fam = ChooseOpt("Reverse Inner Protocol Family", []MenuOpt{
+			{"L3 kernel + Reverse Carrier", "gre, 6to4, 6to4-gre, ipip, sit, wireguard... over encrypted reverse TCP"},
+			{"L2 kernel + Reverse Carrier", "eoip, gretap, vxlan, geneve, l2tpv3, etherip over encrypted reverse TCP"},
+			{"UDP-Crypt Reverse", "dtls-1.3, quic-v1, wg-stealth, rudp-fec... Kharej initiates UDP to Iran"},
+		})
+		if fam == 0 {
+			return catalog.MethodSpec{}, false, false
+		}
+	}
+	families := []catalog.Family{"", catalog.FamilyKernelL3, catalog.FamilyKernelL2, catalog.FamilyUDPCrypt}
 	var methods []catalog.MethodSpec
 	var opts []MenuOpt
 	for _, m := range catalog.Methods {
@@ -96,9 +110,20 @@ func chooseMethod() (catalog.MethodSpec, bool) {
 	}
 	i := ChooseOpt("Method", opts)
 	if i == 0 {
-		return catalog.MethodSpec{}, false
+		return catalog.MethodSpec{}, false, false
 	}
-	return methods[i-1], true
+	if !reverse {
+		Header()
+		mode := ChooseOpt("Connection Mode", []MenuOpt{
+			{"Direct (Standard)", "Iran connects to Kharej"},
+			{"Reverse (Kharej -> Iran)", "Kharej dials into Iran (hides Kharej IP & tunnel protocol from DPI)"},
+		})
+		if mode == 0 {
+			return catalog.MethodSpec{}, false, false
+		}
+		reverse = (mode == 2)
+	}
+	return methods[i-1], reverse, true
 }
 
 func askInt(prompt string, def int) int {
@@ -115,15 +140,18 @@ func setupWizard(role string) {
 		return
 	}
 	Header()
-	m, ok := chooseMethod()
+	m, rev, ok := chooseMethod()
 	if !ok {
 		return
 	}
 	Header()
-	Title("Setup " + role + " — " + m.Name)
+	modeLabel := m.Name
+	if rev {
+		modeLabel += " (Reverse)"
+	}
+	Title("Setup " + role + " — " + modeLabel)
 
-	tc := catalog.TunnelConfig{Role: role, Method: m.Name, Index: tunnel.NextIndex(st.Tunnels)}
-	tc.Reverse = Confirm("Reverse tunnel (Kharej dials into Iran)?", false)
+	tc := catalog.TunnelConfig{Role: role, Method: m.Name, Reverse: rev, Index: tunnel.NextIndex(st.Tunnels)}
 	if m.IPv6Underlay {
 		tc.LocalIP = Ask("This server IPv6", detectIP("udp6", "[2001:4860:4860::8888]:80"))
 		remPrompt := "Remote server IPv6"
