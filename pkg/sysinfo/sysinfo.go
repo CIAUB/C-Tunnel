@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -65,11 +64,7 @@ func (s *Sampler) Sample() Snapshot {
 	snap.MemUsed = mem["MemTotal"] - mem["MemAvailable"]
 	snap.SwapTotal = mem["SwapTotal"]
 	snap.SwapUsed = mem["SwapTotal"] - mem["SwapFree"]
-	var fs syscall.Statfs_t
-	if syscall.Statfs("/", &fs) == nil {
-		snap.DiskTotal = fs.Blocks * uint64(fs.Bsize)
-		snap.DiskUsed = (fs.Blocks - fs.Bfree) * uint64(fs.Bsize)
-	}
+	snap.DiskUsed, snap.DiskTotal = diskUsage()
 	snap.IPv4 = localIP("udp4", "8.8.8.8:80")
 	snap.IPv6 = localIP("udp6", "[2001:4860:4860::8888]:80")
 

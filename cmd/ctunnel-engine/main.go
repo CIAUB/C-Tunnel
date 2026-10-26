@@ -11,8 +11,10 @@ import (
 	"strconv"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/dpi"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
+	"runtime"
 )
 
 type config struct {
@@ -22,6 +24,11 @@ type config struct {
 	secret            string
 	tunnelID          uint16
 	padding           uint8
+	reverse           bool
+}
+
+func (c config) isPassive() bool {
+	return c.reverse && c.role == "iran"
 }
 
 func main() {
@@ -50,8 +57,10 @@ func main() {
 	}
 	log.Printf("ctunnel-engine %s: %s tunnel %s, role %s, peer %s", version.Version, cfg.kind, cfg.dev, cfg.role, cfg.remoteIP)
 
-	switch cfg.kind {
-	case "eoip", "etherip":
+	switch {
+	case cfg.reverse && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard":
+		err = runReverseCarrier(cfg)
+	case cfg.kind == "eoip" || cfg.kind == "etherip":
 		err = runRawBridge(cfg)
 	default:
 		err = runUDPCrypt(cfg)
@@ -66,8 +75,9 @@ func loadConfig(path string) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	rev := env["REVERSE"] == "1" || env["REVERSE"] == "true"
 	m, ok := catalog.LookupMethod(env["KIND"])
-	if !ok || !m.Userspace {
+	if !ok || (!m.Userspace && !rev) {
 		return config{}, fmt.Errorf("%s: KIND %q is not an engine transport", path, env["KIND"])
 	}
 	port, _ := strconv.Atoi(env["PORT"])
@@ -83,14 +93,22 @@ func loadConfig(path string) (config, error) {
 		secret:   env["SECRET"],
 		tunnelID: uint16(tid),
 		padding:  uint8(min(max(pad, 0), 255)),
+		reverse:  rev,
 	}
-	if cfg.dev == "" || cfg.remoteIP == "" || (cfg.role != "iran" && cfg.role != "kharej") {
+	if cfg.dev == "" || (cfg.remoteIP == "" && !cfg.isPassive()) || (cfg.role != "iran" && cfg.role != "kharej") {
 		return config{}, fmt.Errorf("%s: DEV, REMOTE_IP and ROLE are required", path)
 	}
-	if m.Family == catalog.FamilyUDPCrypt && (cfg.secret == "" || cfg.port <= 0) {
+	if (m.Family == catalog.FamilyUDPCrypt || cfg.reverse) && (cfg.secret == "" || cfg.port <= 0) {
 		return config{}, fmt.Errorf("%s: SECRET and PORT are required for %s", path, m.Name)
 	}
 	return cfg, nil
+}
+
+func workerCount(kind string) int {
+	if kind == string(dpi.ProfileRUDPFEC) {
+		return 1
+	}
+	return min(max(runtime.NumCPU(), 2), 8)
 }
 
 func openDevice(cfg config) (*os.File, error) {
@@ -99,4 +117,25 @@ func openDevice(cfg config) (*os.File, error) {
 		return nil, fmt.Errorf("open %s: %w (is the interface created by ctunnel-kernel?)", cfg.dev, err)
 	}
 	return f, nil
+}
+
+func openDevices(cfg config, n int) ([]*os.File, func(), error) {
+	first, err := openDevice(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	devs := []*os.File{first}
+	for i := 1; i < n; i++ {
+		f, err := openDevice(cfg)
+		if err != nil {
+			break
+		}
+		devs = append(devs, f)
+	}
+	cleanup := func() {
+		for _, f := range devs {
+			_ = f.Close()
+		}
+	}
+	return devs, cleanup, nil
 }

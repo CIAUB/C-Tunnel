@@ -129,3 +129,78 @@ func TestEnvRoundTripAndKeys(t *testing.T) {
 		t.Fatal("wireguard peer key does not match the kharej side")
 	}
 }
+
+func TestReverseTunnelPassiveIranAndMirroredKharej(t *testing.T) {
+	// In reverse mode on Iran, UDP-Crypt and WireGuard do not even require knowing Kharej's IP in advance.
+	tc := catalog.TunnelConfig{
+		Role:    "iran",
+		Method:  "dtls-1.3",
+		LocalIP: "198.51.100.1",
+		Reverse: true,
+		Ports:   []string{"443"},
+	}
+	if err := Normalize(&tc, nil); err != nil {
+		t.Fatalf("reverse iran Normalize failed: %v", err)
+	}
+	if tc.RemoteIP != "0.0.0.0" {
+		t.Fatalf("expected default 0.0.0.0 RemoteIP for passive reverse iran, got %q", tc.RemoteIP)
+	}
+	envStr := Env(tc)
+	if !strings.Contains(envStr, `REVERSE="1"`) {
+		t.Fatalf("expected REVERSE=\"1\" in env, got:\n%s", envStr)
+	}
+
+	// Setup link decoded on Kharej must preserve Reverse=true and point RemoteIP to Iran's LocalIP.
+	link, err := catalog.EncodeSetupLink(tc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := catalog.DecodeSetupLink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer.LocalIP = "203.0.113.55" // Kharej fills its own local IP if needed
+	if err := Normalize(&peer, nil); err != nil {
+		t.Fatalf("reverse kharej Normalize failed: %v", err)
+	}
+	if !peer.Reverse || peer.Role != "kharej" || peer.RemoteIP != "198.51.100.1" {
+		t.Fatalf("unexpected reverse kharej config: %+v", peer)
+	}
+}
+
+func TestReverseKernelTunnelUsesReverseCarrierAndCustomLocalIPs(t *testing.T) {
+	// 1. Reverse GRE tunnel on Iran without RemoteIP gets 0.0.0.0, port 24001, and ctunnel-engine@ unit.
+	greRev := catalog.TunnelConfig{
+		Role:       "iran",
+		Method:     "gre",
+		LocalIP:    "198.51.100.1",
+		Reverse:    true,
+		TunLocal4:  "10.88.1.1",
+		TunRemote4: "10.88.10.2",
+	}
+	if err := Normalize(&greRev, nil); err != nil {
+		t.Fatalf("reverse GRE Normalize failed: %v", err)
+	}
+	if greRev.RemoteIP != "0.0.0.0" || greRev.Port != 24001 {
+		t.Fatalf("expected RemoteIP=0.0.0.0 and Port=24001 for reverse GRE, got %+v", greRev)
+	}
+	if got := Unit(greRev); got != "ctunnel-engine@t1.service" {
+		t.Fatalf("expected ctunnel-engine@t1.service for reverse GRE, got %q", got)
+	}
+
+	// 2. A second tunnel on the same Iran server can reuse the same TunLocal4 (10.88.1.1) with a different TunRemote4.
+	greRev2 := catalog.TunnelConfig{
+		Role:       "iran",
+		Method:     "6to4",
+		LocalIP:    "198.51.100.1",
+		Reverse:    true,
+		TunLocal4:  "10.88.1.1",
+		TunRemote4: "10.88.20.2",
+	}
+	if err := Normalize(&greRev2, []catalog.TunnelConfig{greRev}); err != nil {
+		t.Fatalf("second tunnel sharing TunLocal4 with distinct TunRemote4 failed: %v", err)
+	}
+	if greRev2.TunLocal4 != "10.88.1.1" || greRev2.TunRemote4 != "10.88.20.2" {
+		t.Fatalf("custom local tunnel IPs were overwritten: %+v", greRev2)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 
 	"ctunnel/pkg/eoip"
 )
@@ -29,57 +30,61 @@ func runRawBridge(cfg config) error {
 	_ = conn.SetReadBuffer(socketBuffer)
 	_ = conn.SetWriteBuffer(socketBuffer)
 
-	dev, err := openDevice(cfg)
+	workers := workerCount(cfg.kind)
+	devs, closeDevs, err := openDevices(cfg, workers)
 	if err != nil {
 		return err
 	}
-	defer dev.Close()
+	defer closeDevs()
 	dst := &net.IPAddr{IP: remote}
 
-	errc := make(chan error, 2)
-	go func() {
-		out := make([]byte, hlen+maxPacket)
-		for {
-			n, err := dev.Read(out[hlen:])
-			if err != nil {
-				errc <- fmt.Errorf("read %s: %w", cfg.dev, err)
-				return
-			}
-			if cfg.kind == "eoip" {
-				eoip.PutHeader(out, cfg.tunnelID, n)
-			} else {
-				eoip.PutEtherIPHeader(out)
-			}
-			_, _ = conn.WriteToIP(out[:hlen+n], dst)
-		}
-	}()
-	go func() {
-		buf := make([]byte, maxPacket)
-		for {
-			// Go strips the IPv4 header on ip4:<proto> sockets.
-			n, src, err := conn.ReadFromIP(buf)
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					errc <- err
+	errc := make(chan error, workers*2)
+	for i := 0; i < workers; i++ {
+		d := devs[i%len(devs)]
+		go func(dev *os.File) {
+			out := make([]byte, hlen+maxPacket)
+			for {
+				n, err := dev.Read(out[hlen:])
+				if err != nil {
+					errc <- fmt.Errorf("read %s: %w", cfg.dev, err)
 					return
 				}
-				continue
+				if cfg.kind == "eoip" {
+					eoip.PutHeader(out, cfg.tunnelID, n)
+				} else {
+					eoip.PutEtherIPHeader(out)
+				}
+				_, _ = conn.WriteToIP(out[:hlen+n], dst)
 			}
-			if !src.IP.Equal(remote) {
-				continue
-			}
-			var frame []byte
-			if cfg.kind == "eoip" {
-				var id uint16
-				id, frame, err = eoip.Decode(buf[:n])
-				if err != nil || id != cfg.tunnelID {
+		}(d)
+		go func(dev *os.File) {
+			buf := make([]byte, maxPacket)
+			for {
+				// Go strips the IPv4 header on ip4:<proto> sockets.
+				n, src, err := conn.ReadFromIP(buf)
+				if err != nil {
+					if errors.Is(err, net.ErrClosed) {
+						errc <- err
+						return
+					}
 					continue
 				}
-			} else if frame, err = eoip.DecodeEtherIP(buf[:n]); err != nil {
-				continue
+				if !src.IP.Equal(remote) {
+					continue
+				}
+				var frame []byte
+				if cfg.kind == "eoip" {
+					var id uint16
+					id, frame, err = eoip.Decode(buf[:n])
+					if err != nil || id != cfg.tunnelID {
+						continue
+					}
+				} else if frame, err = eoip.DecodeEtherIP(buf[:n]); err != nil {
+					continue
+				}
+				_, _ = dev.Write(frame)
 			}
-			_, _ = dev.Write(frame)
-		}
-	}()
+		}(d)
+	}
 	return <-errc
 }

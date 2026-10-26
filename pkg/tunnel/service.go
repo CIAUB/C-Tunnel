@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"ctunnel/pkg/catalog"
 )
@@ -22,9 +23,9 @@ var Run = func(name string, args ...string) (string, error) {
 }
 
 // Unit is the systemd unit that runs a tunnel: a oneshot for kernel tunnels,
-// a long-running engine process for userspace ones.
+// a long-running engine process for userspace or reverse-carrier ones.
 func Unit(tc catalog.TunnelConfig) string {
-	if m, ok := catalog.LookupMethod(tc.Method); ok && m.Userspace {
+	if m, ok := catalog.LookupMethod(tc.Method); ok && (m.Userspace || tc.Reverse) {
 		return "ctunnel-engine@" + tc.Name + ".service"
 	}
 	return "ctunnel@" + tc.Name + ".service"
@@ -78,10 +79,31 @@ func Create(st *catalog.Store, tc *catalog.TunnelConfig) error {
 // tunnel with the same name is replaced only if it points at the same server.
 func Import(st *catalog.Store, tc *catalog.TunnelConfig) error {
 	tc.Name = SanitizeName(tc.Name)
+	if tc.LocalIP == "" || tc.LocalIP == "0.0.0.0" || tc.LocalIP == "::" {
+		if ip := detectLocalIP(tc.Method); ip != "" {
+			tc.LocalIP = ip
+		}
+	}
 	if old, exists := st.Find(tc.Name); exists && old.RemoteIP != tc.RemoteIP {
 		return fmt.Errorf("a tunnel named %q to %s already exists; import it under another name", tc.Name, old.RemoteIP)
 	}
 	return Save(st, tc)
+}
+
+func detectLocalIP(method string) string {
+	netw, target := "udp4", "8.8.8.8:80"
+	if m, ok := catalog.LookupMethod(method); ok && m.IPv6Underlay {
+		netw, target = "udp6", "[2001:4860:4860::8888]:80"
+	}
+	c, err := net.DialTimeout(netw, target, 600*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	defer c.Close()
+	if a, ok := c.LocalAddr().(*net.UDPAddr); ok {
+		return a.IP.String()
+	}
+	return ""
 }
 
 // Apply (re)starts the tunnel and enables it at boot.

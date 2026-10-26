@@ -77,10 +77,46 @@ func TestKeepaliveIsEmpty(t *testing.T) {
 
 func TestSealDoesNotAllocate(t *testing.T) {
 	tx, _ := NewFastAEAD(testSecret, "d")
+	rx, _ := NewFastAEAD(testSecret, "d")
 	payload := make([]byte, 1400)
 	dst := make([]byte, 0, 1600)
 	allocs := testing.AllocsPerRun(100, func() { _ = tx.Seal(dst[:0], payload, 16) })
 	if allocs > 0 {
 		t.Fatalf("Seal allocated %.1f times per packet", allocs)
+	}
+	openDst := make([]byte, 0, 1600)
+	openAllocs := testing.AllocsPerRun(100, func() {
+		pkt := tx.Seal(dst[:0], payload, 16)
+		if _, err := rx.Open(openDst[:0], pkt); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if openAllocs > 0 {
+		t.Fatalf("Seal+Open allocated %.1f times per packet", openAllocs)
+	}
+}
+
+func TestSealJumboDoesNotAllocate(t *testing.T) {
+	tx, _ := NewFastAEAD(testSecret, "d")
+	payload := make([]byte, 9000)
+	dst := make([]byte, 0, 9200)
+	allocs := testing.AllocsPerRun(100, func() { _ = tx.Seal(dst[:0], payload, 64) })
+	if allocs > 0 {
+		t.Fatalf("Jumbo Seal allocated %.1f times per packet", allocs)
+	}
+}
+
+func TestWideReplayWindowHighBurstReordering(t *testing.T) {
+	tx, _ := NewFastAEAD(testSecret, "d")
+	rx, _ := NewFastAEAD(testSecret, "d")
+	const burst = 4096
+	pkts := make([][]byte, burst)
+	for i := 0; i < burst; i++ {
+		pkts[i] = tx.Seal(nil, []byte{byte(i)}, 0)
+	}
+	for i := burst - 1; i >= 0; i-- {
+		if _, err := rx.Open(nil, pkts[i]); err != nil {
+			t.Fatalf("reordered packet %d in %d-packet burst rejected: %v", i, burst, err)
+		}
 	}
 }

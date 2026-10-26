@@ -8,6 +8,8 @@
 package conntest
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -16,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"runtime"
 	"sort"
@@ -93,7 +96,15 @@ const (
 	ctlCountStart = 'U' // reset the upload counter for a method
 	ctlCountRead  = 'R' // read the upload counter
 	ctlSend       = 'D' // stream a method to the requester for duration
+	ctlReport     = 'F' // final test report sent from kharej to iran
 )
+
+// Report carries the completed results and best settings from kharej to the iran responder.
+type Report struct {
+	Peer string   `json:"peer"`
+	Rows []Result `json:"rows"`
+	Best Best     `json:"best"`
+}
 
 // Responder echoes probes that carry the token, counts uploads and streams downloads.
 // Stop it by cancelling ctx.
@@ -102,13 +113,60 @@ type Responder struct {
 	RawOpen  []int // protocols with a working raw socket
 	RawError error
 
-	token  []byte
-	ps     []probe
-	udp    *net.UDPConn
-	raw    map[int]net.PacketConn
-	mu     sync.Mutex
-	counts map[int]int64
-	nonces map[uint32]bool
+	token    []byte
+	ps       []probe
+	udp      *net.UDPConn
+	raw      map[int]net.PacketConn
+	mu       sync.Mutex
+	counts   map[int]int64
+	nonces   map[uint32]bool
+	rows     []Result
+	probeRow []int
+	seenEcho map[[2]int]bool
+	onUpdate Progress
+	onReport func(Report)
+}
+
+// SetCallbacks registers live progress and final report callbacks for the Iran-side UI.
+func (r *Responder) SetCallbacks(onUpdate Progress, onReport func(Report)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.onUpdate = onUpdate
+	r.onReport = onReport
+}
+
+func (r *Responder) resetRowsLocked() {
+	r.rows = nil
+	r.probeRow = make([]int, len(r.ps))
+	r.seenEcho = map[[2]int]bool{}
+	byName := map[string]int{}
+	for i, p := range r.ps {
+		byName[p.method] = i
+	}
+	for _, m := range catalog.Methods {
+		row := Result{Method: m.Name, Family: string(m.Family), Sent: Probes}
+		i, ok := byName[m.Name]
+		switch {
+		case !ok:
+			row.Skipped = "needs IPv6 on both servers"
+		case r.ps[i].proto != 0 && r.raw[r.ps[i].proto] == nil:
+			row.Skipped = "raw sockets need root"
+		default:
+			row.Phase = "echo"
+			row.Sent = 0
+			r.probeRow[i] = len(r.rows)
+		}
+		r.rows = append(r.rows, row)
+	}
+}
+
+func (r *Responder) notifyLocked() {
+	if r.onUpdate == nil || len(r.rows) == 0 {
+		return
+	}
+	cp := append([]Result(nil), r.rows...)
+	cb := r.onUpdate
+	go cb(cp)
 }
 
 func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error) {
@@ -135,6 +193,7 @@ func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error
 		r.raw[p] = pc
 		conns = append(conns, pc)
 	}
+	r.resetRowsLocked()
 	for _, c := range conns {
 		go r.serve(c)
 	}
@@ -161,13 +220,36 @@ func (r *Responder) serve(c net.PacketConn) {
 		if n < trailerLen || string(pkt[n-tokenLen:]) != string(r.token) {
 			continue
 		}
-		if ua, ok := src.(*net.UDPAddr); ok && n == len(ctlMagic)+8+tokenLen && string(pkt[:len(ctlMagic)]) == ctlMagic {
+		if ua, ok := src.(*net.UDPAddr); ok && n >= len(ctlMagic)+8+tokenLen && string(pkt[:len(ctlMagic)]) == ctlMagic {
 			r.control(pkt, ua)
 			continue
 		}
 		switch pkt[n-trailerLen] {
 		case kindEcho:
 			_, _ = c.WriteTo(pkt, src)
+			idx := int(pkt[n-trailerLen+1])
+			seq := int(binary.BigEndian.Uint16(pkt[n-trailerLen+2 : n-trailerLen+4]))
+			r.mu.Lock()
+			if idx < len(r.ps) && len(r.rows) > 0 {
+				if seq == 0 && r.seenEcho[[2]int{idx, 0}] {
+					r.resetRowsLocked()
+				}
+				k := [2]int{idx, seq}
+				if !r.seenEcho[k] {
+					r.seenEcho[k] = true
+					ri := r.probeRow[idx]
+					if seq+1 > r.rows[ri].Sent {
+						r.rows[ri].Sent = seq + 1
+					}
+					r.rows[ri].Received++
+					if r.rows[ri].Received >= Probes {
+						r.rows[ri].Sent = Probes
+						r.rows[ri].Phase = ""
+					}
+					r.notifyLocked()
+				}
+			}
+			r.mu.Unlock()
 		case kindUpload:
 			r.mu.Lock()
 			r.counts[int(pkt[n-trailerLen+1])] += int64(n)
@@ -181,6 +263,31 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	cmd, idx := pkt[o], int(pkt[o+1])
 	dur := time.Duration(binary.BigEndian.Uint16(pkt[o+2:o+4])) * time.Millisecond
 	nonce := binary.BigEndian.Uint32(pkt[o+4 : o+8])
+	if cmd == ctlReport {
+		var rep Report
+		zr, err := zlib.NewReader(bytes.NewReader(pkt[o+8 : len(pkt)-tokenLen]))
+		if err == nil {
+			raw, _ := io.ReadAll(zr)
+			_ = zr.Close()
+			if json.Unmarshal(raw, &rep) == nil {
+				rep.Peer = from.IP.String()
+				r.mu.Lock()
+				seen := r.nonces[nonce]
+				r.nonces[nonce] = true
+				cb := r.onReport
+				r.mu.Unlock()
+				if !seen && cb != nil {
+					go cb(rep)
+				}
+			}
+		}
+		reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
+		reply = append(reply, pkt[:o+8]...)
+		reply = binary.BigEndian.AppendUint64(reply, 0)
+		reply = append(reply, r.token...)
+		_, _ = r.udp.WriteTo(reply, from)
+		return
+	}
 	if idx >= len(r.ps) || dur > 5*time.Second {
 		return
 	}
@@ -189,8 +296,19 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	switch cmd {
 	case ctlCountStart:
 		r.counts[idx] = 0
+		if len(r.rows) > 0 {
+			ri := r.probeRow[idx]
+			r.rows[ri].Sent = Probes
+			r.rows[ri].Phase = "speed"
+			r.notifyLocked()
+		}
 	case ctlCountRead:
 		count = r.counts[idx]
+		if len(r.rows) > 0 {
+			ri := r.probeRow[idx]
+			r.rows[ri].UpMbps = float64(count) * 8 / speedDuration.Seconds() / 1e6
+			r.notifyLocked()
+		}
 	case ctlSend:
 		if !r.nonces[nonce] {
 			r.nonces[nonce] = true
@@ -201,7 +319,17 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 				dst, conn = &net.IPAddr{IP: from.IP}, r.raw[p.proto]
 			}
 			if conn != nil {
-				go stream(conn, dst, p, idx, kindDownload, r.token, dur)
+				go func() {
+					sent := stream(conn, dst, p, idx, kindDownload, r.token, dur)
+					r.mu.Lock()
+					if len(r.rows) > 0 && dur > 0 {
+						ri := r.probeRow[idx]
+						r.rows[ri].DownMbps = float64(sent) * 8 / dur.Seconds() / 1e6
+						r.rows[ri].Phase = ""
+						r.notifyLocked()
+					}
+					r.mu.Unlock()
+				}()
 			}
 		}
 	}
@@ -716,4 +844,49 @@ func Recommend(results []Result) (method, reason string) {
 		return least.Method, "the least lossy method on this path"
 	}
 	return "", "no probe came back: check that UDP and the IP protocols are open on the iran server's firewall"
+}
+
+// SendReport sends the final test results and best settings back to the Iran responder so
+// the Iran side displays the same final Verdict and Best Settings table as Kharej.
+func SendReport(ctx context.Context, l Link, rows []Result, best Best) {
+	token, err := hex.DecodeString(l.TokenHex)
+	if err != nil || len(token) != tokenLen {
+		return
+	}
+	raw, err := json.Marshal(Report{Rows: rows, Best: best})
+	if err != nil {
+		return
+	}
+	var zbuf bytes.Buffer
+	zw := zlib.NewWriter(&zbuf)
+	_, _ = zw.Write(raw)
+	_ = zw.Close()
+
+	uc, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		return
+	}
+	defer uc.Close()
+
+	var nonce [4]byte
+	_, _ = rand.Read(nonce[:])
+	msg := make([]byte, 0, len(ctlMagic)+8+zbuf.Len()+tokenLen)
+	msg = append(msg, ctlMagic...)
+	msg = append(msg, ctlReport, 0, 0, 0)
+	msg = append(msg, nonce[:]...)
+	msg = append(msg, zbuf.Bytes()...)
+	msg = append(msg, token...)
+
+	dst := &net.UDPAddr{IP: net.ParseIP(l.Host), Port: l.UDPPort}
+	buf := make([]byte, 256)
+	for attempt := 0; attempt < 4; attempt++ {
+		if ctx.Err() != nil {
+			return
+		}
+		_, _ = uc.WriteTo(msg, dst)
+		_ = uc.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+		if n, _, err := uc.ReadFrom(buf); err == nil && n >= len(ctlMagic)+8 && string(buf[len(ctlMagic)+4:len(ctlMagic)+8]) == string(nonce[:]) {
+			return
+		}
+	}
 }

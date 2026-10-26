@@ -1,8 +1,11 @@
 package conntest
 
 import (
+	"context"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"ctunnel/pkg/catalog"
 )
@@ -52,5 +55,42 @@ func TestRecommendPicksFastestTotal(t *testing.T) {
 	}
 	if m, _ := Recommend([]Result{{Method: "gre", Sent: 10}}); m != "" {
 		t.Fatal("nothing passed but a method was recommended")
+	}
+}
+
+func TestIranResponderReceivesFinalReportFromKharej(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tok := NewToken()
+	r, err := Serve(ctx, 0, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portStr, _ := net.SplitHostPort(r.UDPAddr)
+	var udpPort int
+	if ua, err := net.ResolveUDPAddr("udp4", "127.0.0.1:"+portStr); err == nil {
+		udpPort = ua.Port
+	}
+
+	repCh := make(chan Report, 1)
+	r.SetCallbacks(nil, func(rep Report) {
+		select {
+		case repCh <- rep:
+		default:
+		}
+	})
+
+	rows := []Result{{Method: "dtls-1.3", Family: "UDP-Crypt", Sent: 10, Received: 10, DownMbps: 420, UpMbps: 380}}
+	best := BestSettings(rows, 1500)
+	SendReport(ctx, Link{Host: "127.0.0.1", UDPPort: udpPort, TokenHex: tok}, rows, best)
+
+	select {
+	case rep := <-repCh:
+		if len(rep.Rows) != 1 || rep.Rows[0].Method != "dtls-1.3" || rep.Best.Method != "dtls-1.3" {
+			t.Fatalf("unexpected report received on Iran responder: %+v", rep)
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for Iran responder to receive final report")
 	}
 }

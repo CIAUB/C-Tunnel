@@ -17,13 +17,12 @@ import (
 const (
 	maxPacket         = 65535
 	keepaliveInterval = 10 * time.Second
-	socketBuffer      = 16 << 20
+	socketBuffer      = 64 << 20
 )
 
 type udpTunnel struct {
 	cfg    config
 	conn   *net.UDPConn
-	dev    *os.File
 	tx, rx *crypto.FastAEAD
 	framer *dpi.Framer
 	peer   atomic.Pointer[net.UDPAddr]
@@ -44,11 +43,14 @@ func runUDPCrypt(cfg config) error {
 	if t.framer, err = dpi.NewFramer(dpi.Profile(cfg.kind), cfg.secret); err != nil {
 		return err
 	}
-	peer, err := net.ResolveUDPAddr("udp4", net.JoinHostPort(cfg.remoteIP, fmt.Sprint(cfg.port)))
-	if err != nil {
-		return err
+	var peer *net.UDPAddr
+	if !cfg.isPassive() && cfg.remoteIP != "" && cfg.remoteIP != "0.0.0.0" {
+		peer, err = net.ResolveUDPAddr("udp4", net.JoinHostPort(cfg.remoteIP, fmt.Sprint(cfg.port)))
+		if err != nil {
+			return err
+		}
+		t.peer.Store(peer)
 	}
-	t.peer.Store(peer)
 
 	t.conn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: cfg.port})
 	if err != nil {
@@ -58,39 +60,47 @@ func runUDPCrypt(cfg config) error {
 	_ = t.conn.SetReadBuffer(socketBuffer)
 	_ = t.conn.SetWriteBuffer(socketBuffer)
 
-	if t.dev, err = openDevice(cfg); err != nil {
+	workers := workerCount(cfg.kind)
+	devs, closeDevs, err := openDevices(cfg, workers)
+	if err != nil {
 		return err
 	}
-	defer t.dev.Close()
+	defer closeDevs()
 
-	if cfg.kind == string(dpi.ProfileWGStealth) {
+	if peer != nil && cfg.kind == string(dpi.ProfileWGStealth) {
 		for _, junk := range dpi.GenerateJunkBurst(4, 64, 192) {
 			_, _ = t.conn.WriteToUDP(junk, peer)
 		}
 	}
 
-	errc := make(chan error, 2)
-	go func() { errc <- t.deviceToNet() }()
-	go func() { errc <- t.netToDevice() }()
+	errc := make(chan error, workers*2)
+	for i := 0; i < workers; i++ {
+		d := devs[i%len(devs)]
+		go func(dev *os.File) { errc <- t.deviceToNet(dev) }(d)
+		go func(dev *os.File) { errc <- t.netToDevice(dev) }(d)
+	}
 	go t.keepalive()
 	return <-errc
 }
 
 // deviceToNet seals packets read from the TUN device and sends them to the peer.
 // Header room is reserved in front of the ciphertext so nothing is copied or allocated.
-func (t *udpTunnel) deviceToNet() error {
+func (t *udpTunnel) deviceToNet(dev *os.File) error {
 	hlen := t.framer.HeaderLen()
 	pkt := make([]byte, maxPacket)
 	out := make([]byte, hlen+maxPacket+512)
 	parity := make([]byte, 8+maxPacket+512)
 	var enc dpi.FECEncoder
 	for {
-		n, err := t.dev.Read(pkt)
+		n, err := dev.Read(pkt)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", t.cfg.dev, err)
 		}
 		ct := t.tx.Seal(out[hlen:hlen], pkt[:n], t.cfg.padding)
 		peer := t.peer.Load()
+		if peer == nil {
+			continue
+		}
 		if !t.fec {
 			t.framer.PutHeader(out[:hlen], len(ct))
 			_, _ = t.conn.WriteToUDP(out[:hlen+len(ct)], peer)
@@ -110,19 +120,25 @@ func (t *udpTunnel) deviceToNet() error {
 func (t *udpTunnel) keepalive() {
 	hlen := t.framer.HeaderLen()
 	out := make([]byte, hlen+512)
+	interval := keepaliveInterval
+	if t.cfg.reverse && t.cfg.role == "kharej" {
+		interval = 5 * time.Second
+	}
 	for {
-		ct := t.tx.Seal(out[hlen:hlen], nil, t.cfg.padding)
-		if t.fec {
-			dpi.PutRUDPHeader(out[:8], 0, dpi.ShardData0, len(ct))
-		} else {
-			t.framer.PutHeader(out[:hlen], len(ct))
+		if peer := t.peer.Load(); peer != nil {
+			ct := t.tx.Seal(out[hlen:hlen], nil, t.cfg.padding)
+			if t.fec {
+				dpi.PutRUDPHeader(out[:8], 0, dpi.ShardData0, len(ct))
+			} else {
+				t.framer.PutHeader(out[:hlen], len(ct))
+			}
+			_, _ = t.conn.WriteToUDP(out[:hlen+len(ct)], peer)
 		}
-		_, _ = t.conn.WriteToUDP(out[:hlen+len(ct)], t.peer.Load())
-		time.Sleep(keepaliveInterval)
+		time.Sleep(interval)
 	}
 }
 
-func (t *udpTunnel) netToDevice() error {
+func (t *udpTunnel) netToDevice(dev *os.File) error {
 	buf := make([]byte, maxPacket)
 	plainBuf := make([]byte, maxPacket)
 	var dec dpi.FECDecoder
@@ -138,7 +154,7 @@ func (t *udpTunnel) netToDevice() error {
 		if !t.fec {
 			ct, err := t.framer.Unwrap(wire)
 			if err == nil {
-				t.deliver(ct, src, plainBuf)
+				t.deliver(ct, src, plainBuf, dev)
 			}
 			continue
 		}
@@ -148,30 +164,30 @@ func (t *udpTunnel) netToDevice() error {
 		}
 		if shard == dpi.ShardParity {
 			if rec := dec.OnParity(group, payload); rec != nil {
-				t.deliver(rec, src, plainBuf)
+				t.deliver(rec, src, plainBuf, dev)
 			}
 			continue
 		}
 		rec := dec.OnData(group, shard, payload)
-		t.deliver(payload, src, plainBuf)
+		t.deliver(payload, src, plainBuf, dev)
 		if rec != nil {
-			t.deliver(rec, src, plainBuf)
+			t.deliver(rec, src, plainBuf, dev)
 		}
 	}
 }
 
 // deliver authenticates one sealed packet, follows the peer if its address changed,
 // and writes the inner packet to the device. Keepalives are empty and not written.
-func (t *udpTunnel) deliver(ct []byte, src *net.UDPAddr, plainBuf []byte) {
+func (t *udpTunnel) deliver(ct []byte, src *net.UDPAddr, plainBuf []byte, dev *os.File) {
 	plain, err := t.rx.Open(plainBuf, ct)
 	if err != nil {
 		return
 	}
-	if cur := t.peer.Load(); src != nil && (!cur.IP.Equal(src.IP) || cur.Port != src.Port) {
-		log.Printf("peer address changed: %s -> %s", cur, src)
+	if cur := t.peer.Load(); src != nil && (cur == nil || !cur.IP.Equal(src.IP) || cur.Port != src.Port) {
+		log.Printf("peer address active: %s", src)
 		t.peer.Store(src)
 	}
 	if len(plain) > 0 {
-		_, _ = t.dev.Write(plain)
+		_, _ = dev.Write(plain)
 	}
 }

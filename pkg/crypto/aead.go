@@ -40,9 +40,11 @@ func DeriveSubkey(secretHex, label string) [32]byte {
 }
 
 const (
-	replayWords      = 32
+	replayWords      = 128
 	replayWindowSize = (replayWords - 1) * 64
 )
+
+var seqEpoch atomic.Uint64
 
 // ReplayWindow is a sliding anti-replay bitmap (same scheme as WireGuard, ~2000 packets wide)
 // so moderate reordering on the path does not cause drops.
@@ -113,10 +115,10 @@ func NewFastAEAD(secretHex, direction string) (*FastAEAD, error) {
 		padSalt: binary.BigEndian.Uint64(ivSalt[16:24]),
 	}
 	copy(f.nonceXor[:], ivSalt[:12])
-	// Sequence numbers start at the wall clock in nanoseconds, so a restarted sender
-	// keeps moving forward: the receiver's replay window accepts it, and a nonce is
-	// never reused for the same key.
-	f.txSeq.Store(uint64(time.Now().UnixNano()))
+	// Sequence numbers start at the wall clock in nanoseconds plus a monotonic epoch
+	// bump, so a restarted sender (even within the same coarse clock tick) always moves
+	// forward: the receiver's replay window accepts it, and a nonce is never reused.
+	f.txSeq.Store(uint64(time.Now().UnixNano()) + seqEpoch.Add(1<<16))
 	return f, nil
 }
 
@@ -138,7 +140,7 @@ func (f *FastAEAD) nonce(seq uint64) [12]byte {
 }
 
 type scratch struct {
-	plain  [2048]byte
+	plain  [9216]byte
 	nonce  [12]byte
 	seqHdr [SeqHeaderLen]byte
 }
@@ -147,16 +149,17 @@ type scratch struct {
 var scratchPool = sync.Pool{New: func() any { return new(scratch) }}
 
 // Seal appends [8B obfuscated seq][AES-GCM(padLen | padding | payload)] to dst.
-// It does not allocate when dst has enough capacity and the packet fits in 2 KiB.
+// It does not allocate when dst has enough capacity and the packet fits in 9 KiB.
 func (f *FastAEAD) Seal(dst, payload []byte, maxPad uint8) []byte {
 	seq := f.txSeq.Add(1)
 	sc := scratchPool.Get().(*scratch)
 	defer scratchPool.Put(sc)
 	sc.nonce = f.nonce(seq)
 
-	prng := splitmix64(seq ^ f.padSalt)
 	var padLen int
+	var prng uint64
 	if maxPad > 0 {
+		prng = splitmix64(seq ^ f.padSalt)
 		padLen = int(prng % (uint64(maxPad) + 1))
 	}
 
@@ -170,9 +173,13 @@ func (f *FastAEAD) Seal(dst, payload []byte, maxPad uint8) []byte {
 	plain[0] = byte(padLen)
 	for i := 0; i < padLen; i += 8 {
 		prng = splitmix64(prng)
-		var b [8]byte
-		binary.LittleEndian.PutUint64(b[:], prng)
-		copy(plain[1+i:1+padLen], b[:])
+		if i+8 <= padLen {
+			binary.LittleEndian.PutUint64(plain[1+i:1+i+8], prng)
+		} else {
+			var b [8]byte
+			binary.LittleEndian.PutUint64(b[:], prng)
+			copy(plain[1+i:1+padLen], b[:])
+		}
 	}
 	copy(plain[1+padLen:], payload)
 

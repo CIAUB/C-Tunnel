@@ -123,15 +123,35 @@ func setupWizard(role string) {
 	Title("Setup " + role + " — " + m.Name)
 
 	tc := catalog.TunnelConfig{Role: role, Method: m.Name, Index: tunnel.NextIndex(st.Tunnels)}
+	tc.Reverse = Confirm("Reverse tunnel (Kharej dials into Iran)?", false)
 	if m.IPv6Underlay {
 		tc.LocalIP = Ask("This server IPv6", detectIP("udp6", "[2001:4860:4860::8888]:80"))
-		tc.RemoteIP = Ask("Remote server IPv6", "")
+		remPrompt := "Remote server IPv6"
+		if tc.Reverse && role == "iran" {
+			remPrompt = "Remote server IPv6 (optional in reverse mode, Enter = dynamic)"
+		}
+		tc.RemoteIP = Ask(remPrompt, "")
 	} else {
 		tc.LocalIP = Ask("This server IP", detectIP("udp4", "8.8.8.8:80"))
-		tc.RemoteIP = Ask("Remote server IP", "")
+		remPrompt := "Remote server IP"
+		if tc.Reverse && role == "iran" {
+			remPrompt = "Remote server IP (optional in reverse mode, Enter = Kharej dials in)"
+		}
+		tc.RemoteIP = Ask(remPrompt, "")
 	}
 	tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
 	tc.Name = Ask("Tunnel name (max 9: a-z 0-9 -)", "t"+strconv.Itoa(tc.Index))
+	if !tunnel.IPv6Only(m.Name) {
+		defIran := fmt.Sprintf("10.77.%d.1", tc.Index)
+		defKharej := fmt.Sprintf("10.77.%d.2", tc.Index)
+		iranTun := Ask("Iran local tunnel IPv4", defIran)
+		kharejTun := Ask("Kharej local tunnel IPv4", defKharej)
+		if role == "kharej" {
+			tc.TunLocal4, tc.TunRemote4 = kharejTun, iranTun
+		} else {
+			tc.TunLocal4, tc.TunRemote4 = iranTun, kharejTun
+		}
+	}
 
 	// Defaults are computed by Normalize; ask only what the method needs.
 	probe := tc
@@ -141,8 +161,10 @@ func setupWizard(role string) {
 		return
 	}
 	switch {
+	case tc.Reverse && !m.NeedsPort:
+		tc.Port = askInt("Reverse carrier TCP port (Iran listens, Kharej dials)", probe.Port)
 	case m.NeedsPort:
-		tc.Port = askInt("UDP port", probe.Port)
+		tc.Port = askInt("Tunnel port", probe.Port)
 	case m.SupportsFOU:
 		tc.Port = askInt("Wrap in UDP/FOU port (0 = off, raw IP)", 0)
 	}
@@ -270,8 +292,12 @@ func printStatusTable(st *catalog.Store) {
 	Rule()
 	for _, t := range st.Tunnels {
 		s := tunnel.GetStatus(t)
+		meth := t.Method
+		if t.Reverse {
+			meth += " [R]"
+		}
 		fmt.Printf(" %-9s %-12s %-6s %-16s %-14s %-6d %-8s %s / %s\n",
-			t.Name, t.Method, t.Role, t.RemoteIP, t.TunLocal4, t.Port, stateLabel(s),
+			t.Name, meth, t.Role, t.RemoteIP, t.TunLocal4, t.Port, stateLabel(s),
 			humanBytes(s.RxBytes), humanBytes(s.TxBytes))
 	}
 }
@@ -402,8 +428,29 @@ func connTestIran() {
 	fmt.Printf("\n   %s%s%s\n\n", Bold+White, conntest.EncodeLink(link), Reset)
 	Subtle("or: sudo ctunnel conntest '" + conntest.EncodeLink(link) + "'")
 	fmt.Println()
-	Info("Waiting for the test. Press Enter to stop the responder.")
+	Info("Waiting for the test from Kharej (live results will appear here). Press Enter to stop.")
+	fmt.Println()
+	attachResponderUI(r, host)
 	_, _ = reader.ReadString('\n')
+}
+
+func attachResponderUI(r *conntest.Responder, title string) {
+	board := conntest.NewBoard(os.Stdout, title)
+	r.SetCallbacks(
+		func(rows []conntest.Result) {
+			board.Update(rows)
+		},
+		func(rep conntest.Report) {
+			board.Clear()
+			peer := rep.Peer
+			if peer == "" {
+				peer = title
+			}
+			fmt.Print(conntest.Verdict(peer, rep.Rows))
+			fmt.Println()
+			fmt.Print(rep.Best.String())
+		},
+	)
 }
 
 // RunConnTest runs the kharej side and prints the live board, the verdict and the
@@ -436,6 +483,7 @@ func RunConnTest(raw string) error {
 	default:
 		best.TCPDownload, best.TCPUpload = sr.DownloadMbps, sr.UploadMbps
 	}
+	conntest.SendReport(ctx, link, rows, best)
 	fmt.Println()
 	fmt.Print(best.String())
 	return nil
@@ -752,6 +800,7 @@ func ConnTestServer(host string) {
 		os.Exit(1)
 	}
 	fmt.Printf("responder ready: UDP %d, TCP %d, IP protocols %v\n", link.UDPPort, link.TCPPort, r.RawOpen)
-	fmt.Printf("on the kharej server run:\n  sudo ctunnel conntest '%s'\n", conntest.EncodeLink(link))
+	fmt.Printf("on the kharej server run:\n  sudo ctunnel conntest '%s'\n\n", conntest.EncodeLink(link))
+	attachResponderUI(r, host)
 	select {}
 }

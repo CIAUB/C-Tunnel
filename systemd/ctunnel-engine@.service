@@ -10,7 +10,9 @@ ExecStart=/usr/local/bin/ctunnel-engine -config /etc/ctunnel/tunnels/%i.env
 ExecStopPost=/usr/local/lib/ctunnel/ctunnel-kernel down %i
 Restart=always
 RestartSec=2
+Nice=-10
 LimitNOFILE=65536
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target

@@ -52,6 +52,16 @@ func TestXORRecoverBothShards(t *testing.T) {
 	if err != nil || !bytes.Equal(gotA, a) {
 		t.Fatalf("recover a: %q %v", gotA, err)
 	}
+	pBuf := make([]byte, 1500)
+	rBuf := make([]byte, 0, 1500)
+	p1 := make([]byte, 1400)
+	p2 := make([]byte, 1200)
+	if allocs := testing.AllocsPerRun(100, func() {
+		par := PutXORParity(pBuf, p1, p2)
+		_, _ = RecoverXOR(rBuf, p1, true, par)
+	}); allocs > 0 {
+		t.Fatalf("XOR parity/recover allocated %.1f times", allocs)
+	}
 }
 
 func TestFECRecoversAnySingleLoss(t *testing.T) {

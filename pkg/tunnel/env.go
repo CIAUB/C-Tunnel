@@ -23,6 +23,7 @@ func Env(tc catalog.TunnelConfig) string {
 	var b strings.Builder
 	put := func(k string, v any) { fmt.Fprintf(&b, "%s=\"%v\"\n", k, v) }
 	put("NAME", tc.Name)
+	put("INDEX", tc.Index)
 	put("DEV", Dev(tc.Name))
 	put("ROLE", tc.Role)
 	put("KIND", tc.Method)
@@ -41,6 +42,11 @@ func Env(tc catalog.TunnelConfig) string {
 	put("LANES", tc.Lanes)
 	put("RATE_MBIT", tc.RateMbps)
 	put("PADDING", tc.Padding)
+	if tc.Reverse {
+		put("REVERSE", 1)
+	} else {
+		put("REVERSE", 0)
+	}
 	put("FORWARDS", strings.Join(tc.Ports, " "))
 	switch tc.Method {
 	case "wireguard":

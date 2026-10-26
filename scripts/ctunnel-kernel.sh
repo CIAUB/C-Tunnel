@@ -20,8 +20,8 @@ load_env() {
     # shellcheck disable=SC1090
     source "${f}"
     : "${NAME:?}" "${DEV:?}" "${KIND:?}" "${ROLE:?}" "${LOCAL_IP:?}" "${REMOTE_IP:?}" "${MTU:?}"
-    PORT="${PORT:-0}" LANES="${LANES:-1}" GRE_KEY="${GRE_KEY:-0}" RATE_MBIT="${RATE_MBIT:-0}"
-    FORWARDS="${FORWARDS:-}"
+    INDEX="${INDEX:-1}" PORT="${PORT:-0}" LANES="${LANES:-1}" GRE_KEY="${GRE_KEY:-0}" RATE_MBIT="${RATE_MBIT:-0}"
+    REVERSE="${REVERSE:-0}" FORWARDS="${FORWARDS:-}"
 }
 
 modload() { local m; for m in "$@"; do modprobe "${m}" 2>/dev/null || true; done; }
@@ -58,7 +58,7 @@ fw_clear() {
     local table rule tag
     tag="$(fw_comment)"
     command -v iptables >/dev/null 2>&1 || return 0
-    for table in filter nat mangle; do
+    for table in raw filter nat mangle; do
         while read -r rule; do
             [[ -n "${rule}" ]] || continue
             rule="${rule//\"/}" # newer iptables quotes comments; ours contain no spaces
@@ -72,8 +72,14 @@ fw_apply() {
     command -v iptables >/dev/null 2>&1 || { log "iptables not found: skipping MSS clamp and port forwards"; return 0; }
     local tag d entry src dst p
     tag="$(fw_comment)"
+    if [[ "${LOCAL_IP}" != *:* && "${REMOTE_IP}" != *:* && "${REMOTE_IP}" != "0.0.0.0" ]]; then
+        iptables -t raw -A PREROUTING -s "${REMOTE_IP}/32" -m comment --comment "${tag}" -j CT --notrack 2>/dev/null || true
+        iptables -t raw -A OUTPUT -d "${REMOTE_IP}/32" -m comment --comment "${tag}" -j CT --notrack 2>/dev/null || true
+    fi
     while read -r d; do
         iptables -t mangle -A FORWARD -o "${d}" -p tcp --tcp-flags SYN,RST SYN \
+            -m comment --comment "${tag}" -j TCPMSS --clamp-mss-to-pmtu
+        iptables -t mangle -A FORWARD -i "${d}" -p tcp --tcp-flags SYN,RST SYN \
             -m comment --comment "${tag}" -j TCPMSS --clamp-mss-to-pmtu
     done < <(lane_devs)
 
@@ -94,33 +100,34 @@ fw_apply() {
 
 tune_dev() {
     local d="$1" cpus mask q
-    ip link set dev "${d}" mtu "${MTU}" txqueuelen 1000 up
+    ip link set dev "${d}" mtu "${MTU}" txqueuelen 10000 up
     sysctl -qw "net.ipv4.conf.${d//./\/}.rp_filter=2" 2>/dev/null || true
     if [[ "${RATE_MBIT}" -gt 0 ]]; then
-        local rate="${RATE_MBIT}"
+        local rate="${RATE_MBIT}" burst
         [[ "${LANES}" -gt 1 ]] && rate=$(( (RATE_MBIT + LANES - 1) / LANES ))
-        tc qdisc replace dev "${d}" root tbf rate "${rate}mbit" burst 512kbit latency 50ms
+        burst=$(( rate > 64 ? rate * 16 : 1024 ))
+        tc qdisc replace dev "${d}" root tbf rate "${rate}mbit" burst "${burst}kbit" latency 50ms
     else
         tc qdisc del dev "${d}" root 2>/dev/null || true
     fi
-    # Spread decapsulated packets over CPUs (RPS); masks above 32 CPUs need comma groups, so cap it.
+    # Spread decapsulated/encapsulated packets over CPUs (RPS/XPS); masks above 32 CPUs need comma groups, so cap it.
     cpus="$(nproc 2>/dev/null || echo 1)"
     [[ "${cpus}" -gt 32 ]] && cpus=32
     mask="$(printf '%x' $(( (1 << cpus) - 1 )))"
-    for q in /sys/class/net/"${d}"/queues/rx-*/rps_cpus; do
+    for q in /sys/class/net/"${d}"/queues/rx-*/rps_cpus /sys/class/net/"${d}"/queues/tx-*/xps_cpus; do
         if [[ -w "${q}" ]]; then echo "${mask}" > "${q}" 2>/dev/null || true; fi
     done
 }
 
-addr4() { ip addr add "${TUN_LOCAL4}/30" dev "$1"; }
+addr4() { ip addr add "${TUN_LOCAL4}" peer "${TUN_REMOTE4}/32" dev "$1"; }
 
 ipsec_up() {
     local reqid_out="${IPSEC_SPI_OUT}" reqid_in="${IPSEC_SPI_IN}"
     ipsec_down
     ip xfrm state add src "${LOCAL_IP}" dst "${REMOTE_IP}" proto esp spi "${IPSEC_SPI_OUT}" reqid "${reqid_out}" \
-        mode transport aead 'rfc4106(gcm(aes))' "${IPSEC_KEY_OUT}" 128 replay-window 128
+        mode transport aead 'rfc4106(gcm(aes))' "${IPSEC_KEY_OUT}" 128 replay-window 1024
     ip xfrm state add src "${REMOTE_IP}" dst "${LOCAL_IP}" proto esp spi "${IPSEC_SPI_IN}" reqid "${reqid_in}" \
-        mode transport aead 'rfc4106(gcm(aes))' "${IPSEC_KEY_IN}" 128 replay-window 128
+        mode transport aead 'rfc4106(gcm(aes))' "${IPSEC_KEY_IN}" 128 replay-window 1024
     # Only GRE between the two servers is encrypted; SSH and everything else stay untouched.
     ip xfrm policy add src "${LOCAL_IP}/32" dst "${REMOTE_IP}/32" proto gre dir out \
         tmpl src "${LOCAL_IP}" dst "${REMOTE_IP}" proto esp reqid "${reqid_out}" mode transport
@@ -139,6 +146,7 @@ ipsec_down() {
 links_down() {
     local i
     ip link del "${DEV}" 2>/dev/null || true
+    ip link del "${DEV}-r" 2>/dev/null || true
     for ((i = 1; i < 8; i++)); do ip link del "${DEV}.${i}" 2>/dev/null || true; done
     ip link del "${DEV}-6" 2>/dev/null || true
     ip route del "${TUN_REMOTE4:-0.0.0.0}/32" proto 77 2>/dev/null || true
@@ -176,6 +184,26 @@ cmd_up() {
     links_down
     fw_clear
     modload ip_gre ip6_gre ipip sit ip6_tunnel tun
+    if [[ "${REVERSE}" == "1" ]]; then
+        case "${KIND}" in
+            6to4|6to4-gre|sit|ipip|gue-ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|vxlan|geneve|l2tpv3)
+                local rev_local="172.31.${INDEX}.1" rev_remote="172.31.${INDEX}.2"
+                [[ "${ROLE}" == "kharej" ]] && { rev_local="172.31.${INDEX}.2"; rev_remote="172.31.${INDEX}.1"; }
+                ip tuntap add dev "${DEV}-r" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}-r" mode tun
+                ip link set dev "${DEV}-r" mtu 1460 txqueuelen 10000 up
+                ip addr add "${rev_local}" peer "${rev_remote}/32" dev "${DEV}-r"
+                LOCAL_IP="${rev_local}"
+                REMOTE_IP="${rev_remote}"
+                case "${KIND}" in
+                    vxlan) PORT=4789 ;;
+                    geneve) PORT=6081 ;;
+                    fou-gre) PORT=5555 ;;
+                    gue-ipip) PORT=5556 ;;
+                    *) PORT=0 ;;
+                esac
+                ;;
+        esac
+    fi
     local fou
     case "${KIND}" in
         6to4|6to4-gre)
@@ -244,23 +272,31 @@ cmd_up() {
             local keyfile
             keyfile="$(umask 077; mktemp)"
             printf '%s\n' "${WG_PRIVATE}" > "${keyfile}"
-            wg set "${DEV}" listen-port "${PORT}" private-key "${keyfile}" \
-                peer "${WG_PEER_PUBLIC}" endpoint "${REMOTE_IP}:${PORT}" persistent-keepalive 25 allowed-ips 0.0.0.0/0
+            if [[ "${REVERSE}" == "1" && "${ROLE}" == "iran" ]]; then
+                wg set "${DEV}" listen-port "${PORT}" private-key "${keyfile}" \
+                    peer "${WG_PEER_PUBLIC}" allowed-ips 0.0.0.0/0
+            else
+                wg set "${DEV}" listen-port "${PORT}" private-key "${keyfile}" \
+                    peer "${WG_PEER_PUBLIC}" endpoint "${REMOTE_IP}:${PORT}" persistent-keepalive 15 allowed-ips 0.0.0.0/0
+            fi
             rm -f "${keyfile}"
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
         eoip|etherip)
-            ip tuntap add dev "${DEV}" mode tap
+            ip tuntap add dev "${DEV}" mode tap multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tap
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
         dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco)
-            ip tuntap add dev "${DEV}" mode tun
+            ip tuntap add dev "${DEV}" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tun
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
         *) die "unknown KIND ${KIND}" ;;
     esac
     [[ "${KIND}" == "xfrm-ipsec" ]] && ipsec_up
     fw_apply
+    if [[ "${REVERSE}" == "1" && "${ROLE}" == "kharej" && -n "${TUN_REMOTE4:-}" ]]; then
+        (ping -c 3 -W 1 -I "${DEV}" "${TUN_REMOTE4}" >/dev/null 2>&1 || true) &
+    fi
     log "${NAME} (${KIND}) up on ${DEV}: ${TUN_LOCAL4:-} -> ${TUN_REMOTE4:-}, MTU ${MTU}"
 }
 
@@ -282,11 +318,21 @@ net.ipv6.conf.all.forwarding = 1
 net.ipv4.fib_multipath_hash_policy = 1
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
+net.core.rmem_default = 16777216
+net.core.wmem_default = 16777216
+net.core.optmem_max = 2097152
 net.core.netdev_max_backlog = 32768
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 8000
 net.core.somaxconn = 16384
 net.ipv4.tcp_rmem = 4096 87380 33554432
 net.ipv4.tcp_wmem = 4096 65536 33554432
+net.ipv4.udp_rmem_min = 65536
+net.ipv4.udp_wmem_min = 65536
 net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.tcp_notsent_lowat = 131072
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
 net.netfilter.nf_conntrack_max = 1048576

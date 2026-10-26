@@ -4,6 +4,7 @@ package dpi
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/binary"
 	"errors"
 	"sync/atomic"
@@ -212,13 +213,12 @@ func PutXORParity(dst, a, b []byte) []byte {
 	binary.BigEndian.PutUint16(out[0:2], uint16(len(a)))
 	binary.BigEndian.PutUint16(out[2:4], uint16(len(b)))
 	body := out[4:]
-	clear(body)
-	for i, v := range a {
-		body[i] = v
+	if len(a) >= len(b) {
+		copy(body[len(b):], a[len(b):])
+	} else {
+		copy(body[len(a):], b[len(a):])
 	}
-	for i, v := range b {
-		body[i] ^= v
-	}
+	subtle.XORBytes(body, a, b)
 	return out
 }
 
@@ -239,12 +239,10 @@ func RecoverXOR(dst, known []byte, knownIsFirst bool, parity []byte) ([]byte, er
 		return nil, ErrInvalidFrame
 	}
 	out := dst[:target]
-	for i := range out {
-		v := body[i]
-		if i < len(known) {
-			v ^= known[i]
-		}
-		out[i] = v
+	m := min(target, len(known))
+	subtle.XORBytes(out[:m], body[:m], known[:m])
+	if target > m {
+		copy(out[m:], body[m:target])
 	}
 	return out, nil
 }

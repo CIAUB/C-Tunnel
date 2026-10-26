@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	cIFFTUN    = 0x0001
-	cIFFTAP    = 0x0002
-	cIFFNOPI   = 0x1000
-	cTUNSETIFF = 0x400454ca
+	cIFFTUN        = 0x0001
+	cIFFTAP        = 0x0002
+	cIFFMULTIQUEUE = 0x0100
+	cIFFNOPI       = 0x1000
+	cTUNSETIFF     = 0x400454ca
+	cTUNSETSNDBUF  = 0x400454d4
 )
 
 type ifReq struct {
@@ -22,21 +24,28 @@ type ifReq struct {
 }
 
 func openTun(name string, isTap bool) (*os.File, error) {
-	f, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
-	if err != nil {
-		return nil, err
-	}
-	var req ifReq
-	copy(req.Name[:15], name)
+	base := uint16(cIFFTUN | cIFFNOPI)
 	if isTap {
-		req.Flags = cIFFTAP | cIFFNOPI
-	} else {
-		req.Flags = cIFFTUN | cIFFNOPI
+		base = cIFFTAP | cIFFNOPI
 	}
-	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(cTUNSETIFF), uintptr(unsafe.Pointer(&req)))
-	if errno != 0 {
+	for _, flags := range []uint16{base | cIFFMULTIQUEUE, base} {
+		f, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
+		if err != nil {
+			return nil, err
+		}
+		var req ifReq
+		copy(req.Name[:15], name)
+		req.Flags = flags
+		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(cTUNSETIFF), uintptr(unsafe.Pointer(&req)))
+		if errno == 0 {
+			sndbuf := int32(8 << 20)
+			_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(cTUNSETSNDBUF), uintptr(unsafe.Pointer(&sndbuf)))
+			return f, nil
+		}
 		f.Close()
-		return nil, errno
+		if errno != syscall.EINVAL {
+			return nil, errno
+		}
 	}
-	return f, nil
+	return nil, syscall.EINVAL
 }

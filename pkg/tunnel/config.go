@@ -62,10 +62,10 @@ func NextIndex(existing []catalog.TunnelConfig) int {
 	return 0
 }
 
-// exclusivePort reports whether the tunnel owns its UDP port on this server
+// exclusivePort reports whether the tunnel owns its UDP/TCP port on this server
 // (a second tunnel cannot share it).
 func exclusivePort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
-	return (m.Family == catalog.FamilyUDPCrypt || tc.Method == "wireguard" || tc.Method == "l2tpv3") && tc.Port > 0
+	return (tc.Reverse || m.Family == catalog.FamilyUDPCrypt || tc.Method == "wireguard" || tc.Method == "l2tpv3") && tc.Port > 0
 }
 
 // Normalize validates tc, fills defaults and allocates the subnet, ports and keys that
@@ -97,16 +97,26 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if err := checkIP("this server IP", tc.LocalIP, m.IPv6Underlay); err != nil {
 		return err
 	}
+	if tc.Reverse && tc.Role == "iran" && strings.TrimSpace(tc.RemoteIP) == "" {
+		if m.IPv6Underlay {
+			tc.RemoteIP = "::"
+		} else {
+			tc.RemoteIP = "0.0.0.0"
+		}
+	}
 	if err := checkIP("remote server IP", tc.RemoteIP, m.IPv6Underlay); err != nil {
 		return err
 	}
 
-	if tc.TunLocal4 == "" && tc.TunRemote4 == "" {
-		a, b := fmt.Sprintf("10.77.%d.1", tc.Index), fmt.Sprintf("10.77.%d.2", tc.Index)
-		if tc.Role == "kharej" {
-			a, b = b, a
-		}
-		tc.TunLocal4, tc.TunRemote4 = a, b
+	defA, defB := fmt.Sprintf("10.77.%d.1", tc.Index), fmt.Sprintf("10.77.%d.2", tc.Index)
+	if tc.Role == "kharej" {
+		defA, defB = defB, defA
+	}
+	if strings.TrimSpace(tc.TunLocal4) == "" {
+		tc.TunLocal4 = defA
+	}
+	if strings.TrimSpace(tc.TunRemote4) == "" {
+		tc.TunRemote4 = defB
 	}
 	if err := checkIP("tunnel local IPv4", tc.TunLocal4, false); err != nil {
 		return err
@@ -132,11 +142,15 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		tc.CarrierLocal6, tc.CarrierRemote6 = "", ""
 	}
 
-	if !m.NeedsPort && !m.SupportsFOU {
+	if !tc.Reverse && !m.NeedsPort && !m.SupportsFOU {
 		tc.Port = 0
 	}
-	if m.NeedsPort && tc.Port == 0 {
-		tc.Port = defaultPort(m, tc.Index)
+	if (tc.Reverse || m.NeedsPort) && tc.Port == 0 {
+		if tc.Reverse && !m.NeedsPort {
+			tc.Port = baseUDPPort + tc.Index
+		} else {
+			tc.Port = defaultPort(m, tc.Index)
+		}
 	}
 	if tc.Port < 0 || tc.Port > 65535 {
 		return fmt.Errorf("port must be 0-65535")
@@ -228,8 +242,8 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		if o.Index == tc.Index {
 			return fmt.Errorf("subnet index %d is already used by tunnel %q", tc.Index, o.Name)
 		}
-		if o.TunLocal4 == tc.TunLocal4 {
-			return fmt.Errorf("tunnel address %s is already used by tunnel %q", tc.TunLocal4, o.Name)
+		if o.TunRemote4 == tc.TunRemote4 {
+			return fmt.Errorf("remote tunnel address %s is already used by tunnel %q", tc.TunRemote4, o.Name)
 		}
 		if om, ok := catalog.LookupMethod(o.Method); ok && exclusivePort(o, om) && exclusivePort(*tc, m) && o.Port == tc.Port {
 			return fmt.Errorf("UDP port %d is already used by tunnel %q", tc.Port, o.Name)

@@ -101,7 +101,8 @@ type TunnelConfig struct {
 	Lanes          int      `json:"lanes,omitempty"`
 	RateMbps       int      `json:"rate_mbps,omitempty"`
 	Padding        int      `json:"padding,omitempty"`
-	Ports          []string `json:"ports,omitempty"` // forwarded on the iran side: "443" or "2053=8443"
+	Reverse        bool     `json:"reverse,omitempty"` // kharej initiates the connection to iran
+	Ports          []string `json:"ports,omitempty"`   // forwarded on the iran side: "443" or "2053=8443"
 }
 
 func PeerRole(role string) string {
@@ -182,6 +183,10 @@ func MikroTikCommands(tc TunnelConfig, wgPeerPrivate, wgLocalPublic string) stri
 		return fmt.Sprintf("/interface vxlan add name=vxlan-%s vni=%d port=%d mtu=%d\n/interface vxlan vteps add interface=vxlan-%s remote-ip=%s\n/ip address add address=%s/30 interface=vxlan-%s",
 			n, tc.VNI, tc.Port, tc.MTU, n, tc.LocalIP, tc.TunRemote4, n)
 	case "wireguard":
+		if tc.Reverse && tc.Role == "kharej" {
+			return fmt.Sprintf("/interface wireguard add name=wg-%s listen-port=%d mtu=%d private-key=\"%s\"\n/interface wireguard peers add interface=wg-%s public-key=\"%s\" allowed-address=0.0.0.0/0\n/ip address add address=%s/30 interface=wg-%s",
+				n, tc.Port, tc.MTU, wgPeerPrivate, n, wgLocalPublic, tc.TunRemote4, n)
+		}
 		return fmt.Sprintf("/interface wireguard add name=wg-%s listen-port=%d mtu=%d private-key=\"%s\"\n/interface wireguard peers add interface=wg-%s public-key=\"%s\" endpoint-address=%s endpoint-port=%d allowed-address=0.0.0.0/0 persistent-keepalive=25s\n/ip address add address=%s/30 interface=wg-%s",
 			n, tc.Port, tc.MTU, wgPeerPrivate, n, wgLocalPublic, tc.LocalIP, tc.Port, tc.TunRemote4, n)
 	}

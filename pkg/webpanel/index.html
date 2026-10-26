@@ -264,6 +264,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
       <div><label for="f-remote">Remote server IP</label><input id="f-remote" class="num" required></div>
     </div>
     <div><label for="f-method">Method</label><select id="f-method"></select></div>
+    <div><label><input id="f-reverse" type="checkbox" style="width:auto;margin-right:6px">Reverse tunnel (Kharej initiates connection to Iran)</label></div>
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
       <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
       <p class="hint">listen=target. Leave empty to forward nothing.</p></div>
@@ -276,7 +277,11 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
         </div>
         <div class="grid2">
           <div><label for="f-index">Subnet index (10.77.N.0/30)</label><input id="f-index" type="number" min="1" max="250" placeholder="next free"></div>
-          <div><label for="f-port">UDP port</label><input id="f-port" type="number" min="0" max="65535"></div>
+          <div><label for="f-port">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
+        </div>
+        <div class="grid2">
+          <div><label for="f-tun-iran">Iran local tunnel IPv4</label><input id="f-tun-iran" class="num" placeholder="10.77.N.1"></div>
+          <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
         </div>
         <div class="grid2">
           <div><label for="f-mtu">MTU</label><input id="f-mtu" type="number" min="576" max="9000"></div>
@@ -447,7 +452,7 @@ function renderTunnels(list) {
     const ic = el("div", "icon-sq");
     ic.appendChild(icon("i-link"));
     const title = el("div");
-    title.append(el("div", "name", t.name), el("div", "meth", t.method + " · " + t.role));
+    title.append(el("div", "name", t.name), el("div", "meth", t.method + " · " + t.role + (t.reverse ? " · reverse" : "")));
     top.append(ic, title, el("span", "state " + stateClass(t.state), t.state));
     const info = el("div", "kv");
     kv(info, "Peer", t.remote_ip + (t.port ? " : " + t.port : ""));
@@ -548,18 +553,24 @@ function num(id) {
 
 function syncForm() {
   const m = methods.find(x => x.Name === $("f-method").value);
+  const revIran = $("f-reverse").checked && $("f-role").value === "iran";
+  $("f-remote").required = !revIran;
   $("fwd-wrap").hidden = $("f-role").value !== "iran" || ["sit", "ip6ip6"].includes($("f-method").value);
-  if (m) $("f-remote").placeholder = m.IPv6Underlay ? "IPv6 address" : "203.0.113.10";
+  if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
 }
 $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
+$("f-reverse").onchange = syncForm;
 
 $("create-form").onsubmit = e => {
   e.preventDefault();
   const iran = $("f-role").value === "iran";
+  const tunIran = $("f-tun-iran").value.trim();
+  const tunKharej = $("f-tun-kharej").value.trim();
   const body = {
-    role: $("f-role").value, method: $("f-method").value,
+    role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").checked,
     remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
+    tun_local4: iran ? tunIran : tunKharej, tun_remote4: iran ? tunKharej : tunIran,
     index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"),
     rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"),
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
