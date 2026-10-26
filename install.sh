@@ -73,18 +73,16 @@ fetch_release() {
 use_checkout() {
     local src="$1"
     echo "Installing from ${src}..."
-    if [[ ! -f "${src}/bin/ctunnel-linux-${ARCH}" || ! -f "${src}/bin/ctunnel-engine-linux-${ARCH}" ]]; then
-        if ! command -v go >/dev/null 2>&1; then
-            echo "Go not found; downloading Go ${GO_VERSION}..."
-            curl -fL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${WORK}/go.tgz"
-            rm -rf /usr/local/go && tar -C /usr/local -xzf "${WORK}/go.tgz"
-            export PATH="/usr/local/go/bin:${PATH}"
-        fi
-        echo "Building from source..."
-        (cd "${src}" && mkdir -p bin \
-            && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-linux-${ARCH}" ./cmd/ctunnel \
-            && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-engine-linux-${ARCH}" ./cmd/ctunnel-engine)
+    if ! command -v go >/dev/null 2>&1; then
+        echo "Go not found; downloading Go ${GO_VERSION}..."
+        curl -fL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${WORK}/go.tgz"
+        rm -rf /usr/local/go && tar -C /usr/local -xzf "${WORK}/go.tgz"
+        export PATH="/usr/local/go/bin:${PATH}"
     fi
+    echo "Building from source..."
+    (cd "${src}" && mkdir -p bin \
+        && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-linux-${ARCH}" ./cmd/ctunnel \
+        && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-engine-linux-${ARCH}" ./cmd/ctunnel-engine)
     cp "${src}/bin/ctunnel-linux-${ARCH}" "${src}/bin/ctunnel-engine-linux-${ARCH}" "${src}/scripts/ctunnel-kernel.sh" "${src}"/systemd/*.service "${WORK}/"
 }
 
@@ -92,7 +90,7 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
 script="${BASH_SOURCE[0]:-}"
-if [[ -n "${script}" && -f "${script}" && -f "$(dirname "${script}")/scripts/ctunnel-kernel.sh" ]]; then
+if [[ "${CTUNNEL_LOCAL:-0}" == "1" && -n "${script}" && -f "${script}" && -f "$(dirname "${script}")/scripts/ctunnel-kernel.sh" ]]; then
     use_checkout "$(cd "$(dirname "${script}")" && pwd)"
 else
     fetch_release

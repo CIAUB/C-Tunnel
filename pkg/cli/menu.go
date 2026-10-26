@@ -109,7 +109,17 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	for _, m := range catalog.Methods {
 		if m.Family == families[fam] {
 			methods = append(methods, m)
-			opts = append(opts, MenuOpt{Title: m.Name, Desc: m.Title})
+			title, desc := m.Name, m.Title
+			if reverse {
+				if m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+					title = "frp+" + m.Name
+					desc = "Reverse FRP-Carrier (TLS/TCP) + " + m.Title
+				} else {
+					title = "rev+" + m.Name
+					desc = "Reverse " + m.Title + " (Kharej dials into Iran)"
+				}
+			}
+			opts = append(opts, MenuOpt{Title: title, Desc: desc})
 		}
 	}
 	Header()
@@ -320,7 +330,11 @@ func printStatusTable(st *catalog.Store) {
 		s := tunnel.GetStatus(t)
 		meth := t.Method
 		if t.Reverse {
-			meth += " [R]"
+			if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+				meth = "frp+" + t.Method
+			} else {
+				meth = "rev+" + t.Method
+			}
 		}
 		fmt.Printf(" %-9s %-12s %-6s %-16s %-14s %-6d %-8s %s / %s\n",
 			t.Name, meth, t.Role, t.RemoteIP, t.TunLocal4, t.Port, stateLabel(s),
@@ -732,7 +746,11 @@ func updateMenu() {
 		if err := cmd.Run(); err != nil {
 			Err("Update failed; the installed version is unchanged: " + err.Error())
 		} else {
-			Ok("Updated. Restart ctunnel to use the new version.")
+			Ok("Updated. Launching the new version...")
+			re := exec.Command("/usr/local/bin/ctunnel")
+			re.Stdin, re.Stdout, re.Stderr = os.Stdin, os.Stdout, os.Stderr
+			_ = re.Run()
+			os.Exit(0)
 		}
 	case 2:
 		if r := strings.TrimRight(Ask("GitHub repository URL", repo), "/"); strings.HasPrefix(r, "https://github.com/") {

@@ -210,7 +210,8 @@ func BestSettings(rows []Result, pathMTU int) Best {
 			b.LossPct = 100 * float64(bestRow.Sent-bestRow.Received) / float64(bestRow.Sent)
 		}
 	}
-	if m, ok := catalog.LookupMethod(b.Method); ok && pathMTU > 0 {
+	baseMethod := strings.TrimPrefix(strings.TrimPrefix(b.Method, "frp+"), "rev+")
+	if m, ok := catalog.LookupMethod(baseMethod); ok && pathMTU > 0 {
 		pad := 0
 		if m.Family == catalog.FamilyUDPCrypt {
 			pad = 16

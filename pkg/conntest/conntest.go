@@ -158,6 +158,18 @@ func (r *Responder) resetRowsLocked() {
 		}
 		r.rows = append(r.rows, row)
 	}
+	for _, m := range catalog.Methods {
+		if m.IPv6Underlay || m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
+			continue
+		}
+		r.rows = append(r.rows, Result{
+			Method: "frp+" + m.Name,
+			Family: string(m.Family),
+			Mode:   "REVERSE",
+			Sent:   Probes,
+			Phase:  "speed-queued",
+		})
+	}
 }
 
 func (r *Responder) notifyLocked() {
@@ -628,6 +640,18 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		}
 		rows = append(rows, r)
 	}
+	for _, m := range catalog.Methods {
+		if m.IPv6Underlay || m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
+			continue
+		}
+		rows = append(rows, Result{
+			Method: "frp+" + m.Name,
+			Family: string(m.Family),
+			Mode:   "REVERSE",
+			Sent:   Probes,
+			Phase:  "speed-queued",
+		})
+	}
 	var rowsMu sync.Mutex
 	notify := func() {
 		if progress == nil {
@@ -818,11 +842,14 @@ func stats(v []float64) (avg, jitter float64) {
 	return avg, jitter / float64(len(s))
 }
 
-// AppendReverseResults adds REVERSE mode rows measured over the 4-stream TCP Reverse Carrier
+// AppendReverseResults updates or adds REVERSE mode rows measured over the 4-stream TCP Reverse Carrier
 // (for L2/L3 kernel tunnels) so the user can compare the exact bandwidth of DIRECT vs REVERSE.
 func AppendReverseResults(rows []Result, tcpSent, tcpRecv int, tcpRTT, tcpJitter, tcpDownMbps, tcpUpMbps float64) []Result {
-	out := make([]Result, 0, len(rows)*2)
+	out := make([]Result, 0, len(rows)+16)
 	for _, r := range rows {
+		if r.Mode == "REVERSE" {
+			continue // replaced below with measured values
+		}
 		if r.Mode == "" {
 			r.Mode = "DIRECT"
 		}
@@ -841,7 +868,7 @@ func AppendReverseResults(rows []Result, tcpSent, tcpRecv int, tcpRTT, tcpJitter
 			ratio = 0.85
 		}
 		rev := Result{
-			Method:   m.Name,
+			Method:   "frp+" + m.Name,
 			Family:   string(m.Family),
 			Mode:     "REVERSE",
 			Sent:     tcpSent,
