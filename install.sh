@@ -10,7 +10,9 @@ set -euo pipefail
 
 REPO="${CTUNNEL_REPO:-CIAUB/C-Tunnel}"
 VERSION="${CTUNNEL_VERSION:-latest}"
-GO_VERSION="1.22.12"
+GO_VERSION="${CTUNNEL_GO_VERSION:-}"
+[[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "invalid repository" >&2; exit 1; }
+[[ "$VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "invalid version" >&2; exit 1; }
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -22,6 +24,11 @@ case "$(uname -m)" in
     aarch64|arm64) ARCH="arm64" ;;
     *) die "unsupported architecture $(uname -m) (amd64 and arm64 only)" ;;
 esac
+
+# Serialize package installation and binary/unit replacement across invocations.
+command -v flock >/dev/null 2>&1 || die "install util-linux (flock) first"
+exec 9>/run/ctunnel-install.lock
+flock -w 120 9 || die "another installation is running"
 
 missing=()
 command -v ip >/dev/null 2>&1        || missing+=(iproute2)
@@ -48,20 +55,26 @@ ASSETS=(
 fetch_release() {
     local base a line
     if [[ "${VERSION}" == "latest" ]]; then
-        base="https://github.com/${REPO}/releases/latest/download"
+        # Resolve latest once: all assets must belong to the same immutable tag.
+        local resolved
+        resolved="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")"
+        VERSION="${resolved##*/}"
+        [[ "$VERSION" =~ ^v[0-9][A-Za-z0-9_.-]*$ ]] || die "cannot resolve release tag"
+        base="https://github.com/${REPO}/releases/download/${VERSION}"
     else
         [[ "${VERSION}" == v* ]] || VERSION="v${VERSION}"
         base="https://github.com/${REPO}/releases/download/${VERSION}"
     fi
     echo "Downloading C-Tunnel (${VERSION}) from github.com/${REPO}..."
     for a in SHA256SUMS "${ASSETS[@]}"; do
-        curl -fsSL --retry 3 --connect-timeout 15 "${base}/${a}" -o "${WORK}/${a}" \
+        curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 "${base}/${a}" -o "${WORK}/${a}" \
             || die "download failed: ${base}/${a}"
     done
 
     echo "Verifying SHA-256..."
     for a in "${ASSETS[@]}"; do
-        line="$(grep -F "  ${a}" "${WORK}/SHA256SUMS" | grep -E "  ${a//./\\.}\$" || true)"
+        line="$(awk -v name="$a" '$2 == name && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {print}' "${WORK}/SHA256SUMS")"
+        [[ "$(printf '%s\n' "$line" | wc -l)" -eq 1 ]] || die "duplicate checksum for ${a}"
         [[ -n "${line}" ]] || die "${a} is not listed in SHA256SUMS. Nothing was installed."
         (cd "${WORK}" && echo "${line}" | sha256sum -c --status) \
             || die "checksum mismatch for ${a}: the download is corrupt or was modified. Nothing was installed."
@@ -74,10 +87,21 @@ use_checkout() {
     local src="$1"
     echo "Installing from ${src}..."
     if ! command -v go >/dev/null 2>&1; then
+        if [[ -z "$GO_VERSION" ]]; then
+            local version_info
+            version_info="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 'https://go.dev/VERSION?m=text')"
+            GO_VERSION="${version_info%%$'\n'*}"
+            GO_VERSION="${GO_VERSION#go}"
+        fi
+        [[ "$GO_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Go version"
         echo "Go not found; downloading Go ${GO_VERSION}..."
-        curl -fL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o "${WORK}/go.tgz"
-        rm -rf /usr/local/go && tar -C /usr/local -xzf "${WORK}/go.tgz"
-        export PATH="/usr/local/go/bin:${PATH}"
+        local archive="go${GO_VERSION}.linux-${ARCH}.tar.gz" digest
+        curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 "https://go.dev/dl/${archive}" -o "${WORK}/go.tgz"
+        digest="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 "https://go.dev/dl/${archive}.sha256")"
+        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "invalid Go checksum"
+        printf '%s  %s\n' "$digest" "${WORK}/go.tgz" | sha256sum -c --status || die "Go checksum mismatch"
+        tar -C "$WORK" -xzf "${WORK}/go.tgz"
+        export PATH="${WORK}/go/bin:${PATH}"
     fi
     echo "Building from source..."
     (cd "${src}" && mkdir -p bin \
@@ -96,21 +120,30 @@ else
     fetch_release
 fi
 
-install -m 0755 "${WORK}/ctunnel-linux-${ARCH}" /usr/local/bin/ctunnel
-install -m 0755 "${WORK}/ctunnel-engine-linux-${ARCH}" /usr/local/bin/ctunnel-engine
+# Rename on the same filesystem: running executables remain intact until restart.
+atomic_binary() {
+    local staged
+    staged="$(mktemp "$(dirname "$2")/.ctunnel-install.XXXXXX")"
+    if ! install -m "${3:-0755}" "$1" "$staged" || ! mv -f "$staged" "$2"; then
+        rm -f "$staged"
+        die "cannot install $2"
+    fi
+}
+atomic_binary "${WORK}/ctunnel-linux-${ARCH}" /usr/local/bin/ctunnel
+atomic_binary "${WORK}/ctunnel-engine-linux-${ARCH}" /usr/local/bin/ctunnel-engine
 ln -sf /usr/local/bin/ctunnel /usr/local/bin/c-tunnel
 install -d -m 0755 /usr/local/lib/ctunnel
-sed 's/\r$//' "${WORK}/ctunnel-kernel.sh" > /usr/local/lib/ctunnel/ctunnel-kernel
-chmod 0755 /usr/local/lib/ctunnel/ctunnel-kernel
+sed 's/\r$//' "${WORK}/ctunnel-kernel.sh" > "${WORK}/kernel-normalized"
+atomic_binary "${WORK}/kernel-normalized" /usr/local/lib/ctunnel/ctunnel-kernel
 for unit in ctunnel@.service ctunnel-engine@.service ctunnel-panel.service; do
-    sed 's/\r$//' "${WORK}/${unit}" > "/etc/systemd/system/${unit}"
-    chmod 0644 "/etc/systemd/system/${unit}"
+    sed 's/\r$//' "${WORK}/${unit}" > "${WORK}/unit-normalized"
+    atomic_binary "${WORK}/unit-normalized" "/etc/systemd/system/${unit}" 0644
 done
 install -d -m 0700 /etc/ctunnel /etc/ctunnel/tunnels
 systemctl daemon-reload
 
 # Pick up the new engine and panel binaries on update.
-systemctl try-restart 'ctunnel-engine@*.service' ctunnel-panel.service 2>/dev/null || true
+systemctl try-restart 'ctunnel-engine@*.service' ctunnel-panel.service || die "files installed, but service restart failed; inspect journalctl"
 
 echo
 echo "C-Tunnel $(/usr/local/bin/ctunnel version | awk '{print $2}') installed."
