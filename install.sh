@@ -35,6 +35,9 @@ command -v ip >/dev/null 2>&1        || missing+=(iproute2)
 command -v iptables >/dev/null 2>&1  || missing+=(iptables)
 command -v curl >/dev/null 2>&1      || missing+=(curl)
 command -v sha256sum >/dev/null 2>&1 || missing+=(coreutils)
+if ! command -v go >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
+    missing+=(python3)
+fi
 if [[ "${#missing[@]}" -gt 0 ]]; then
     command -v apt-get >/dev/null 2>&1 || die "please install: ${missing[*]}"
     echo "Installing ${missing[*]}..."
@@ -82,26 +85,62 @@ fetch_release() {
     echo "All ${#ASSETS[@]} files verified."
 }
 
+# Go publishes archive hashes in its download JSON, not per-archive .sha256 files.
+bootstrap_go() {
+    local metadata_url='https://go.dev/dl/?mode=json' selection archive digest
+    if [[ -n "$GO_VERSION" ]]; then
+        [[ "$GO_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Go version"
+        metadata_url+='&include=all'
+    fi
+    curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 "$metadata_url" -o "${WORK}/go-releases.json"
+    selection="$(python3 - "${WORK}/go-releases.json" "$GO_VERSION" "$ARCH" <<'PYTHON'
+import json
+import re
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as stream:
+        releases = json.load(stream)
+    requested, arch = sys.argv[2:]
+    for release in releases:
+        version = release["version"]
+        if requested:
+            if version != "go" + requested:
+                continue
+        elif not release.get("stable"):
+            continue
+        if not re.fullmatch(r"go[0-9]+\.[0-9]+\.[0-9]+", version):
+            continue
+        filename = f"{version}.linux-{arch}.tar.gz"
+        for asset in release["files"]:
+            if asset.get("filename") != filename or asset.get("kind") != "archive":
+                continue
+            digest = asset.get("sha256", "")
+            if not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError("invalid Go SHA-256 in download metadata")
+            print(version[2:], digest)
+            sys.exit(0)
+    raise ValueError("requested Linux Go archive not found in download metadata")
+except (OSError, ValueError, TypeError, KeyError) as error:
+    print(f"Go download metadata: {error}", file=sys.stderr)
+    sys.exit(1)
+PYTHON
+)" || die "cannot select a verified Go archive"
+    read -r GO_VERSION digest <<< "$selection"
+    archive="go${GO_VERSION}.linux-${ARCH}.tar.gz"
+    echo "Go not found; downloading Go ${GO_VERSION}..."
+    curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 "https://go.dev/dl/${archive}" -o "${WORK}/go.tgz"
+    printf '%s  %s\n' "$digest" "${WORK}/go.tgz" | sha256sum -c --status || die "Go checksum mismatch"
+    tar -C "$WORK" -xzf "${WORK}/go.tgz"
+    export PATH="${WORK}/go/bin:${PATH}"
+}
+
 # use_checkout lays out a local source tree like a release, building binaries if needed.
 use_checkout() {
     local src="$1"
     echo "Installing from ${src}..."
     if ! command -v go >/dev/null 2>&1; then
-        if [[ -z "$GO_VERSION" ]]; then
-            local version_info
-            version_info="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 'https://go.dev/VERSION?m=text')"
-            GO_VERSION="${version_info%%$'\n'*}"
-            GO_VERSION="${GO_VERSION#go}"
-        fi
-        [[ "$GO_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Go version"
-        echo "Go not found; downloading Go ${GO_VERSION}..."
-        local archive="go${GO_VERSION}.linux-${ARCH}.tar.gz" digest
-        curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 "https://go.dev/dl/${archive}" -o "${WORK}/go.tgz"
-        digest="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 "https://go.dev/dl/${archive}.sha256")"
-        [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "invalid Go checksum"
-        printf '%s  %s\n' "$digest" "${WORK}/go.tgz" | sha256sum -c --status || die "Go checksum mismatch"
-        tar -C "$WORK" -xzf "${WORK}/go.tgz"
-        export PATH="${WORK}/go/bin:${PATH}"
+        bootstrap_go
     fi
     echo "Building from source..."
     (cd "${src}" && mkdir -p bin \
