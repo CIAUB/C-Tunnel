@@ -3,11 +3,16 @@ Description=C-Tunnel web panel
 After=network-online.target
 Wants=network-online.target
 
+StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/ctunnel panel
 Restart=always
-RestartSec=3
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=30
+LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
