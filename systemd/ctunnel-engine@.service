@@ -3,15 +3,18 @@ Description=C-Tunnel engine tunnel %i
 After=network-online.target
 Wants=network-online.target
 
+StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 ExecStartPre=/usr/local/lib/ctunnel/ctunnel-kernel up %i
 ExecStart=/usr/local/bin/ctunnel-engine -config /etc/ctunnel/tunnels/%i.env
 ExecStopPost=/usr/local/lib/ctunnel/ctunnel-kernel down %i
 Restart=always
-RestartSec=2
-Nice=-10
-LimitNOFILE=65536
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=30
+LimitNOFILE=1048576
 LimitMEMLOCK=infinity
 
 [Install]

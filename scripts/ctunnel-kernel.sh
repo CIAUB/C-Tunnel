@@ -7,7 +7,7 @@ set -euo pipefail
 
 CT_DIR="${CT_DIR:-/etc/ctunnel}"
 CT_TUNNELS_DIR="${CT_DIR}/tunnels"
-CT_SYSCTL="/etc/sysctl.d/99-ctunnel.conf"
+CT_SYSCTL="${CT_SYSCTL:-/etc/sysctl.d/99-ctunnel.conf}"
 
 log() { echo "ctunnel-kernel: $*"; }
 die() { echo "ctunnel-kernel: error: $*" >&2; exit 1; }
@@ -23,6 +23,9 @@ load_env() {
     INDEX="${INDEX:-1}" PORT="${PORT:-0}" LANES="${LANES:-1}" GRE_KEY="${GRE_KEY:-0}" RATE_MBIT="${RATE_MBIT:-0}"
     REVERSE="${REVERSE:-0}" FORWARDS="${FORWARDS:-}"
 }
+
+# Wait for the xtables lock rather than losing rules during concurrent updates.
+iptables() { command iptables -w 10 "$@"; }
 
 modload() { local m; for m in "$@"; do modprobe "${m}" 2>/dev/null || true; done; }
 
@@ -57,7 +60,7 @@ fw_comment() { echo "ctunnel:${NAME}"; }
 fw_clear() {
     local table rule tag
     tag="$(fw_comment)"
-    command -v iptables >/dev/null 2>&1 || return 0
+    type -P iptables >/dev/null 2>&1 || return 0
     for table in raw filter nat mangle; do
         while read -r rule; do
             [[ -n "${rule}" ]] || continue
@@ -69,7 +72,7 @@ fw_clear() {
 }
 
 fw_apply() {
-    command -v iptables >/dev/null 2>&1 || { log "iptables not found: skipping MSS clamp and port forwards"; return 0; }
+    type -P iptables >/dev/null 2>&1 || { log "iptables not found: skipping MSS clamp and port forwards"; return 0; }
     local tag d entry src dst p
     tag="$(fw_comment)"
     if [[ "${LOCAL_IP}" != *:* && "${REMOTE_IP}" != *:* && "${REMOTE_IP}" != "0.0.0.0" ]]; then
@@ -314,36 +317,49 @@ cmd_down() {
 }
 
 cmd_optimize() {
-    modload tcp_bbr
-    cat > "${CT_SYSCTL}" << 'EOF'
+    modload tcp_bbr sch_fq
+    local congestion available tmp key value errors=0
+    congestion="$(sysctl -n net.ipv4.tcp_congestion_control)"
+    available="$(sysctl -n net.ipv4.tcp_available_congestion_control)"
+    if [[ " $available " == *" bbr "* ]]; then congestion=bbr; fi
+    tmp="$(mktemp "${CT_SYSCTL}.XXXXXX")"
+    # Maximums permit large BDP flows; defaults do not reserve 16 MiB per socket.
+    cat > "$tmp" << EOF
 net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
+net.ipv4.tcp_congestion_control = ${congestion}
 net.ipv4.ip_forward = 1
 net.ipv6.conf.all.forwarding = 1
 net.ipv4.fib_multipath_hash_policy = 1
 net.core.rmem_max = 67108864
 net.core.wmem_max = 67108864
-net.core.rmem_default = 16777216
-net.core.wmem_default = 16777216
-net.core.optmem_max = 2097152
-net.core.netdev_max_backlog = 32768
-net.core.netdev_budget = 600
-net.core.netdev_budget_usecs = 8000
+net.core.rmem_default = 212992
+net.core.wmem_default = 212992
+net.core.netdev_max_backlog = 16384
 net.core.somaxconn = 16384
-net.ipv4.tcp_rmem = 4096 87380 33554432
+net.ipv4.tcp_rmem = 4096 131072 33554432
 net.ipv4.tcp_wmem = 4096 65536 33554432
-net.ipv4.udp_rmem_min = 65536
-net.ipv4.udp_wmem_min = 65536
 net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_fastopen = 3
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_notsent_lowat = 131072
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
-net.netfilter.nf_conntrack_max = 1048576
 EOF
-    sysctl -q -p "${CT_SYSCTL}" 2>/dev/null || sysctl --system >/dev/null 2>&1 || true
-    log "applied ${CT_SYSCTL} (BBR + fq, 64 MB socket buffers, forwarding)"
+    chmod 0644 "$tmp"
+    # Persist only keys this kernel provides (IPv6 may be disabled).
+    while IFS='=' read -r key value; do
+        key="${key// /}"
+        [[ -n "$key" ]] || continue
+        if ! sysctl -n "$key" >/dev/null 2>&1; then
+            log "unsupported key skipped: $key"
+            continue
+        fi
+        printf '%s =%s\n' "$key" "$value"
+    done < "$tmp" > "${tmp}.supported"
+    if [[ -f "$CT_SYSCTL" ]]; then cp -p "$CT_SYSCTL" "${CT_SYSCTL}.bak.$(date +%s)"; fi
+    mv -f "${tmp}.supported" "$CT_SYSCTL"
+    rm -f "$tmp"
+    # Report permission/module failures; never apply unrelated administrator files.
+    sysctl -q -p "$CT_SYSCTL" || errors=1
+    [[ "$errors" -eq 0 ]] || die "some sysctl settings failed; inspect ${CT_SYSCTL}"
+    log "applied ${CT_SYSCTL} (${congestion}; socket maximum 64 MiB, conservative defaults)"
 }
 
 cmd_doctor() {
@@ -357,6 +373,18 @@ cmd_doctor() {
     echo "info  ip_forward=$(sysctl -n net.ipv4.ip_forward 2>/dev/null || echo ?)"
     echo "info  congestion=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo ?)"
 }
+
+case "${1:-}" in
+    up|down)
+        [[ "${2:-}" =~ ^[a-z0-9][a-z0-9-]{0,8}$ ]] || die "invalid tunnel name"
+        exec 9>"/run/ctunnel-${2}.lock"
+        flock -w 30 9 || die "tunnel operation already running"
+        ;;
+    optimize)
+        exec 9>/run/ctunnel-optimize.lock
+        flock -w 30 9 || die "optimization already running"
+        ;;
+esac
 
 case "${1:-}" in
     up)       cmd_up "${2:?tunnel name required}" ;;
