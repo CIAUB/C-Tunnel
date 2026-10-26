@@ -96,7 +96,8 @@ const (
 	ctlCountStart = 'U' // reset the upload counter for a method
 	ctlCountRead  = 'R' // read the upload counter
 	ctlSend       = 'D' // stream a method to the requester for duration
-	ctlReport     = 'F' // final test report sent from kharej to iran
+	ctlReport     = 'F' // one chunk of the final report, kharej → iran
+	ctlRow        = 'W' // one measured row, kharej → iran, so both boards match
 )
 
 // Report carries the completed results and best settings from kharej to the iran responder.
@@ -123,6 +124,7 @@ type Responder struct {
 	rows     []Result
 	probeRow []int
 	seenEcho map[[2]int]bool
+	chunks   map[uint32][][]byte // report id → chunks received so far
 	onUpdate Progress
 	onReport func(Report)
 }
@@ -158,18 +160,6 @@ func (r *Responder) resetRowsLocked() {
 		}
 		r.rows = append(r.rows, row)
 	}
-	for _, m := range catalog.Methods {
-		if m.IPv6Underlay || m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
-			continue
-		}
-		r.rows = append(r.rows, Result{
-			Method: "frp+" + m.Name,
-			Family: string(m.Family),
-			Mode:   "REVERSE",
-			Sent:   Probes,
-			Phase:  "speed-queued",
-		})
-	}
 }
 
 func (r *Responder) notifyLocked() {
@@ -193,7 +183,7 @@ func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error
 	_ = uc.SetReadBuffer(8 << 20)
 	_ = uc.SetWriteBuffer(8 << 20)
 	r := &Responder{UDPAddr: uc.LocalAddr().String(), token: token, ps: probes(), udp: uc,
-		raw: map[int]net.PacketConn{}, counts: map[int]int64{}, nonces: map[uint32]bool{}}
+		raw: map[int]net.PacketConn{}, counts: map[int]int64{}, nonces: map[uint32]bool{}, chunks: map[uint32][][]byte{}}
 	conns := []net.PacketConn{uc}
 	for _, p := range RawProtocols {
 		pc, err := net.ListenPacket(fmt.Sprintf("ip4:%d", p), "0.0.0.0")
@@ -275,29 +265,72 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	cmd, idx := pkt[o], int(pkt[o+1])
 	dur := time.Duration(binary.BigEndian.Uint16(pkt[o+2:o+4])) * time.Millisecond
 	nonce := binary.BigEndian.Uint32(pkt[o+4 : o+8])
-	if cmd == ctlReport {
-		var rep Report
-		zr, err := zlib.NewReader(bytes.NewReader(pkt[o+8 : len(pkt)-tokenLen]))
-		if err == nil {
-			raw, _ := io.ReadAll(zr)
-			_ = zr.Close()
-			if json.Unmarshal(raw, &rep) == nil {
-				rep.Peer = from.IP.String()
-				r.mu.Lock()
-				seen := r.nonces[nonce]
-				r.nonces[nonce] = true
-				cb := r.onReport
-				r.mu.Unlock()
-				if !seen && cb != nil {
-					go cb(rep)
-				}
-			}
-		}
+	ack := func() {
 		reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
 		reply = append(reply, pkt[:o+8]...)
 		reply = binary.BigEndian.AppendUint64(reply, 0)
 		reply = append(reply, r.token...)
 		_, _ = r.udp.WriteTo(reply, from)
+	}
+	body := pkt[o+8 : len(pkt)-tokenLen]
+	switch cmd {
+	case ctlRow:
+		var row Result
+		if json.Unmarshal(body, &row) == nil {
+			r.mu.Lock()
+			for i := range r.rows {
+				if r.rows[i].Method == row.Method {
+					r.rows[i] = row
+					r.notifyLocked()
+					break
+				}
+			}
+			r.mu.Unlock()
+		}
+		ack()
+		return
+	case ctlReport:
+		// The report is split into chunks small enough to never fragment; idx is the
+		// chunk number and the duration field carries the chunk count.
+		total := int(binary.BigEndian.Uint16(pkt[o+2 : o+4]))
+		if total == 0 || total > 255 || idx >= total {
+			return
+		}
+		r.mu.Lock()
+		var done []byte
+		if !r.nonces[nonce] {
+			parts := r.chunks[nonce]
+			if parts == nil {
+				parts = make([][]byte, total)
+				r.chunks[nonce] = parts
+			}
+			if len(parts) == total && parts[idx] == nil {
+				parts[idx] = append([]byte{}, body...)
+				complete := true
+				for _, c := range parts {
+					complete = complete && c != nil
+				}
+				if complete {
+					r.nonces[nonce] = true
+					delete(r.chunks, nonce)
+					done = bytes.Join(parts, nil)
+				}
+			}
+		}
+		cb := r.onReport
+		r.mu.Unlock()
+		ack()
+		if done != nil {
+			var rep Report
+			if zr, err := zlib.NewReader(bytes.NewReader(done)); err == nil {
+				raw, _ := io.ReadAll(io.LimitReader(zr, 1<<20))
+				_ = zr.Close()
+				if json.Unmarshal(raw, &rep) == nil && cb != nil {
+					rep.Peer = from.IP.String()
+					go cb(rep)
+				}
+			}
+		}
 		return
 	}
 	if idx >= len(r.ps) || dur > 5*time.Second {
@@ -316,11 +349,6 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		}
 	case ctlCountRead:
 		count = r.counts[idx]
-		if len(r.rows) > 0 {
-			ri := r.probeRow[idx]
-			r.rows[ri].UpMbps = float64(count) * 8 / speedDuration.Seconds() / 1e6
-			r.notifyLocked()
-		}
 	case ctlSend:
 		if !r.nonces[nonce] {
 			r.nonces[nonce] = true
@@ -331,17 +359,9 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 				dst, conn = &net.IPAddr{IP: from.IP}, r.raw[p.proto]
 			}
 			if conn != nil {
-				go func() {
-					sent := stream(conn, dst, p, idx, kindDownload, r.token, dur)
-					r.mu.Lock()
-					if len(r.rows) > 0 && dur > 0 {
-						ri := r.probeRow[idx]
-						r.rows[ri].DownMbps = float64(sent) * 8 / dur.Seconds() / 1e6
-						r.rows[ri].Phase = ""
-						r.notifyLocked()
-					}
-					r.mu.Unlock()
-				}()
+				// What arrives is counted by kharej and synced back with ctlRow;
+				// bytes sent here say nothing about what got through.
+				go stream(conn, dst, p, idx, kindDownload, r.token, dur)
 			}
 		}
 	}
@@ -640,18 +660,6 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		}
 		rows = append(rows, r)
 	}
-	for _, m := range catalog.Methods {
-		if m.IPv6Underlay || m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
-			continue
-		}
-		rows = append(rows, Result{
-			Method: "frp+" + m.Name,
-			Family: string(m.Family),
-			Mode:   "REVERSE",
-			Sent:   Probes,
-			Phase:  "speed-queued",
-		})
-	}
 	var rowsMu sync.Mutex
 	notify := func() {
 		if progress == nil {
@@ -716,6 +724,9 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	}
 	rowsMu.Unlock()
 	notify()
+	for i := range rows {
+		s.syncRow(ctx, rows[i])
+	}
 
 	// Phase 2: throughput of every method that answered all echoes, one at a time.
 	for i := range s.ps {
@@ -724,14 +735,18 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		}
 		rowsMu.Lock()
 		rows[probeRow[i]].Phase = "speed"
+		cur := rows[probeRow[i]]
 		rowsMu.Unlock()
 		notify()
+		s.syncRow(ctx, cur)
 		up, down := s.throughput(ctx, i)
 		rowsMu.Lock()
 		rows[probeRow[i]].UpMbps, rows[probeRow[i]].DownMbps = up, down
 		rows[probeRow[i]].Phase = ""
+		done := rows[probeRow[i]]
 		rowsMu.Unlock()
 		notify()
+		s.syncRow(ctx, done)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -748,10 +763,17 @@ const (
 func (s *session) control(ctx context.Context, cmd byte, idx int, dur time.Duration) (int64, bool) {
 	var nonce [4]byte
 	_, _ = rand.Read(nonce[:])
+	return s.controlMsg(ctx, cmd, idx, uint16(dur/time.Millisecond), nonce, nil)
+}
+
+// controlMsg sends one control message with an optional payload and waits for the
+// reply that echoes its nonce and index, retrying on loss.
+func (s *session) controlMsg(ctx context.Context, cmd byte, idx int, arg uint16, nonce [4]byte, payload []byte) (int64, bool) {
 	msg := []byte(ctlMagic)
 	msg = append(msg, cmd, byte(idx))
-	msg = binary.BigEndian.AppendUint16(msg, uint16(dur/time.Millisecond))
+	msg = binary.BigEndian.AppendUint16(msg, arg)
 	msg = append(msg, nonce[:]...)
+	msg = append(msg, payload...)
 	msg = append(msg, s.token...)
 	for attempt := 0; attempt < 4; attempt++ {
 		_, _ = s.udp.WriteTo(msg, s.udpDst)
@@ -763,7 +785,7 @@ func (s *session) control(ctx context.Context, cmd byte, idx int, dur time.Durat
 			case <-deadline:
 			case r := <-s.ctl:
 				o := len(ctlMagic)
-				if len(r) >= o+16 && string(r[o+4:o+8]) == string(nonce[:]) {
+				if len(r) >= o+16 && r[o] == cmd && r[o+1] == byte(idx) && string(r[o+4:o+8]) == string(nonce[:]) {
 					return int64(binary.BigEndian.Uint64(r[o+8 : o+16])), true
 				}
 				continue
@@ -842,45 +864,16 @@ func stats(v []float64) (avg, jitter float64) {
 	return avg, jitter / float64(len(s))
 }
 
-// AppendReverseResults updates or adds REVERSE mode rows measured over the 4-stream TCP Reverse Carrier
-// (for L2/L3 kernel tunnels) so the user can compare the exact bandwidth of DIRECT vs REVERSE.
-func AppendReverseResults(rows []Result, tcpSent, tcpRecv int, tcpRTT, tcpJitter, tcpDownMbps, tcpUpMbps float64) []Result {
-	out := make([]Result, 0, len(rows)+16)
-	for _, r := range rows {
-		if r.Mode == "REVERSE" {
-			continue // replaced below with measured values
-		}
-		if r.Mode == "" {
-			r.Mode = "DIRECT"
-		}
-		out = append(out, r)
+// syncRow mirrors one row to the iran responder so its live board shows the same
+// latency, download and upload as kharej (only kharej knows what arrived here).
+func (s *session) syncRow(ctx context.Context, r Result) {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return
 	}
-	if tcpSent <= 0 {
-		tcpSent = Probes
-	}
-	for _, m := range catalog.Methods {
-		if m.IPv6Underlay || m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
-			continue
-		}
-		// Reverse Carrier uses 1460 inner MTU with 29B TLS 1.2 + AES-GCM record framing + method's inner header overhead.
-		ratio := float64(1460-m.Overhead-29) / 1460.0
-		if ratio < 0.5 {
-			ratio = 0.85
-		}
-		rev := Result{
-			Method:   "frp+" + m.Name,
-			Family:   string(m.Family),
-			Mode:     "REVERSE",
-			Sent:     tcpSent,
-			Received: tcpRecv,
-			RTTms:    tcpRTT,
-			JitterMs: tcpJitter,
-			DownMbps: tcpDownMbps * ratio,
-			UpMbps:   tcpUpMbps * ratio,
-		}
-		out = append(out, rev)
-	}
-	return out
+	var nonce [4]byte
+	_, _ = rand.Read(nonce[:])
+	_, _ = s.controlMsg(ctx, ctlRow, 0, 0, nonce, b)
 }
 
 // Recommend picks the method that answered every probe with the highest total speed.
@@ -940,23 +933,44 @@ func SendReport(ctx context.Context, l Link, rows []Result, best Best) {
 
 	var nonce [4]byte
 	_, _ = rand.Read(nonce[:])
-	msg := make([]byte, 0, len(ctlMagic)+8+zbuf.Len()+tokenLen)
-	msg = append(msg, ctlMagic...)
-	msg = append(msg, ctlReport, 0, 0, 0)
-	msg = append(msg, nonce[:]...)
-	msg = append(msg, zbuf.Bytes()...)
-	msg = append(msg, token...)
-
 	dst := &net.UDPAddr{IP: net.ParseIP(l.Host), Port: l.UDPPort}
+	data := zbuf.Bytes()
+	chunks := (len(data) + reportChunk - 1) / reportChunk
+	if chunks > 255 {
+		return
+	}
 	buf := make([]byte, 256)
-	for attempt := 0; attempt < 4; attempt++ {
-		if ctx.Err() != nil {
-			return
+	for c := 0; c < chunks; c++ {
+		part := data[c*reportChunk : min(len(data), (c+1)*reportChunk)]
+		msg := make([]byte, 0, len(ctlMagic)+8+len(part)+tokenLen)
+		msg = append(msg, ctlMagic...)
+		msg = append(msg, ctlReport, byte(c))
+		msg = binary.BigEndian.AppendUint16(msg, uint16(chunks))
+		msg = append(msg, nonce[:]...)
+		msg = append(msg, part...)
+		msg = append(msg, token...)
+		acked := false
+		for attempt := 0; attempt < 6 && !acked; attempt++ {
+			if ctx.Err() != nil {
+				return
+			}
+			_, _ = uc.WriteTo(msg, dst)
+			_ = uc.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
+			for !acked {
+				n, _, err := uc.ReadFrom(buf)
+				if err != nil {
+					break
+				}
+				o := len(ctlMagic)
+				acked = n >= o+8 && buf[o] == ctlReport && buf[o+1] == byte(c) && string(buf[o+4:o+8]) == string(nonce[:])
+			}
 		}
-		_, _ = uc.WriteTo(msg, dst)
-		_ = uc.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
-		if n, _, err := uc.ReadFrom(buf); err == nil && n >= len(ctlMagic)+8 && string(buf[len(ctlMagic)+4:len(ctlMagic)+8]) == string(nonce[:]) {
+		if !acked {
 			return
 		}
 	}
 }
+
+// reportChunk keeps every report packet far below any tunnel or PPPoE MTU, so it
+// never needs IP fragmentation (fragments are often dropped on filtered paths).
+const reportChunk = 900

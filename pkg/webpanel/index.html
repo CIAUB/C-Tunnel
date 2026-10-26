@@ -120,10 +120,11 @@ a.btn { text-decoration: none; color: inherit; }
 .empty { grid-column: 1 / -1; padding: 56px 16px; text-align: center; color: var(--mu); }
 .tun { padding: 18px; display: grid; gap: 14px; }
 .tun-top { display: flex; align-items: center; gap: 12px; }
-.tun-top .name { font-weight: 660; font-size: 16px; }
+.tun-top > div:nth-child(2) { flex: 1; min-width: 0; }
+.tun-top .name { font-weight: 660; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tun-top .meth { font-size: 12.5px; color: var(--mu); }
-.state { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--s3); color: var(--mu); }
-.state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.state { margin-left: auto; flex-shrink: 0; max-width: 46%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--s3); color: var(--mu); }
+.state::before { flex-shrink: 0; content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .state.up { color: var(--ok); background: rgba(34,197,94,.1); }
 .state.warn { color: var(--wr); background: rgba(245,158,11,.1); }
 .state.bad { color: var(--er); background: rgba(239,68,68,.1); }
@@ -138,7 +139,9 @@ dialog.wide { width: min(760px, calc(100vw - 24px)); }
 dialog::backdrop { background: rgba(0,0,0,.6); backdrop-filter: blur(4px); }
 dialog form, dialog > div { padding: 22px; display: grid; gap: 16px; }
 dialog h3 { font-size: 17px; font-weight: 650; }
-dialog .foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+dialog form { padding-bottom: 0; }
+dialog .foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; z-index: 2; margin: 0 -22px; padding: 14px 22px 22px; background: var(--s1); border-radius: 0 0 var(--r-lg) var(--r-lg); }
+dialog > div .foot { margin-bottom: -22px; }
 details summary { cursor: pointer; color: var(--mu); font-size: 13px; }
 details[open] summary { margin-bottom: 14px; }
 pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: var(--r-sm); padding: 12px 14px; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all; color: var(--tx2); max-height: 40vh; overflow: auto; }
@@ -155,6 +158,8 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
   .shell { padding: 14px 12px 40px; gap: 14px; }
   .btn.tg { width: 46px; padding: 0; }
   .btn.tg span { display: none; }
+  .section-head .acts { margin-left: 0; width: 100%; }
+  .section-head .acts .btn { flex: 1; }
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .stat { padding: 14px; gap: 10px; }
   .stat .icon-sq { width: 34px; height: 34px; }
@@ -201,7 +206,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
       <input id="login-code" type="password" autocomplete="current-password" required>
     </div>
     <button class="btn primary" type="submit">Log in</button>
-    <a class="tg-link" href="https://t.me/CiAUB" target="_blank" rel="noopener noreferrer"><svg><use href="#i-tg"/></svg>Telegram channel: @CiAUB</a>
+    <a class="tg-link" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer"><svg><use href="#i-tg"/></svg>Telegram channel: @CiAUB_CH</a>
   </form>
 </main>
 
@@ -216,7 +221,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
       <div class="fact"><div class="k">Version</div><div id="h-ver" class="num">—</div></div>
     </div>
     <div class="hdr-acts">
-    <a class="btn tg" href="https://t.me/CiAUB" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg><use href="#i-tg"/></svg><span>Telegram</span></a>
+    <a class="btn tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg><use href="#i-tg"/></svg><span>Telegram</span></a>
     <div class="menu-wrap">
       <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-gear"/></svg></button>
       <div id="menu" class="menu" hidden>
@@ -456,10 +461,12 @@ function renderTunnels(list) {
     ic.appendChild(icon("i-link"));
     const title = el("div");
     title.append(el("div", "name", t.name), el("div", "meth", t.method + " · " + t.role + (t.reverse ? " · reverse" : "")));
-    top.append(ic, title, el("span", "state " + stateClass(t.state), t.state));
+    const st = el("span", "state " + stateClass(t.state), t.state);
+    st.title = t.state;
+    top.append(ic, title, st);
     const info = el("div", "kv");
     kv(info, "Peer", t.remote_ip + (t.port ? " : " + t.port : ""));
-    kv(info, "Tunnel IP", t.tun_local4 + " → " + t.tun_remote4);
+    kv(info, "Tunnel IP", t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—");
     kv(info, "Forwards", (t.ports || []).join(", ") || "—");
     kv(info, "RX / TX", bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes));
     const row = el("div", "row");
@@ -556,6 +563,15 @@ function num(id) {
 
 function syncForm() {
   const m = methods.find(x => x.Name === $("f-method").value);
+  const rev = $("f-reverse").value === "1";
+  for (const o of $("f-method").options) {
+    const mm = methods.find(x => x.Name === o.value);
+    o.hidden = o.disabled = rev && !!(mm && mm.IPv6Underlay);
+  }
+  if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) {
+    $("f-method").value = "gre";
+    return syncForm();
+  }
   const revIran = $("f-reverse").value === "1" && $("f-role").value === "iran";
   $("f-remote").required = !revIran;
   $("fwd-wrap").hidden = $("f-role").value !== "iran" || ["sit", "ip6ip6"].includes($("f-method").value);

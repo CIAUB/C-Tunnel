@@ -73,8 +73,13 @@ fw_apply() {
     local tag d entry src dst p
     tag="$(fw_comment)"
     if [[ "${LOCAL_IP}" != *:* && "${REMOTE_IP}" != *:* && "${REMOTE_IP}" != "0.0.0.0" ]]; then
-        iptables -t raw -A PREROUTING -s "${REMOTE_IP}/32" -m comment --comment "${tag}" -j CT --notrack 2>/dev/null || true
-        iptables -t raw -A OUTPUT -d "${REMOTE_IP}/32" -m comment --comment "${tag}" -j CT --notrack 2>/dev/null || true
+        # Skip conntrack only for the raw tunnel protocols. Untracking every packet of the
+        # peer would also untrack SSH, the TCP carrier and UDP replies, which a stateful
+        # firewall (ufw, firewalld) then drops as not ESTABLISHED.
+        for p in 4 41 47 50 97 115; do
+            iptables -t raw -A PREROUTING -s "${REMOTE_IP}/32" -p "${p}" -m comment --comment "${tag}" -j CT --notrack 2>/dev/null || true
+            iptables -t raw -A OUTPUT -d "${REMOTE_IP}/32" -p "${p}" -m comment --comment "${tag}" -j CT --notrack 2>/dev/null || true
+        done
     fi
     while read -r d; do
         iptables -t mangle -A FORWARD -o "${d}" -p tcp --tcp-flags SYN,RST SYN \
@@ -190,7 +195,7 @@ cmd_up() {
                 local rev_local="172.31.${INDEX}.1" rev_remote="172.31.${INDEX}.2"
                 [[ "${ROLE}" == "kharej" ]] && { rev_local="172.31.${INDEX}.2"; rev_remote="172.31.${INDEX}.1"; }
                 ip tuntap add dev "${DEV}-r" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}-r" mode tun
-                ip link set dev "${DEV}-r" mtu 1460 txqueuelen 10000 up
+                ip link set dev "${DEV}-r" mtu 9000 txqueuelen 10000 up
                 ip addr add "${rev_local}" peer "${rev_remote}/32" dev "${DEV}-r"
                 LOCAL_IP="${rev_local}"
                 REMOTE_IP="${rev_remote}"

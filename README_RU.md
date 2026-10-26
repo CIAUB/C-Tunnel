@@ -7,7 +7,7 @@
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
-  <a href="https://t.me/CiAUB"><img src="https://img.shields.io/badge/Telegram-@CiAUB-26A5E4?logo=telegram&logoColor=white" alt="Telegram"></a>
+  <a href="https://t.me/CiAUB_CH"><img src="https://img.shields.io/badge/Telegram-@CiAUB__CH-26A5E4?logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
 <p align="center">
@@ -188,6 +188,18 @@ TCP upload       431.0 Mbps     4 TCP streams, bytes confirmed by the receiver
 
 На время теста на иранском сервере должны быть открыты UDP 7712, TCP 7711 и IP-протоколы 4, 41, 47, 50, 97 и 115.
 
+### Режим REVERSE
+
+В режиме REVERSE подключается зарубежный сервер, а иранский только слушает, поэтому Иран никогда не открывает соединение на зарубежный IP.
+
+| Уровень | Как идёт трафик | Лучше всего для |
+|---|---|---|
+| UDP-Crypt (`rev+dtls-1.3`, `rev+quic-v1`…) | kharej шлёт UDP в Иран, те же пакеты, что в DIRECT | каналы с потерями или большой задержкой |
+| WireGuard (`rev+wireguard`) | kharej — клиент WireGuard | MikroTik и обычные клиенты |
+| Ядро L3/L2 (`frp+gre`, `frp+vxlan`…) | внутри 8 параллельных TCP-потоков в виде TLS-записей | чистые каналы, где проходит только TCP |
+
+Каждое внутреннее соединение остаётся в одном потоке и не перемешивается, у каждого потока своя очередь. В нашем тесте скорость TCP-несущей выросла примерно вдвое по сравнению с 0.1.5 (около 390 → 690 Мбит/с на канале 800 Мбит/с). Тест соединения показывает скорость TCP отдельно — это то, что пропускают методы `frp+`.
+
 ## Все методы
 
 <details>
@@ -316,7 +328,7 @@ bash scripts/build-release.sh 0.1.0   # файлы релиза и SHA256SUMS в
 
 ## Сообщество
 
-- Новости, релизы и поддержка: Telegram-канал [@CiAUB](https://t.me/CiAUB)
+- Новости, релизы и поддержка: Telegram-канал [@CiAUB_CH](https://t.me/CiAUB_CH)
 - Ошибки и предложения: [GitHub Issues](https://github.com/CIAUB/C-Tunnel/issues)
 
 <p align="center">

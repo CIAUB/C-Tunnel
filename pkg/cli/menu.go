@@ -89,9 +89,9 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	var fam int
 	if reverse {
 		fam = ChooseOpt("Tunnel Layer (REVERSE)", []MenuOpt{
-			{"L3 kernel", "gre, 6to4, 6to4-gre, ipip, sit, wireguard... over Reverse Carrier"},
-			{"L2 kernel", "eoip, gretap, vxlan, geneve, l2tpv3, etherip over Reverse Carrier"},
-			{"UDP-Crypt", "dtls-1.3, quic-v1, wg-stealth, rudp-fec... Kharej dials UDP to Iran"},
+			{"L3 kernel", "gre, 6to4, ipip, sit... inside the 8-stream TCP carrier; wireguard rides UDP"},
+			{"L2 kernel", "eoip, gretap, vxlan, geneve, l2tpv3, etherip inside the 8-stream TCP carrier"},
+			{"UDP-Crypt", "kharej dials UDP to iran; best on lossy or high-latency links (no TCP-in-TCP)"},
 		})
 	} else {
 		fam = ChooseOpt("Tunnel Layer (DIRECT)", []MenuOpt{
@@ -107,13 +107,13 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	var methods []catalog.MethodSpec
 	var opts []MenuOpt
 	for _, m := range catalog.Methods {
-		if m.Family == families[fam] {
+		if m.Family == families[fam] && !(reverse && m.IPv6Underlay) {
 			methods = append(methods, m)
 			title, desc := m.Name, m.Title
 			if reverse {
 				if m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
 					title = "frp+" + m.Name
-					desc = "Reverse FRP-Carrier (TLS/TCP) + " + m.Title
+					desc = "TCP carrier (8 streams, TLS-shaped) + " + m.Title
 				} else {
 					title = "rev+" + m.Name
 					desc = "Reverse " + m.Title + " (Kharej dials into Iran)"
@@ -509,10 +509,8 @@ func RunConnTest(raw string) error {
 		return err
 	}
 	board.Clear()
-	Info("Measuring REVERSE carrier (4-stream TCP) and Path MTU...")
+	Info("Measuring TCP (what REVERSE kernel tunnels ride on) and path MTU...")
 	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), conntest.Probes)
-	tcpRecv := int(float64(conntest.Probes)*(100.0-sr.LossPct)/100.0 + 0.5)
-	rows = conntest.AppendReverseResults(rows, conntest.Probes, tcpRecv, sr.AvgMs, sr.JitterMs, sr.DownloadMbps, sr.UploadMbps)
 	fmt.Println()
 	fmt.Print(conntest.Verdict(link.Host, rows))
 

@@ -143,7 +143,8 @@ func (s Status) Up() bool { return s.Service == "active" && s.LinkUp }
 func GetStatus(tc catalog.TunnelConfig) Status {
 	var s Status
 	s.Service, _ = Run("systemctl", "is-active", Unit(tc))
-	if s.Service == "" {
+	// is-active prints one word; anything else (no systemd, bus errors) is not a state.
+	if s.Service = strings.TrimSpace(s.Service); s.Service == "" || len(s.Service) > 16 || strings.ContainsAny(s.Service, " \n") {
 		s.Service = "unknown"
 	}
 	dev := Dev(tc.Name)

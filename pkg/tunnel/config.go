@@ -97,6 +97,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if err := checkIP("this server IP", tc.LocalIP, m.IPv6Underlay); err != nil {
 		return err
 	}
+	if tc.Reverse && m.IPv6Underlay {
+		return fmt.Errorf("%s needs an IPv6 path; REVERSE mode works with the IPv4 methods (gre, ipip, vxlan, UDP-Crypt...)", m.Name)
+	}
 	if tc.Reverse && tc.Role == "iran" && strings.TrimSpace(tc.RemoteIP) == "" {
 		if m.IPv6Underlay {
 			tc.RemoteIP = "::"

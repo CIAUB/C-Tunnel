@@ -49,19 +49,19 @@ func modeTag(r Result) string {
 	return "DIRECT"
 }
 
-const rowFormat = "%s      %-10s %-13s %-10s %-9s %-7s %s"
+const rowFormat = "%s      %-10s %-13s %-9s %-7s %-10s %-10s %s"
 
-var boardHeader = fmt.Sprintf("%-7s %-10s %-13s %-10s %-9s %-7s %s", "RESULT", "FAMILY", "METHOD", "MODE", "STATUS", "ECHOES", "PROGRESS")
+var boardHeader = fmt.Sprintf("%-7s %-10s %-13s %-9s %-7s %-10s %-10s %s", "RESULT", "FAMILY", "METHOD", "STATUS", "ECHOES", "DOWNLOAD", "UPLOAD", "PROGRESS")
 
 func row(r Result) string {
 	if r.Skipped != "" {
-		return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, modeTag(r), label(r), "-", r.Skipped)
+		return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), "-", "-", "-", r.Skipped)
 	}
 	done, total := r.Received, Probes
 	if r.Phase == "echo" {
 		done = r.Sent
 	}
-	return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, modeTag(r), label(r), fmt.Sprintf("%d/%d", done, total), bar(float64(done)/float64(total)))
+	return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), fmt.Sprintf("%d/%d", done, total), mbps(r.DownMbps), mbps(r.UpMbps), bar(float64(done)/float64(total)))
 }
 
 func mbps(v float64) string {
@@ -159,14 +159,14 @@ func Verdict(title string, rows []Result) string {
 		b.WriteString(row(r) + "\n")
 	}
 	b.WriteString("\n" + rule() + "\n\nWorks steadily:\n\n")
-	fmt.Fprintf(&b, "   %-13s %-10s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "MODE", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
+	fmt.Fprintf(&b, "   %-13s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
 	n := 0
 	for _, r := range rs {
 		if r.Status() != "ok" {
 			continue
 		}
 		n++
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, modeTag(r), fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
+		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
 			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
 	}
 	if n == 0 {
@@ -253,12 +253,12 @@ func (b Best) String() string {
 	if b.TCPError != "" {
 		row("TCP speed", "-", b.TCPError)
 	} else {
-		row("TCP download", mbps(b.TCPDownload), "4 TCP streams, bytes confirmed by the receiver")
-		row("TCP upload", mbps(b.TCPUpload), "4 TCP streams, bytes confirmed by the receiver")
+		row("TCP download", mbps(b.TCPDownload), "4 TCP streams = REVERSE kernel tunnels (TCP carrier)")
+		row("TCP upload", mbps(b.TCPUpload), "4 TCP streams = REVERSE kernel tunnels (TCP carrier)")
 	}
 	if b.LossPct > 0 && b.Method != "rudp-fec" {
 		row("FEC", "rudp-fec", "the path loses packets")
 	}
-	s.WriteString("\nMethod speeds are measured with packets shaped like that method; the TCP\nrows show what the raw path carries.\n\n" + rule() + "\n")
+	s.WriteString("\nDownload = iran → kharej, Upload = kharej → iran, each counted by the side\nthat received it. REVERSE UDP methods (rev+) send the same packets as their\nrow above; REVERSE kernel methods ride TCP, see the TCP rows.\n\n" + rule() + "\n")
 	return s.String()
 }

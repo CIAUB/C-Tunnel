@@ -2,3 +2,4 @@
 /dist/
 *.test
 *.out
+release.bat

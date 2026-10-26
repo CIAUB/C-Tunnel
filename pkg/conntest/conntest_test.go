@@ -94,3 +94,49 @@ func TestIranResponderReceivesFinalReportFromKharej(t *testing.T) {
 		t.Fatal("timed out waiting for Iran responder to receive final report")
 	}
 }
+
+func TestIranSideGetsSpeedsAndReport(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	l := Link{Host: "127.0.0.1", UDPPort: 0, TokenHex: NewToken()}
+	resp, err := Serve(ctx, 0, l.TokenHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(resp.UDPAddr)
+	l.UDPPort = atoi(port)
+	var iranRows []Result
+	got := make(chan Report, 1)
+	resp.SetCallbacks(func(r []Result) { iranRows = r }, func(r Report) { got <- r })
+	rows, err := Run(ctx, l, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SendReport(ctx, l, rows, BestSettings(rows, 1500))
+	select {
+	case rep := <-got:
+		if len(rep.Rows) != len(rows) {
+			t.Fatalf("report has %d rows, want %d", len(rep.Rows), len(rows))
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("iran never got the report")
+	}
+	time.Sleep(200 * time.Millisecond)
+	for _, r := range iranRows {
+		if r.Method == "dtls-1.3" && (r.DownMbps <= 0 || r.UpMbps <= 0) {
+			t.Fatalf("iran board has no speed for dtls-1.3: %+v", r)
+		}
+	}
+	for _, r := range rows {
+		if strings.HasPrefix(r.Method, "frp+") {
+			t.Fatal("made-up reverse rows are back")
+		}
+	}
+}
+
+func atoi(s string) (n int) {
+	for _, c := range s {
+		n = n*10 + int(c-'0')
+	}
+	return
+}

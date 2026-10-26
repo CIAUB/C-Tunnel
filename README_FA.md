@@ -7,7 +7,7 @@
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
   <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
-  <a href="https://t.me/CiAUB"><img src="https://img.shields.io/badge/Telegram-@CiAUB-26A5E4?logo=telegram&logoColor=white" alt="Telegram"></a>
+  <a href="https://t.me/CiAUB_CH"><img src="https://img.shields.io/badge/Telegram-@CiAUB__CH-26A5E4?logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
 <p align="center">
@@ -186,6 +186,18 @@ TCP upload       431.0 Mbps     4 TCP streams, bytes confirmed by the receiver
 
 در زمان تست، روی سرور ایران پورت UDP 7712، پورت TCP 7711 و پروتکل‌های 4، 41، 47، 50، 97 و 115 باید باز باشند.
 
+### حالت ریورس
+
+در حالت REVERSE سرور خارج به ایران وصل می‌شود و سرور ایران فقط گوش می‌دهد؛ یعنی ایران هیچ‌وقت به آی‌پی خارجی کانکشن نمی‌زند.
+
+| لایه | مسیر | مناسب برای |
+|---|---|---|
+| UDP-Crypt (`rev+dtls-1.3`، `rev+quic-v1`…) | خارج UDP به ایران می‌فرستد، همان بسته‌های DIRECT | لینک‌های پرلاس یا پینگ بالا |
+| WireGuard (`rev+wireguard`) | خارج کلاینت وایرگارد است | میکروتیک و کلاینت‌های معمولی |
+| کرنل L3/L2 (`frp+gre`، `frp+vxlan`…) | داخل ۸ استریم TCP موازی شبیه رکورد TLS | لینک تمیز که فقط TCP رد می‌شود |
+
+هر کانکشن داخلی روی یک استریم می‌ماند تا جابه‌جا نرسد و هر استریم صف خودش را دارد. در تست ما سرعت کریر TCP نسبت به 0.1.5 حدوداً دو برابر شد (از حدود ۳۹۰ به ۶۹۰ مگابیت روی لینک ۸۰۰ مگابیتی). تست اتصال سرعت TCP را جدا نشان می‌دهد؛ همان چیزی است که روش‌های `frp+` می‌برند.
+
 ## همه‌ی روش‌ها
 
 <details>
@@ -314,7 +326,7 @@ bash scripts/build-release.sh 0.1.0   # release files + SHA256SUMS in dist/
 
 ## ارتباط
 
-- اخبار، نسخه‌های جدید و پشتیبانی: کانال تلگرام [@CiAUB](https://t.me/CiAUB)
+- اخبار، نسخه‌های جدید و پشتیبانی: کانال تلگرام [@CiAUB_CH](https://t.me/CiAUB_CH)
 - گزارش باگ و درخواست امکانات: [GitHub Issues](https://github.com/CIAUB/C-Tunnel/issues)
 
 </div>
