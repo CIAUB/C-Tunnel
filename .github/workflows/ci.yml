@@ -16,5 +16,6 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
+      - run: go test -race ./cmd/ctunnel-engine ./pkg/tunnel
       - run: shellcheck install.sh scripts/*.sh
       - run: python3 -m unittest discover -s tests -v
