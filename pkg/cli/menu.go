@@ -77,27 +77,31 @@ func RunInteractiveMenu() {
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
 func chooseMethod() (catalog.MethodSpec, bool, bool) {
-	fam := ChooseOpt("Tunnel Family", []MenuOpt{
-		{"L3 kernel", "6to4, gre, ipip, wireguard, ipsec... fastest, no anti-DPI"},
-		{"L2 kernel", "eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip"},
-		{"UDP-Crypt", "encrypted UDP that looks like DTLS, QUIC, RTP, DNS..."},
-		{"Reverse Tunnel", "Kharej dials into Iran (FRP-style reverse GRE, 6to4, IPIP, UDP-Crypt...)"},
+	mode := ChooseOpt("Tunnel Mode", []MenuOpt{
+		{"Direct Tunnel", "Standard tunnel (Iran connects directly to Kharej)"},
+		{"Reverse Tunnel", "Anti-DPI Reverse (Kharej dials into Iran; hides Kharej IP)"},
 	})
-	if fam == 0 {
+	if mode == 0 {
 		return catalog.MethodSpec{}, false, false
 	}
-	reverse := false
-	if fam == 4 {
-		reverse = true
-		Header()
-		fam = ChooseOpt("Reverse Inner Protocol Family", []MenuOpt{
-			{"L3 kernel + Reverse Carrier", "gre, 6to4, 6to4-gre, ipip, sit, wireguard... over encrypted reverse TCP"},
-			{"L2 kernel + Reverse Carrier", "eoip, gretap, vxlan, geneve, l2tpv3, etherip over encrypted reverse TCP"},
-			{"UDP-Crypt Reverse", "dtls-1.3, quic-v1, wg-stealth, rudp-fec... Kharej initiates UDP to Iran"},
+	reverse := (mode == 2)
+	Header()
+	var fam int
+	if reverse {
+		fam = ChooseOpt("Reverse Tunnel Layer", []MenuOpt{
+			{"L3 kernel (Reverse)", "gre, 6to4, 6to4-gre, ipip, sit, wireguard... over Reverse Carrier"},
+			{"L2 kernel (Reverse)", "eoip, gretap, vxlan, geneve, l2tpv3, etherip over Reverse Carrier"},
+			{"UDP-Crypt (Reverse)", "dtls-1.3, quic-v1, wg-stealth, rudp-fec... Kharej dials UDP to Iran"},
 		})
-		if fam == 0 {
-			return catalog.MethodSpec{}, false, false
-		}
+	} else {
+		fam = ChooseOpt("Direct Tunnel Layer", []MenuOpt{
+			{"L3 kernel (Direct)", "6to4, gre, ipip, wireguard, ipsec... fastest, no anti-DPI"},
+			{"L2 kernel (Direct)", "eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip"},
+			{"UDP-Crypt (Direct)", "encrypted UDP that looks like DTLS, QUIC, RTP, DNS..."},
+		})
+	}
+	if fam == 0 {
+		return catalog.MethodSpec{}, false, false
 	}
 	families := []catalog.Family{"", catalog.FamilyKernelL3, catalog.FamilyKernelL2, catalog.FamilyUDPCrypt}
 	var methods []catalog.MethodSpec
@@ -108,20 +112,14 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 			opts = append(opts, MenuOpt{Title: m.Name, Desc: m.Title})
 		}
 	}
-	i := ChooseOpt("Method", opts)
+	Header()
+	methodTitle := "Direct Method"
+	if reverse {
+		methodTitle = "Reverse Method"
+	}
+	i := ChooseOpt(methodTitle, opts)
 	if i == 0 {
 		return catalog.MethodSpec{}, false, false
-	}
-	if !reverse {
-		Header()
-		mode := ChooseOpt("Connection Mode", []MenuOpt{
-			{"Direct (Standard)", "Iran connects to Kharej"},
-			{"Reverse (Kharej -> Iran)", "Kharej dials into Iran (hides Kharej IP & tunnel protocol from DPI)"},
-		})
-		if mode == 0 {
-			return catalog.MethodSpec{}, false, false
-		}
-		reverse = (mode == 2)
 	}
 	return methods[i-1], reverse, true
 }
@@ -578,7 +576,7 @@ func webPanelMenu() {
 		KV("Service", state)
 		Subtle("The certificate is self-signed: accept the browser warning once.")
 		switch ChooseOpt("Web Panel", []MenuOpt{
-			{"Start / restart", "run in the background and at boot"},
+			{"Start / restart", "choose port, run in the background and at boot"},
 			{"Stop", "stop and disable"},
 			{"Change port", strconv.Itoa(st.PanelPort)},
 			{"New login code", "logs out every browser"},
@@ -586,6 +584,10 @@ func webPanelMenu() {
 		case 0:
 			return
 		case 1:
+			if v := askInt("Web panel port", st.PanelPort); v > 0 && v < 65536 {
+				st.PanelPort = v
+				_ = st.Save()
+			}
 			reportErr(systemctlRun("enable", "ctunnel-panel.service"), systemctlRun("restart", "ctunnel-panel.service"))
 		case 2:
 			reportErr(systemctlRun("disable", "--now", "ctunnel-panel.service"))

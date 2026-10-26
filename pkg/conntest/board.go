@@ -42,19 +42,30 @@ func label(r Result) string {
 	return strings.ToUpper(r.Status())
 }
 
-const rowFormat = "%s      %-10s %-13s %-9s %-7s %s"
+func modeTag(r Result) string {
+	switch {
+	case r.Phase == "echo" || r.Skipped != "":
+		return "Direct/Rev"
+	case r.Received > 0:
+		return "Direct+Rev"
+	default:
+		return "Rev-Only"
+	}
+}
 
-var boardHeader = fmt.Sprintf("%-7s %-10s %-13s %-9s %-7s %s", "RESULT", "FAMILY", "METHOD", "STATUS", "ECHOES", "PROGRESS")
+const rowFormat = "%s      %-10s %-13s %-10s %-9s %-7s %s"
+
+var boardHeader = fmt.Sprintf("%-7s %-10s %-13s %-10s %-9s %-7s %s", "RESULT", "FAMILY", "METHOD", "MODE", "STATUS", "ECHOES", "PROGRESS")
 
 func row(r Result) string {
 	if r.Skipped != "" {
-		return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), "-", r.Skipped)
+		return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, modeTag(r), label(r), "-", r.Skipped)
 	}
 	done, total := r.Received, Probes
 	if r.Phase == "echo" {
 		done = r.Sent
 	}
-	return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), fmt.Sprintf("%d/%d", done, total), bar(float64(done)/float64(total)))
+	return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, modeTag(r), label(r), fmt.Sprintf("%d/%d", done, total), bar(float64(done)/float64(total)))
 }
 
 func mbps(v float64) string {
@@ -152,14 +163,14 @@ func Verdict(title string, rows []Result) string {
 		b.WriteString(row(r) + "\n")
 	}
 	b.WriteString("\n" + rule() + "\n\nWorks steadily:\n\n")
-	fmt.Fprintf(&b, "   %-13s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
+	fmt.Fprintf(&b, "   %-13s %-10s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "MODE", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
 	n := 0
 	for _, r := range rs {
 		if r.Status() != "ok" {
 			continue
 		}
 		n++
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
+		fmt.Fprintf(&b, "🟢 %-13s %-10s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, "Direct+Rev", fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
 			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
 	}
 	if n == 0 {
@@ -216,9 +227,13 @@ func (b Best) String() string {
 	s.WriteString("\n")
 	if b.Method == "" {
 		row("Method", "-", b.Reason)
+		if b.TCPError == "" {
+			row("Tunnel Mode", "Reverse Only", "Direct probes blocked; use Reverse Tunnel (GRE/6to4 over TCP)")
+		}
 	} else {
 		row("Method", b.Method, fmt.Sprintf("%.1f ms ±%.1f, %.0f%% loss", b.RTTms, b.JitterMs, b.LossPct))
 		row("", "", b.Reason)
+		row("Tunnel Mode", "Direct / Reverse", "Direct works; choose Reverse to hide Kharej IP from DPI")
 		row("Download", mbps(b.DownMbps), b.Method+" packets at full rate for 1 s")
 		row("Upload", mbps(b.UpMbps), b.Method+" packets at full rate for 1 s")
 	}

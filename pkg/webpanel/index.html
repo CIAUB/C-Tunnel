@@ -261,10 +261,13 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
     <div class="grid2">
       <div><label for="f-role">This server is</label>
         <select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
+      <div><label for="f-reverse">Tunnel mode</label>
+        <select id="f-reverse"><option value="0">Direct — Iran connects to Kharej</option><option value="1">Reverse — Kharej dials into Iran (Anti-DPI)</option></select></div>
+    </div>
+    <div class="grid2">
+      <div><label for="f-method">Method (categorized by layer)</label><select id="f-method"></select></div>
       <div><label for="f-remote">Remote server IP</label><input id="f-remote" class="num" required></div>
     </div>
-    <div><label for="f-method">Method</label><select id="f-method"></select></div>
-    <div><label><input id="f-reverse" type="checkbox" style="width:auto;margin-right:6px">Reverse tunnel (Kharej initiates connection to Iran)</label></div>
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
       <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
       <p class="hint">listen=target. Leave empty to forward nothing.</p></div>
@@ -553,7 +556,7 @@ function num(id) {
 
 function syncForm() {
   const m = methods.find(x => x.Name === $("f-method").value);
-  const revIran = $("f-reverse").checked && $("f-role").value === "iran";
+  const revIran = $("f-reverse").value === "1" && $("f-role").value === "iran";
   $("f-remote").required = !revIran;
   $("fwd-wrap").hidden = $("f-role").value !== "iran" || ["sit", "ip6ip6"].includes($("f-method").value);
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
@@ -568,7 +571,7 @@ $("create-form").onsubmit = e => {
   const tunIran = $("f-tun-iran").value.trim();
   const tunKharej = $("f-tun-kharej").value.trim();
   const body = {
-    role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").checked,
+    role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").value === "1",
     remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? tunIran : tunKharej, tun_remote4: iran ? tunKharej : tunIran,
     index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"),
