@@ -68,6 +68,69 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
             self.assertEqual(r.returncode,0,r.stderr)
             self.assertEqual(running.read(),'old version')
         self.assertEqual(dst.read_text(),'new version')
+    def bootstrap(self, requested='', arch='amd64', mode='valid'):
+        import hashlib
+        import io
+        import json
+        import tarfile
+        fixture=self.d/'go-fixture'; fixture.mkdir()
+        work=self.d/'go-work'; work.mkdir()
+        archive=fixture/'go.tgz'
+        with tarfile.open(archive, 'w:gz') as tar:
+            data=b'#!/bin/sh\necho fixture-go\n'
+            info=tarfile.TarInfo('go/bin/go'); info.size=len(data); info.mode=0o755
+            tar.addfile(info, io.BytesIO(data))
+        digest=hashlib.sha256(archive.read_bytes()).hexdigest()
+        if mode == 'corrupt': digest='0'*64
+        if mode == 'bad-hash': digest='not a checksum'
+        releases=[]
+        for version in ['1.27.3','1.26.10']:
+            releases.append({'version':'go'+version,'stable':True,'files':[
+                {'filename':f'go{version}.linux-{a}.tar.gz','kind':'archive','sha256':digest}
+                for a in ['amd64','arm64']]})
+        (fixture/'metadata').write_text('<html>redirect</html>' if mode == 'html' else json.dumps(releases))
+        self.tool('curl', '''url=''; for arg; do [[ "$arg" == https://* ]] && url="$arg"; done
+printf '%s\\n' "$url" >> "$FIXTURE/urls"
+while [[ "$1" != -o ]]; do shift; done
+if [[ "$url" == *mode=json* ]]; then cp "$FIXTURE/metadata" "$2"; else cp "$FIXTURE/go.tgz" "$2"; fi''')
+        script=(ROOT/'install.sh').read_text()
+        helper=script[script.index('bootstrap_go() {'):script.index('# use_checkout lays out')]
+        env=dict(self.env, WORK=str(work), FIXTURE=str(fixture), GO_VERSION=requested, ARCH=arch)
+        code='set -euo pipefail\ndie() { echo "$*" >&2; exit 1; }\n'+helper+'\nbootstrap_go\ngo version\n'
+        result=subprocess.run(['bash','-c',code],env=env,capture_output=True,text=True)
+        return result, work, (fixture/'urls').read_text()
+    def test_go_bootstrap_stable_and_architecture(self):
+        result, work, urls=self.bootstrap(arch='arm64')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('fixture-go',result.stdout)
+        self.assertTrue((work/'go/bin/go').is_file())
+        self.assertIn('go1.27.3.linux-arm64.tar.gz', urls)
+        self.assertNotIn('.sha256', urls)
+    def test_go_bootstrap_pinned_version(self):
+        result, _, urls=self.bootstrap(requested='1.26.10')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('include=all', urls)
+        self.assertIn('go1.26.10.linux-amd64.tar.gz', urls)
+    def test_go_bootstrap_rejects_html_metadata(self):
+        result, work, urls=self.bootstrap(mode='html')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((work/'go').exists())
+        self.assertNotIn('.tar.gz', urls)
+    def test_go_bootstrap_rejects_invalid_hash_metadata(self):
+        result, work, urls=self.bootstrap(mode='bad-hash')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((work/'go').exists())
+        self.assertNotIn('.tar.gz', urls)
+    def test_go_bootstrap_rejects_corrupt_archive_before_extracting(self):
+        result, work, _=self.bootstrap(mode='corrupt')
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('Go checksum mismatch',result.stderr)
+        self.assertFalse((work/'go').exists())
+    def test_go_bootstrap_rejects_missing_release(self):
+        result, work, urls=self.bootstrap(requested='1.0.0')
+        self.assertNotEqual(result.returncode,0)
+        self.assertFalse((work/'go').exists())
+        self.assertNotIn('.tar.gz', urls)
     def watchdog_setup(self):
         (self.d/'config').mkdir()
         (self.d/'config'/'test.env').write_text('WATCH_UNIT=frpc.service\nTUNNEL_URL=http://tunnel/health\nORIGIN_URL=http://origin/health\nEXPECTED_BODY=ok\n')
