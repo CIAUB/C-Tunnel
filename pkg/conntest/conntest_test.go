@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/speedtest"
 )
 
 func TestLinkRoundTrip(t *testing.T) {
@@ -99,6 +100,13 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	l := Link{Host: "127.0.0.1", UDPPort: 0, TokenHex: NewToken()}
+	tcpAddr, stopTCP, err := speedtest.StartServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopTCP()
+	_, tport, _ := net.SplitHostPort(tcpAddr)
+	l.TCPPort = atoi(tport)
 	resp, err := Serve(ctx, 0, l.TokenHex)
 	if err != nil {
 		t.Fatal(err)
@@ -127,9 +135,19 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 			t.Fatalf("iran board has no speed for dtls-1.3: %+v", r)
 		}
 	}
+	seen := map[string]Result{}
 	for _, r := range rows {
-		if strings.HasPrefix(r.Method, "frp+") {
-			t.Fatal("made-up reverse rows are back")
+		seen[r.Method] = r
+	}
+	if r := seen["rev+dtls-1.3"]; r.Mode != "REVERSE" || r.Status() != "ok" || r.DownMbps <= 0 {
+		t.Fatalf("rev+dtls-1.3 row not measured: %+v", r)
+	}
+	if r := seen[CarrierMethod]; r.Status() != "ok" || r.DownMbps <= 0 || r.UpMbps <= 0 {
+		t.Fatalf("carrier row not measured: %+v", r)
+	}
+	for _, r := range iranRows {
+		if r.Method == CarrierMethod && r.DownMbps <= 0 {
+			t.Fatalf("iran board did not get the carrier row: %+v", r)
 		}
 	}
 }

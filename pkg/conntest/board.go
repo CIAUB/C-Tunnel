@@ -38,6 +38,8 @@ func label(r Result) string {
 		return "SPEED"
 	case "speed-queued":
 		return "QUEUED"
+	case "wait":
+		return "WAIT"
 	}
 	return strings.ToUpper(r.Status())
 }
@@ -49,9 +51,9 @@ func modeTag(r Result) string {
 	return "DIRECT"
 }
 
-const rowFormat = "%s      %-10s %-13s %-9s %-7s %-10s %-10s %s"
+const rowFormat = "%s      %-10s %-17s %-9s %-7s %-10s %-10s %s"
 
-var boardHeader = fmt.Sprintf("%-7s %-10s %-13s %-9s %-7s %-10s %-10s %s", "RESULT", "FAMILY", "METHOD", "STATUS", "ECHOES", "DOWNLOAD", "UPLOAD", "PROGRESS")
+var boardHeader = fmt.Sprintf("%-7s %-10s %-17s %-9s %-7s %-10s %-10s %s", "RESULT", "FAMILY", "METHOD", "STATUS", "ECHOES", "DOWNLOAD", "UPLOAD", "PROGRESS")
 
 func row(r Result) string {
 	if r.Skipped != "" {
@@ -159,14 +161,14 @@ func Verdict(title string, rows []Result) string {
 		b.WriteString(row(r) + "\n")
 	}
 	b.WriteString("\n" + rule() + "\n\nWorks steadily:\n\n")
-	fmt.Fprintf(&b, "   %-13s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
+	fmt.Fprintf(&b, "   %-17s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
 	n := 0
 	for _, r := range rs {
 		if r.Status() != "ok" {
 			continue
 		}
 		n++
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
+		fmt.Fprintf(&b, "🟢 %-17s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
 			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
 	}
 	if n == 0 {
@@ -177,19 +179,19 @@ func Verdict(title string, rows []Result) string {
 
 // Best summarizes the recommended settings for the measured path.
 type Best struct {
-	Method      string
-	Mode        string
-	Reason      string
-	DownMbps    float64 // iran → kharej
-	UpMbps      float64 // kharej → iran
-	RTTms       float64
-	JitterMs    float64
-	LossPct     float64
-	PathMTU     int
-	TunnelMTU   int
-	TCPDownload float64
-	TCPUpload   float64
-	TCPError    string
+	Method    string
+	Mode      string
+	Reason    string
+	DownMbps  float64 // iran → kharej
+	UpMbps    float64 // kharej → iran
+	RTTms     float64
+	JitterMs  float64
+	LossPct   float64
+	PathMTU   int
+	Reverse   string
+	RevDown   float64
+	RevUp     float64
+	TunnelMTU int
 }
 
 func BestSettings(rows []Result, pathMTU int) Best {
@@ -210,14 +212,27 @@ func BestSettings(rows []Result, pathMTU int) Best {
 			b.LossPct = 100 * float64(bestRow.Sent-bestRow.Received) / float64(bestRow.Sent)
 		}
 	}
+	for _, r := range rows {
+		if r.Mode == "REVERSE" && r.Status() == "ok" && r.Total() > b.RevDown+b.RevUp {
+			b.Reverse, b.RevDown, b.RevUp = r.Method, r.DownMbps, r.UpMbps
+		}
+	}
+	if b.Reverse == CarrierMethod {
+		b.Reverse = "frp+gre"
+	}
+	if b.Method == CarrierMethod {
+		// The carrier carries any kernel method; gre has the least overhead.
+		b.Method = "frp+gre"
+		b.Reason = "the TCP carrier was fastest; any frp+ method rides it (gre has the least overhead)"
+	}
 	baseMethod := strings.TrimPrefix(strings.TrimPrefix(b.Method, "frp+"), "rev+")
 	if m, ok := catalog.LookupMethod(baseMethod); ok && pathMTU > 0 {
 		pad := 0
 		if m.Family == catalog.FamilyUDPCrypt {
 			pad = 16
 		}
-		if b.Mode == "REVERSE" && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
-			b.TunnelMTU = 1460 - m.Overhead
+		if strings.HasPrefix(b.Method, "frp+") {
+			b.TunnelMTU = 1500 - m.Overhead // the carrier itself is TCP: no path MTU limit
 		} else {
 			b.TunnelMTU = pathMTU - m.Overhead - pad
 		}
@@ -239,6 +254,9 @@ func (b Best) String() string {
 		row("Download", mbps(b.DownMbps), b.Method+" ("+b.Mode+") packets at full rate for 1 s")
 		row("Upload", mbps(b.UpMbps), b.Method+" ("+b.Mode+") packets at full rate for 1 s")
 	}
+	if b.Reverse != "" {
+		row("Best REVERSE", b.Reverse, fmt.Sprintf("download %s, upload %s", mbps(b.RevDown), mbps(b.RevUp)))
+	}
 	switch {
 	case b.PathMTU >= 1500:
 		row("Path MTU", "1500", "full-size packets pass")
@@ -250,15 +268,9 @@ func (b Best) String() string {
 	if b.TunnelMTU > 0 {
 		row("Tunnel MTU", fmt.Sprint(b.TunnelMTU), "path MTU minus "+b.Method+" overhead")
 	}
-	if b.TCPError != "" {
-		row("TCP speed", "-", b.TCPError)
-	} else {
-		row("TCP download", mbps(b.TCPDownload), "4 TCP streams = REVERSE kernel tunnels (TCP carrier)")
-		row("TCP upload", mbps(b.TCPUpload), "4 TCP streams = REVERSE kernel tunnels (TCP carrier)")
-	}
 	if b.LossPct > 0 && b.Method != "rudp-fec" {
 		row("FEC", "rudp-fec", "the path loses packets")
 	}
-	s.WriteString("\nDownload = iran → kharej, Upload = kharej → iran, each counted by the side\nthat received it. REVERSE UDP methods (rev+) send the same packets as their\nrow above; REVERSE kernel methods ride TCP, see the TCP rows.\n\n" + rule() + "\n")
+	s.WriteString("\nDownload = iran → kharej, Upload = kharej → iran, each counted by the side\nthat received it. The test itself runs kharej → iran, the way rev+ methods\nconnect; frp-carrier is the 8-stream TLS-shaped TCP every frp+ method rides.\n\n" + rule() + "\n")
 	return s.String()
 }

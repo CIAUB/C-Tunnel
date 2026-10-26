@@ -22,6 +22,7 @@ import (
 	"net"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ import (
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/dpi"
 	"ctunnel/pkg/eoip"
+	"ctunnel/pkg/speedtest"
 )
 
 const (
@@ -138,11 +140,20 @@ func (r *Responder) SetCallbacks(onUpdate Progress, onReport func(Report)) {
 }
 
 func (r *Responder) resetRowsLocked() {
-	r.rows = nil
-	r.probeRow = make([]int, len(r.ps))
 	r.seenEcho = map[[2]int]bool{}
+	r.rows, r.probeRow = newRows(r.ps, func(i int) bool { return r.ps[i].proto == 0 || r.raw[r.ps[i].proto] != nil })
+}
+
+// CarrierMethod is the row that measures the REVERSE TCP carrier every frp+ method rides.
+const CarrierMethod = "frp-carrier"
+
+// newRows builds the board in catalog order, then the REVERSE rows. probeRow maps a
+// probe index to its row; usable reports whether the probe's socket could be opened.
+func newRows(ps []probe, usable func(i int) bool) ([]Result, []int) {
+	var rows []Result
+	probeRow := make([]int, len(ps))
 	byName := map[string]int{}
-	for i, p := range r.ps {
+	for i, p := range ps {
 		byName[p.method] = i
 	}
 	for _, m := range catalog.Methods {
@@ -151,15 +162,22 @@ func (r *Responder) resetRowsLocked() {
 		switch {
 		case !ok:
 			row.Skipped = "needs IPv6 on both servers"
-		case r.ps[i].proto != 0 && r.raw[r.ps[i].proto] == nil:
+		case !usable(i):
 			row.Skipped = "raw sockets need root"
 		default:
 			row.Phase = "echo"
 			row.Sent = 0
-			r.probeRow[i] = len(r.rows)
+			probeRow[i] = len(rows)
 		}
-		r.rows = append(r.rows, row)
+		rows = append(rows, row)
 	}
+	for _, m := range catalog.Methods {
+		if m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
+			rows = append(rows, Result{Method: "rev+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Sent: Probes, Phase: "wait"})
+		}
+	}
+	rows = append(rows, Result{Method: CarrierMethod, Family: "reverse", Mode: "REVERSE", Sent: Probes, Phase: "speed-queued"})
+	return rows, probeRow
 }
 
 func (r *Responder) notifyLocked() {
@@ -431,7 +449,7 @@ func (r Result) Total() float64 { return r.UpMbps + r.DownMbps }
 
 func (r Result) Status() string {
 	switch {
-	case r.Phase == "echo":
+	case r.Phase == "echo", r.Phase != "" && r.Received == 0 && r.Skipped == "":
 		return "testing"
 	case r.Skipped != "":
 		return "skipped"
@@ -638,28 +656,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		go s.receive(c)
 	}
 
-	// Rows follow the catalog order; probeRow maps a probe index to its row.
-	var rows []Result
-	probeRow := make([]int, len(s.ps))
-	byName := map[string]int{}
-	for i, p := range s.ps {
-		byName[p.method] = i
-	}
-	for _, m := range catalog.Methods {
-		r := Result{Method: m.Name, Family: string(m.Family), Mode: "DIRECT", Sent: Probes}
-		i, ok := byName[m.Name]
-		switch {
-		case !ok:
-			r.Skipped = "needs IPv6 on both servers"
-		case s.ps[i].proto != 0 && s.raw[s.ps[i].proto] == nil:
-			r.Skipped = "raw sockets need root"
-		default:
-			r.Phase = "echo"
-			r.Sent = 0
-			probeRow[i] = len(rows)
-		}
-		rows = append(rows, r)
-	}
+	rows, probeRow := newRows(s.ps, func(i int) bool { return s.ps[i].proto == 0 || s.raw[s.ps[i].proto] != nil })
 	var rowsMu sync.Mutex
 	notify := func() {
 		if progress == nil {
@@ -670,7 +667,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		rowsMu.Unlock()
 		progress(cp)
 	}
-	active := func(i int) bool { return rows[probeRow[i]].Skipped == "" }
+	active := func(i int) bool { return rows[probeRow[i]].Skipped == "" && rows[probeRow[i]].Mode == "DIRECT" }
 
 	// Phase 1: echoes.
 	rtts := make([][]float64, len(s.ps))
@@ -751,7 +748,60 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 			return nil, ctx.Err()
 		}
 	}
-	return rows, nil
+
+	// Phase 3: REVERSE. The probes above already go out from kharej to iran, the way
+	// rev+ tunnels connect, so a rev+ row carries its method's measurement. The TCP
+	// carrier of the frp+ methods is measured on its own, with its own wire shape.
+	rowsMu.Lock()
+	byMethod := map[string]Result{}
+	for _, r := range rows {
+		if r.Mode == "DIRECT" {
+			byMethod[r.Method] = r
+		}
+	}
+	for i := range rows {
+		if base, ok := strings.CutPrefix(rows[i].Method, "rev+"); ok {
+			d := byMethod[base]
+			d.Method, d.Mode = rows[i].Method, "REVERSE"
+			rows[i] = d
+		}
+	}
+	rowsMu.Unlock()
+	notify()
+	for _, r := range rows {
+		if strings.HasPrefix(r.Method, "rev+") {
+			s.syncRow(ctx, r)
+		}
+	}
+	ci := len(rows) - 1
+	rowsMu.Lock()
+	rows[ci].Phase = "speed"
+	rowsMu.Unlock()
+	notify()
+	carrier := measureCarrier(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)))
+	rowsMu.Lock()
+	rows[ci] = carrier
+	rowsMu.Unlock()
+	notify()
+	s.syncRow(ctx, carrier)
+	return rows, ctx.Err()
+}
+
+// measureCarrier times record-framed echoes and measures 8-stream speed over the
+// carrier shape the frp+ methods use. down is iran → kharej, as everywhere else.
+func measureCarrier(ctx context.Context, addr string) Result {
+	r := Result{Method: CarrierMethod, Family: "reverse", Mode: "REVERSE", Sent: Probes}
+	rtts := speedtest.CarrierRTT(ctx, addr, Probes, probeInterval)
+	r.Received = len(rtts)
+	r.RTTms, r.JitterMs = stats(rtts)
+	if r.Received == 0 {
+		return r
+	}
+	down, up, err := speedtest.MeasureCarrier(ctx, addr, 500*time.Millisecond, 2*time.Second)
+	if err == nil {
+		r.DownMbps, r.UpMbps = down, up
+	}
+	return r
 }
 
 const (

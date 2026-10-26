@@ -45,3 +45,22 @@ func TestRecommend(t *testing.T) {
 		t.Fatalf("lossy link -> %s", m)
 	}
 }
+
+func TestCarrierShapedStreams(t *testing.T) {
+	addr, stop, err := StartServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	if rtts := CarrierRTT(context.Background(), addr, 5, time.Millisecond); len(rtts) != 5 {
+		t.Fatalf("carrier echoes = %d, want 5", len(rtts))
+	}
+	down, up, err := MeasureCarrier(context.Background(), addr, 50*time.Millisecond, 200*time.Millisecond)
+	if err != nil || down <= 0 || up <= 0 {
+		t.Fatalf("carrier speed = %.1f/%.1f, %v", down, up, err)
+	}
+	// the plain speed test must still work next to the carrier mode
+	if d, u, err := MeasureSpeed4Streams(context.Background(), addr, 50*time.Millisecond, 150*time.Millisecond); err != nil || d <= 0 || u <= 0 {
+		t.Fatalf("plain speed broke: %v", err)
+	}
+}

@@ -509,20 +509,11 @@ func RunConnTest(raw string) error {
 		return err
 	}
 	board.Clear()
-	Info("Measuring TCP (what REVERSE kernel tunnels ride on) and path MTU...")
-	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), conntest.Probes)
+	Info("Measuring path MTU...")
 	fmt.Println()
 	fmt.Print(conntest.Verdict(link.Host, rows))
 
 	best := conntest.BestSettings(rows, conntest.PathMTU(ctx, link))
-	switch {
-	case sr.LossPct >= 100:
-		best.TCPError = "TCP port " + strconv.Itoa(link.TCPPort) + " not reachable"
-	case sr.SpeedError != "":
-		best.TCPError = sr.SpeedError
-	default:
-		best.TCPDownload, best.TCPUpload = sr.DownloadMbps, sr.UploadMbps
-	}
 	conntest.SendReport(ctx, link, rows, best)
 	fmt.Println()
 	fmt.Print(best.String())

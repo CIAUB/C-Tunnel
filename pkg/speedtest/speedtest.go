@@ -64,7 +64,14 @@ func serveSpeedOrEcho(c net.Conn) {
 	}
 	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
 	head := make([]byte, len(ctSpeedMagic))
-	if _, err := io.ReadFull(c, head); err != nil {
+	if _, err := io.ReadFull(c, head[:1]); err != nil {
+		return
+	}
+	if head[0] == recordType {
+		serveCarrier(c)
+		return
+	}
+	if _, err := io.ReadFull(c, head[1:]); err != nil {
 		return
 	}
 	if string(head) == ctEchoMagic {
