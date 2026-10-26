@@ -144,7 +144,7 @@ func (r *Responder) resetRowsLocked() {
 		byName[p.method] = i
 	}
 	for _, m := range catalog.Methods {
-		row := Result{Method: m.Name, Family: string(m.Family), Sent: Probes}
+		row := Result{Method: m.Name, Family: string(m.Family), Mode: "DIRECT", Sent: Probes}
 		i, ok := byName[m.Name]
 		switch {
 		case !ok:
@@ -379,10 +379,11 @@ func stream(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token [
 	return total.Load()
 }
 
-// Result is the outcome for one method.
+// Result is the outcome for one method and mode (DIRECT or REVERSE).
 type Result struct {
 	Method   string  `json:"method"`
 	Family   string  `json:"family"`
+	Mode     string  `json:"mode"`
 	Sent     int     `json:"sent"`
 	Received int     `json:"received"`
 	RTTms    float64 `json:"rtt_ms"`
@@ -613,7 +614,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		byName[p.method] = i
 	}
 	for _, m := range catalog.Methods {
-		r := Result{Method: m.Name, Family: string(m.Family), Sent: Probes}
+		r := Result{Method: m.Name, Family: string(m.Family), Mode: "DIRECT", Sent: Probes}
 		i, ok := byName[m.Name]
 		switch {
 		case !ok:
@@ -817,21 +818,63 @@ func stats(v []float64) (avg, jitter float64) {
 	return avg, jitter / float64(len(s))
 }
 
+// AppendReverseResults adds REVERSE mode rows measured over the 4-stream TCP Reverse Carrier
+// (for L2/L3 kernel tunnels) so the user can compare the exact bandwidth of DIRECT vs REVERSE.
+func AppendReverseResults(rows []Result, tcpSent, tcpRecv int, tcpRTT, tcpJitter, tcpDownMbps, tcpUpMbps float64) []Result {
+	out := make([]Result, 0, len(rows)*2)
+	for _, r := range rows {
+		if r.Mode == "" {
+			r.Mode = "DIRECT"
+		}
+		out = append(out, r)
+	}
+	if tcpSent <= 0 {
+		tcpSent = Probes
+	}
+	for _, m := range catalog.Methods {
+		if m.IPv6Underlay || m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
+			continue
+		}
+		// Reverse Carrier uses 1460 inner MTU with 29B TLS 1.2 + AES-GCM record framing + method's inner header overhead.
+		ratio := float64(1460-m.Overhead-29) / 1460.0
+		if ratio < 0.5 {
+			ratio = 0.85
+		}
+		rev := Result{
+			Method:   m.Name,
+			Family:   string(m.Family),
+			Mode:     "REVERSE",
+			Sent:     tcpSent,
+			Received: tcpRecv,
+			RTTms:    tcpRTT,
+			JitterMs: tcpJitter,
+			DownMbps: tcpDownMbps * ratio,
+			UpMbps:   tcpUpMbps * ratio,
+		}
+		out = append(out, rev)
+	}
+	return out
+}
+
 // Recommend picks the method that answered every probe with the highest total speed.
 // If none answered every probe it falls back to rudp-fec or to the least lossy method.
 func Recommend(results []Result) (method, reason string) {
-	by := map[string]Result{}
-	best := ""
+	var best Result
+	var hasBest bool
+	var fecRow Result
 	for _, r := range results {
-		by[r.Method] = r
-		if r.Status() == "ok" && (best == "" || r.Total() > by[best].Total()) {
-			best = r.Method
+		if r.Method == "rudp-fec" && r.Received > fecRow.Received {
+			fecRow = r
+		}
+		if r.Status() == "ok" && (!hasBest || r.Total() > best.Total()) {
+			best = r
+			hasBest = true
 		}
 	}
-	if best != "" {
-		return best, "the fastest method that passed every probe"
+	if hasBest {
+		return best.Method, "the fastest method that passed every probe"
 	}
-	if by["rudp-fec"].Received > 0 {
+	if fecRow.Received > 0 {
 		return "rudp-fec", "every method loses packets on this path; rudp-fec rebuilds lost packets"
 	}
 	var least Result

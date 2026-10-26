@@ -495,12 +495,14 @@ func RunConnTest(raw string) error {
 		return err
 	}
 	board.Clear()
+	Info("Measuring REVERSE carrier (4-stream TCP) and Path MTU...")
+	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), conntest.Probes)
+	tcpRecv := int(float64(conntest.Probes)*(100.0-sr.LossPct)/100.0 + 0.5)
+	rows = conntest.AppendReverseResults(rows, conntest.Probes, tcpRecv, sr.AvgMs, sr.JitterMs, sr.DownloadMbps, sr.UploadMbps)
+	fmt.Println()
 	fmt.Print(conntest.Verdict(link.Host, rows))
 
-	fmt.Println()
-	Info("Measuring path MTU and TCP speed...")
 	best := conntest.BestSettings(rows, conntest.PathMTU(ctx, link))
-	sr := speedtest.Run(ctx, net.JoinHostPort(link.Host, strconv.Itoa(link.TCPPort)), 5)
 	switch {
 	case sr.LossPct >= 100:
 		best.TCPError = "TCP port " + strconv.Itoa(link.TCPPort) + " not reachable"

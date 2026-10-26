@@ -43,12 +43,10 @@ func label(r Result) string {
 }
 
 func modeTag(r Result) string {
-	switch {
-	case r.Phase == "echo" || r.Skipped != "" || r.Received > 0:
-		return "DIRECT"
-	default:
-		return "REVERSE"
+	if r.Mode != "" {
+		return r.Mode
 	}
+	return "DIRECT"
 }
 
 const rowFormat = "%s      %-10s %-13s %-10s %-9s %-7s %s"
@@ -168,9 +166,7 @@ func Verdict(title string, rows []Result) string {
 			continue
 		}
 		n++
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, "DIRECT", fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
-			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
-		fmt.Fprintf(&b, "🟢 %-13s %-10s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, "REVERSE", fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
+		fmt.Fprintf(&b, "🟢 %-13s %-10s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, modeTag(r), fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
 			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
 	}
 	if n == 0 {
@@ -182,6 +178,7 @@ func Verdict(title string, rows []Result) string {
 // Best summarizes the recommended settings for the measured path.
 type Best struct {
 	Method      string
+	Mode        string
 	Reason      string
 	DownMbps    float64 // iran → kharej
 	UpMbps      float64 // kharej → iran
@@ -198,15 +195,19 @@ type Best struct {
 func BestSettings(rows []Result, pathMTU int) Best {
 	b := Best{PathMTU: pathMTU}
 	b.Method, b.Reason = Recommend(rows)
-	var sent, got int
+	var bestRow Result
+	var hasBest bool
 	for _, r := range rows {
-		sent += r.Sent
-		got += r.Received
-		if r.Method == b.Method {
-			b.DownMbps, b.UpMbps, b.RTTms, b.JitterMs = r.DownMbps, r.UpMbps, r.RTTms, r.JitterMs
-			if r.Sent > 0 {
-				b.LossPct = 100 * float64(r.Sent-r.Received) / float64(r.Sent)
-			}
+		if r.Method == b.Method && (!hasBest || r.Total() > bestRow.Total() || (r.Total() == bestRow.Total() && r.Received > bestRow.Received)) {
+			bestRow = r
+			hasBest = true
+		}
+	}
+	if hasBest {
+		b.Mode = modeTag(bestRow)
+		b.DownMbps, b.UpMbps, b.RTTms, b.JitterMs = bestRow.DownMbps, bestRow.UpMbps, bestRow.RTTms, bestRow.JitterMs
+		if bestRow.Sent > 0 {
+			b.LossPct = 100 * float64(bestRow.Sent-bestRow.Received) / float64(bestRow.Sent)
 		}
 	}
 	if m, ok := catalog.LookupMethod(b.Method); ok && pathMTU > 0 {
@@ -214,7 +215,11 @@ func BestSettings(rows []Result, pathMTU int) Best {
 		if m.Family == catalog.FamilyUDPCrypt {
 			pad = 16
 		}
-		b.TunnelMTU = pathMTU - m.Overhead - pad
+		if b.Mode == "REVERSE" && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+			b.TunnelMTU = 1460 - m.Overhead
+		} else {
+			b.TunnelMTU = pathMTU - m.Overhead - pad
+		}
 	}
 	return b
 }
@@ -227,15 +232,11 @@ func (b Best) String() string {
 	s.WriteString("\n")
 	if b.Method == "" {
 		row("Method", "-", b.Reason)
-		if b.TCPError == "" {
-			row("Mode", "REVERSE", "Direct probes blocked; use REVERSE (GRE/6to4 over TCP)")
-		}
 	} else {
 		row("Method", b.Method, fmt.Sprintf("%.1f ms ±%.1f, %.0f%% loss", b.RTTms, b.JitterMs, b.LossPct))
-		row("", "", b.Reason)
-		row("Mode", "DIRECT / REVERSE", "DIRECT for max speed; REVERSE to hide Kharej IP from DPI")
-		row("Download", mbps(b.DownMbps), b.Method+" packets at full rate for 1 s")
-		row("Upload", mbps(b.UpMbps), b.Method+" packets at full rate for 1 s")
+		row("Mode", b.Mode, b.Reason)
+		row("Download", mbps(b.DownMbps), b.Method+" ("+b.Mode+") packets at full rate for 1 s")
+		row("Upload", mbps(b.UpMbps), b.Method+" ("+b.Mode+") packets at full rate for 1 s")
 	}
 	switch {
 	case b.PathMTU >= 1500:
