@@ -78,8 +78,8 @@ func RunInteractiveMenu() {
 
 func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	mode := ChooseOpt("Tunnel Mode", []MenuOpt{
-		{"Direct Tunnel", "Standard tunnel (Iran connects directly to Kharej)"},
-		{"Reverse Tunnel", "Anti-DPI Reverse (Kharej dials into Iran; hides Kharej IP)"},
+		{"DIRECT", "Standard tunnel (Iran connects directly to Kharej)"},
+		{"REVERSE", "Anti-DPI Reverse (Kharej dials into Iran; hides Kharej IP)"},
 	})
 	if mode == 0 {
 		return catalog.MethodSpec{}, false, false
@@ -88,16 +88,16 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	Header()
 	var fam int
 	if reverse {
-		fam = ChooseOpt("Reverse Tunnel Layer", []MenuOpt{
-			{"L3 kernel (Reverse)", "gre, 6to4, 6to4-gre, ipip, sit, wireguard... over Reverse Carrier"},
-			{"L2 kernel (Reverse)", "eoip, gretap, vxlan, geneve, l2tpv3, etherip over Reverse Carrier"},
-			{"UDP-Crypt (Reverse)", "dtls-1.3, quic-v1, wg-stealth, rudp-fec... Kharej dials UDP to Iran"},
+		fam = ChooseOpt("Tunnel Layer (REVERSE)", []MenuOpt{
+			{"L3 kernel", "gre, 6to4, 6to4-gre, ipip, sit, wireguard... over Reverse Carrier"},
+			{"L2 kernel", "eoip, gretap, vxlan, geneve, l2tpv3, etherip over Reverse Carrier"},
+			{"UDP-Crypt", "dtls-1.3, quic-v1, wg-stealth, rudp-fec... Kharej dials UDP to Iran"},
 		})
 	} else {
-		fam = ChooseOpt("Direct Tunnel Layer", []MenuOpt{
-			{"L3 kernel (Direct)", "6to4, gre, ipip, wireguard, ipsec... fastest, no anti-DPI"},
-			{"L2 kernel (Direct)", "eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip"},
-			{"UDP-Crypt (Direct)", "encrypted UDP that looks like DTLS, QUIC, RTP, DNS..."},
+		fam = ChooseOpt("Tunnel Layer (DIRECT)", []MenuOpt{
+			{"L3 kernel", "6to4, gre, ipip, wireguard, ipsec... fastest, no anti-DPI"},
+			{"L2 kernel", "eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip"},
+			{"UDP-Crypt", "encrypted UDP that looks like DTLS, QUIC, RTP, DNS..."},
 		})
 	}
 	if fam == 0 {
@@ -113,9 +113,9 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 		}
 	}
 	Header()
-	methodTitle := "Direct Method"
+	methodTitle := "Method (DIRECT)"
 	if reverse {
-		methodTitle = "Reverse Method"
+		methodTitle = "Method (REVERSE)"
 	}
 	i := ChooseOpt(methodTitle, opts)
 	if i == 0 {
