@@ -2,13 +2,14 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -37,18 +38,23 @@ const (
 type revCarrier struct {
 	cfg    config
 	tx, rx *crypto.FastAEAD
-	dev    *os.File
+	dev    io.ReadWriteCloser
 	l2     bool // carrier device is a TAP (EoIP/EtherIP): frames start with Ethernet
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	fatal  chan error
 
 	mu    sync.RWMutex
 	conns []*revStream
 }
 
 type revStream struct {
-	c    net.Conn
-	q    chan *[]byte
-	done chan struct{}
-	once sync.Once
+	c       net.Conn
+	q       chan *[]byte
+	done    chan struct{}
+	once    sync.Once
+	queueMu sync.Mutex
 }
 
 var revPktPool = sync.Pool{New: func() any { b := make([]byte, maxPacket); return &b }}
@@ -58,6 +64,7 @@ func runReverseCarrier(cfg config) error {
 	if err != nil {
 		return err
 	}
+	defer r.cancel()
 	carrierCfg := cfg
 	if cfg.kind != "wireguard" && !isUDPCrypt(cfg.kind) && cfg.kind != "eoip" && cfg.kind != "etherip" {
 		carrierCfg.dev = cfg.dev + "-r"
@@ -71,16 +78,45 @@ func runReverseCarrier(cfg config) error {
 	r.dev = dev
 	r.l2 = carrierCfg.kind == "eoip" || carrierCfg.kind == "etherip"
 
-	go func() {
-		if err := r.deviceToStreams(); err != nil {
-			log.Printf("reverse carrier tx stopped: %v", err)
-		}
-	}()
-
+	transport := r.dialKharej
 	if cfg.role == "iran" {
-		return r.serveIran()
+		transport = r.serveIran
 	}
-	return r.dialKharej()
+	return r.run(transport)
+}
+
+// Any failed data-plane worker terminates the engine so systemd can recover it.
+func (r *revCarrier) run(transport func() error) error {
+	defer r.shutdown()
+	results := make(chan error, 2)
+	go func() { results <- r.deviceToStreams() }()
+	go func() { results <- transport() }()
+	select {
+	case err := <-results:
+		return err
+	case err := <-r.fatal:
+		return err
+	}
+}
+
+func (r *revCarrier) fail(err error) {
+	select {
+	case r.fatal <- err:
+	default:
+	}
+}
+
+func (r *revCarrier) shutdown() {
+	r.cancel()
+	r.mu.RLock()
+	conns := append([]*revStream(nil), r.conns...)
+	r.mu.RUnlock()
+	for _, st := range conns {
+		st.close()
+	}
+	if r.dev != nil {
+		_ = r.dev.Close()
+	}
 }
 
 func isUDPCrypt(kind string) bool {
@@ -98,7 +134,8 @@ func newRevCarrier(cfg config) (*revCarrier, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &revCarrier{cfg: cfg, tx: tx, rx: rx}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	return &revCarrier{cfg: cfg, tx: tx, rx: rx, ctx: ctx, cancel: cancel, fatal: make(chan error, 1)}, nil
 }
 
 func tuneTCP(c net.Conn) {
@@ -106,8 +143,7 @@ func tuneTCP(c net.Conn) {
 		_ = tc.SetNoDelay(true)
 		_ = tc.SetKeepAlive(true)
 		_ = tc.SetKeepAlivePeriod(15 * time.Second)
-		_ = tc.SetReadBuffer(16 << 20)
-		_ = tc.SetWriteBuffer(16 << 20)
+		// Leave TCP buffers to kernel autotuning; fixed SO_RCVBUF locks receive growth.
 	}
 }
 
@@ -126,9 +162,28 @@ func (r *revCarrier) addConn(c net.Conn) *revStream {
 
 func (st *revStream) close() {
 	st.once.Do(func() {
+		st.queueMu.Lock()
 		close(st.done)
+		st.queueMu.Unlock()
 		_ = st.c.Close()
 	})
+}
+
+// Serialize enqueue with close so no packet is stranded after writer cleanup.
+func (st *revStream) enqueue(bp *[]byte) bool {
+	st.queueMu.Lock()
+	defer st.queueMu.Unlock()
+	select {
+	case <-st.done:
+		return false
+	default:
+	}
+	select {
+	case st.q <- bp:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *revCarrier) removeConn(st *revStream) {
@@ -155,6 +210,17 @@ func (r *revCarrier) pickConn(h uint32) *revStream {
 // writer seals and sends one stream's queue. Writes are coalesced in a bufio.Writer
 // and flushed when the queue runs dry, so a burst costs one syscall, not one per packet.
 func (r *revCarrier) writer(st *revStream) {
+	defer func() {
+		r.removeConn(st)
+		for {
+			select {
+			case bp := <-st.q:
+				revPktPool.Put(bp)
+			default:
+				return
+			}
+		}
+	}()
 	bw := bufio.NewWriterSize(st.c, 256<<10)
 	sealBuf := make([]byte, 0, maxPacket+256)
 	wireBuf := make([]byte, 5+maxPacket+256)
@@ -199,10 +265,16 @@ func writeFrame(w io.Writer, ct []byte, buf []byte) error {
 	if len(ct) > 65530 {
 		return errors.New("frame too large")
 	}
+	if len(buf) < 5+len(ct) {
+		return io.ErrShortBuffer
+	}
 	buf[0], buf[1], buf[2] = 0x17, 0x03, 0x03
 	binary.BigEndian.PutUint16(buf[3:5], uint16(len(ct)))
 	copy(buf[5:], ct)
-	_, err := w.Write(buf[:5+len(ct)])
+	n, err := w.Write(buf[:5+len(ct)])
+	if err == nil && n != 5+len(ct) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
@@ -229,7 +301,8 @@ func (r *revCarrier) deviceToStreams() error {
 		buf := (*bp)[:cap(*bp)]
 		n, err := r.dev.Read(buf)
 		if err != nil {
-			return err
+			revPktPool.Put(bp)
+			return fmt.Errorf("reverse carrier read device: %w", err)
 		}
 		pkt := buf[:n]
 		if r.l2 {
@@ -241,15 +314,15 @@ func (r *revCarrier) deviceToStreams() error {
 			continue
 		}
 		*bp = buf[:n]
-		select {
-		case st.q <- bp:
-		default: // queue full: tail drop like a router, never block the device
+		if !st.enqueue(bp) { // closed or full: tail drop, never block the device
 			revPktPool.Put(bp)
 		}
 	}
 }
 
 func (r *revCarrier) serveConn(c net.Conn, requireAuthFirst bool) {
+	stopClose := context.AfterFunc(r.ctx, func() { _ = c.Close() })
+	defer stopClose()
 	tuneTCP(c)
 	br := bufio.NewReaderSize(c, 256<<10)
 	hdr := make([]byte, 5)
@@ -281,7 +354,14 @@ func (r *revCarrier) serveConn(c net.Conn, requireAuthFirst bool) {
 		if err != nil || len(plain) == 0 { // replay / heartbeat
 			continue
 		}
-		_, _ = r.dev.Write(plain)
+		n, err := r.dev.Write(plain)
+		if err == nil && n != len(plain) {
+			err = io.ErrShortWrite
+		}
+		if err != nil {
+			r.fail(fmt.Errorf("reverse carrier write device: %w", err))
+			return
+		}
 	}
 }
 
@@ -290,17 +370,61 @@ func (r *revCarrier) serveIran() error {
 	if err != nil {
 		return fmt.Errorf("listen reverse tcp :%d: %w", r.cfg.port, err)
 	}
-	defer ln.Close()
 	log.Printf("reverse carrier listening on tcp :%d (waiting for kharej to dial in)", r.cfg.port)
+	return r.serveListener(ln, 2*revMaxConns)
+}
+
+func (r *revCarrier) serveListener(ln net.Listener, limit int) error {
+	defer ln.Close()
+	stopClose := context.AfterFunc(r.ctx, func() { _ = ln.Close() })
+	defer stopClose()
+	// Bound both established and pending-auth sockets, not only authenticated peers.
+	slots := make(chan struct{}, limit)
+	attempt := 0
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return err
 			}
-			continue
+			if temporary, ok := err.(net.Error); ok && temporary.Temporary() {
+				if !waitRetry(r.ctx, attempt) {
+					return r.ctx.Err()
+				}
+				attempt++
+				continue
+			}
+			return fmt.Errorf("reverse carrier accept: %w", err)
 		}
-		go r.serveConn(c, true)
+		attempt = 0
+		select {
+		case slots <- struct{}{}:
+			go func() {
+				defer func() { <-slots }()
+				r.serveConn(c, true)
+			}()
+		default:
+			_ = c.Close()
+		}
+	}
+}
+
+func retryDelay(attempt int) time.Duration {
+	base := revDialRetry * time.Duration(1<<min(max(attempt, 0), 4))
+	if base > 24*time.Second {
+		base = 24 * time.Second
+	}
+	return base + time.Duration(rand.Int63n(int64(base/4)+1))
+}
+
+func waitRetry(ctx context.Context, attempt int) bool {
+	timer := time.NewTimer(retryDelay(attempt))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -313,10 +437,15 @@ func (r *revCarrier) dialKharej() error {
 		go func() {
 			defer wg.Done()
 			wireBuf := make([]byte, 5+512)
-			for {
-				c, err := net.DialTimeout("tcp", target, 5*time.Second)
+			attempt := 0
+			dialer := net.Dialer{Timeout: 5 * time.Second}
+			for r.ctx.Err() == nil {
+				c, err := dialer.DialContext(r.ctx, "tcp", target)
 				if err != nil {
-					time.Sleep(revDialRetry)
+					if !waitRetry(r.ctx, attempt) {
+						return
+					}
+					attempt++
 					continue
 				}
 				// Authenticate immediately with an encrypted handshake frame (empty payload).
@@ -324,18 +453,24 @@ func (r *revCarrier) dialKharej() error {
 				_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if err := writeFrame(c, hs, wireBuf); err != nil {
 					_ = c.Close()
-					time.Sleep(revDialRetry)
+					if !waitRetry(r.ctx, attempt) {
+						return
+					}
+					attempt++
 					continue
 				}
 				_ = c.SetWriteDeadline(time.Time{})
+				attempt = 0
 				r.serveConn(c, false)
 				log.Printf("reverse stream to %s closed, redialing", target)
-				time.Sleep(revDialRetry)
+				if !waitRetry(r.ctx, attempt) {
+					return
+				}
 			}
 		}()
 	}
 	wg.Wait()
-	return nil
+	return r.ctx.Err()
 }
 
 // flowHash returns a hash of the innermost IP flow in pkt so all packets of one inner
@@ -361,7 +496,7 @@ func flowHash(pkt []byte) uint32 {
 				return h
 			}
 			proto, src, dst, rest = p[9], p[12:16], p[16:20], p[ihl:]
-			if binary.BigEndian.Uint16(p[6:8])&0x1fff != 0 { // non-first fragment: no ports
+			if binary.BigEndian.Uint16(p[6:8])&0x3fff != 0 { // all fragments, including MF on the first: no ports
 				rest = nil
 			}
 		case 6:
