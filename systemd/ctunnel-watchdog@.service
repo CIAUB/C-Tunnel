@@ -1,0 +1,17 @@
+[Unit]
+Description=C-Tunnel end-to-end watchdog %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/ctunnel/ctunnel-watchdog %i
+TimeoutStartSec=75
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RuntimeDirectory=ctunnel-watchdog
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ReadWritePaths=/run/ctunnel-watchdog

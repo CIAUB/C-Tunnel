@@ -1,0 +1,12 @@
+[Unit]
+Description=Probe C-Tunnel data path %i every 30 seconds
+
+[Timer]
+OnBootSec=90
+OnUnitInactiveSec=30
+AccuracySec=1
+RandomizedDelaySec=5
+Unit=ctunnel-watchdog@%i.service
+
+[Install]
+WantedBy=timers.target
