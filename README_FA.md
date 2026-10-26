@@ -47,6 +47,7 @@
 - [فایل‌ها و سرویس‌ها](#فایلها-و-سرویسها)
 - [عیب‌یابی](#عیبیابی)
 - [ساخت از سورس](#ساخت-از-سورس)
+- [لایسنس](#لایسنس)
 - [ارتباط](#ارتباط)
 
 ## چطور کار می‌کند
@@ -276,6 +277,8 @@ https://<server-ip>:8443
 | `ctunnel linktest HOST` | پینگ، loss و سرعت تا HOST، مثلاً IP تانل |
 | `ctunnel speedtest-server` | پاسخ‌دهنده برای `linktest` (پورت TCP 7711) |
 | `ctunnel optimize` | BBR + fq، بافر ۶۴ مگابایتی و IP forwarding |
+| `ctunnel restart-all` | ری‌استارت همه‌ی تانل‌ها (Auto Refresh در منیج این را با cron اجرا می‌کند) |
+| `ctunnel proxy-serve` | پروکسی داخلی SOCKS5/HTTP (از منیج ← Built-in Proxy راه می‌افتد) |
 | `ctunnel panel` | اجرای پنل وب در پیش‌زمینه |
 | `ctunnel catalog` | لیست همه‌ی روش‌ها |
 | `ctunnel version` | نمایش نسخه |
@@ -323,6 +326,13 @@ bash scripts/build-release.sh 0.1.0   # release files + SHA256SUMS in dist/
 می‌گیرد. ساختار کد در [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) توضیح داده شده است.
 
 > روش‌های UDP-Crypt بسته‌ها را برای فیلترهای ساده شبیه DTLS، QUIC، RTP و بقیه نشان می‌دهند، ولی پیاده‌سازی کامل آن پروتکل‌ها نیستند.
+
+## لایسنس
+
+C-Tunnel نرم‌افزار آزاد با لایسنس [AGPL-3.0](LICENSE) است. شرایط ذکر منبع و نام تجاری در [NOTICE](NOTICE) آمده است.
+
+بخش منیج (مدیریت تانل‌ها، وضعیت، هلث‌چک، Exit Health، متریک‌ها، ری‌استارت خودکار، پروکسی داخلی و مسیر فایل‌ها) از بک‌پک برداشته شده است:
+**Based on BackPack by Amin Mohammadi (AminMGMT)** — https://github.com/AminMGMT/BackPack
 
 ## ارتباط
 

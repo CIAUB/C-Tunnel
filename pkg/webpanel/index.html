@@ -287,6 +287,9 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
           <div><label for="f-index">Subnet index (10.77.N.0/30)</label><input id="f-index" type="number" min="1" max="250" placeholder="next free"></div>
           <div><label for="f-port">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
         </div>
+        <div><label for="f-token">Secret token (same on both servers)</label>
+          <input id="f-token" class="num" autocomplete="off" placeholder="empty = random; required on kharej without a link">
+          <p class="hint">64 hex characters, or any phrase of 8+ characters.</p></div>
         <div class="grid2">
           <div><label for="f-tun-iran">Iran local tunnel IPv4</label><input id="f-tun-iran" class="num" placeholder="10.77.N.1"></div>
           <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
@@ -332,6 +335,7 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
     <h3 id="d-title"></h3>
     <p class="hint">On the other server: <code>sudo ctunnel</code> → Setup Kharej, or <code>ctunnel apply-link '…'</code></p>
     <pre id="d-link" class="out"></pre>
+    <div class="stack"><div class="k">Secret token — a server without it cannot join</div><pre id="d-token" class="out"></pre></div>
     <div id="d-mt-wrap" class="stack"><div class="k">MikroTik peer (RouterOS 7)</div><pre id="d-mt" class="out"></pre></div>
     <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="d-copy" class="btn primary" type="button">Copy link</button></div>
   </div>
@@ -471,7 +475,7 @@ function renderTunnels(list) {
     kv(info, "RX / TX", bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes));
     const row = el("div", "row");
     row.append(
-      button("Setup link", "", () => showLink(t.name, t.setup_link, t.mikrotik)),
+      button("Setup link", "", () => showLink(t.name, t.setup_link, t.mikrotik, t.token)),
       button("Restart", "", e => run(e.target, () => api("/api/tunnels/" + encodeURIComponent(t.name) + "/restart", { method: "POST" }), "Restarted " + t.name)),
       button("Delete", "danger", e => {
         if (confirm("Delete tunnel " + t.name + "? Its interface and port forwards are removed.")) {
@@ -528,8 +532,9 @@ async function run(btn, fn, okMsg) {
   }
 }
 
-function showLink(name, link, mikrotik) {
+function showLink(name, link, mikrotik, token) {
   $("d-title").textContent = "Setup link for " + name;
+  $("d-token").textContent = token || "";
   $("d-link").textContent = link;
   $("d-mt").textContent = mikrotik || "";
   $("d-mt-wrap").hidden = !mikrotik;
@@ -588,6 +593,7 @@ $("create-form").onsubmit = e => {
   const tunKharej = $("f-tun-kharej").value.trim();
   const body = {
     role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").value === "1",
+    token: $("f-token").value.trim(),
     remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? tunIran : tunKharej, tun_remote4: iran ? tunKharej : tunIran,
     index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"),
@@ -595,7 +601,7 @@ $("create-form").onsubmit = e => {
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
   };
   run(e.submitter, () => api("/api/tunnels", { method: "POST", body: JSON.stringify(body) }), "Tunnel created").then(r => {
-    if (r && r.setup_link) { $("dlg-new").close(); e.target.reset(); syncForm(); showLink(r.name, r.setup_link, r.mikrotik); }
+    if (r && r.setup_link) { $("dlg-new").close(); e.target.reset(); syncForm(); showLink(r.name, r.setup_link, r.mikrotik, r.token); }
   });
 };
 

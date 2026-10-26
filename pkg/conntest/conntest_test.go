@@ -47,7 +47,7 @@ func TestRecommendPicksFastestTotal(t *testing.T) {
 		t.Fatalf("got %s, want wireguard (450 > 400 Mbps total)", m)
 	}
 	v := Verdict("x", r)
-	if strings.Index(v, "🟢 wireguard") > strings.Index(v, "🟢 dtls-1.3") {
+	if strings.Index(v, "wireguard") > strings.Index(v, "dtls-1.3") || !strings.Contains(v, "blocked: gre") {
 		t.Fatal("fastest method is not listed first")
 	}
 	lossy := []Result{{Method: "gre", Sent: 10, Received: 6}, {Method: "rudp-fec", Sent: 10, Received: 7}}
@@ -138,6 +138,11 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 	seen := map[string]Result{}
 	for _, r := range rows {
 		seen[r.Method] = r
+	}
+	for _, m := range []string{"dtls-1.3", "gre", "wireguard"} {
+		if r := seen[m]; r.Mode != "DIRECT" || r.Status() != "ok" || r.DownMbps <= 0 {
+			t.Fatalf("DIRECT %s (iran starts) not measured: %+v", m, r)
+		}
 	}
 	if r := seen["rev+dtls-1.3"]; r.Mode != "REVERSE" || r.Status() != "ok" || r.DownMbps <= 0 {
 		t.Fatalf("rev+dtls-1.3 row not measured: %+v", r)

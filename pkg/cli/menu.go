@@ -14,6 +14,8 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/conntest"
+	"ctunnel/pkg/localproxy"
+	"ctunnel/pkg/schedule"
 	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
@@ -38,7 +40,7 @@ func RunInteractiveMenu() {
 		Opt("0", "Connection Test", "which methods pass between two servers, and speed")
 		Opt("1", "Setup Iran", "new tunnel from this server to a kharej server")
 		Opt("2", "Setup Kharej", "paste the link printed on the iran server")
-		Opt("3", "Tunnels", "status, link, restart, forwards, delete")
+		Opt("3", "Manage", "tunnels, status, health, tests")
 		Opt("4", "Web Panel", "address, login code, port")
 		Opt("5", "Optimize", "BBR, buffers, forwarding")
 		Opt("6", "Backup & Restore", "all tunnels in one file")
@@ -56,7 +58,7 @@ func RunInteractiveMenu() {
 		case "2":
 			setupKharej()
 		case "3":
-			tunnelsMenu()
+			manageMenu()
 		case "4":
 			webPanelMenu()
 		case "5":
@@ -177,6 +179,22 @@ func setupWizard(role string) {
 	}
 	tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
 	tc.Name = Ask("Tunnel name (max 9: a-z 0-9 -)", "t"+strconv.Itoa(tc.Index))
+	for {
+		prompt := "Secret token, same on both servers (Enter = random)"
+		if role == "kharej" {
+			prompt = "Secret token from the iran server"
+		}
+		in := Ask(prompt, "")
+		if in == "" && role == "iran" {
+			break // Normalize generates one; it is shown with the link
+		}
+		if _, err := catalog.TokenFromSecret(in); err != nil {
+			Err(err.Error())
+			continue
+		}
+		tc.Token = in
+		break
+	}
 	if !tunnel.IPv6Only(m.Name) {
 		defIran := fmt.Sprintf("10.77.%d.1", tc.Index)
 		defKharej := fmt.Sprintf("10.77.%d.2", tc.Index)
@@ -240,6 +258,14 @@ func setupKharej() {
 		setupWizard("kharej")
 		return
 	}
+	setupKharejLink(raw)
+}
+
+// setupKharejLink creates and starts the tunnel described by a ctunnel:// link.
+func setupKharejLink(raw string) {
+	if raw == "" {
+		return
+	}
 	tc, err := catalog.DecodeSetupLink(raw)
 	if err != nil {
 		Err(err.Error())
@@ -290,6 +316,8 @@ func showLink(tc catalog.TunnelConfig) {
 	Title("Link For The Other Server")
 	Subtle("On the other server: ctunnel -> Setup Kharej -> paste:")
 	fmt.Printf("\n   %s%s%s\n", Bold+White, link, Reset)
+	fmt.Printf("\n   Secret token: %s%s%s\n", Bold+White, tc.Token, Reset)
+	Subtle("A server without this token cannot join the tunnel.")
 	if mk := tunnel.MikroTik(tc); mk != "" {
 		Title("If The Other Side Is MikroTik (RouterOS 7)")
 		fmt.Printf("%s%s%s\n", Gray, mk, Reset)
@@ -328,109 +356,35 @@ func printStatusTable(st *catalog.Store) {
 	Rule()
 	for _, t := range st.Tunnels {
 		s := tunnel.GetStatus(t)
-		meth := t.Method
-		if t.Reverse {
-			if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
-				meth = "frp+" + t.Method
-			} else {
-				meth = "rev+" + t.Method
-			}
-		}
+		meth := methodLabel(t)
 		fmt.Printf(" %-9s %-12s %-6s %-16s %-14s %-6d %-8s %s / %s\n",
 			t.Name, meth, t.Role, t.RemoteIP, t.TunLocal4, t.Port, stateLabel(s),
 			humanBytes(s.RxBytes), humanBytes(s.TxBytes))
 	}
 }
 
-func tunnelsMenu() {
-	for {
-		st, ok := loadStore()
-		if !ok {
-			return
-		}
-		Header()
-		Title("Tunnels")
-		if len(st.Tunnels) == 0 {
-			Info("No tunnels yet. Use Setup Iran or Setup Kharej.")
-			Pause()
-			return
-		}
-		printStatusTable(st)
-		fmt.Println()
-		var opts []MenuOpt
-		for _, t := range st.Tunnels {
-			opts = append(opts, MenuOpt{Title: t.Name, Desc: t.Method + " to " + t.RemoteIP})
-		}
-		opts = append(opts, MenuOpt{"Restart all", "every tunnel"})
-		i := ChooseOpt("Choose a tunnel", opts)
-		switch {
-		case i == 0:
-			return
-		case i == len(opts):
-			for _, t := range st.Tunnels {
-				if err := tunnel.Apply(t); err != nil {
-					Err(t.Name + ": " + err.Error())
-				} else {
-					Ok("Restarted " + t.Name)
-				}
-			}
-			Pause()
-		default:
-			tunnelActions(st, st.Tunnels[i-1])
-		}
+func methodLabel(t catalog.TunnelConfig) string {
+	if !t.Reverse {
+		return t.Method
 	}
+	if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+		return "frp+" + t.Method
+	}
+	return "rev+" + t.Method
 }
 
-func tunnelActions(st *catalog.Store, tc catalog.TunnelConfig) {
-	acts := []MenuOpt{
-		{"Show link", "setup link and MikroTik commands for the peer"},
-		{"Restart", "re-create the interface"},
-		{"Delete", "stop and remove"},
-	}
-	if tc.Role == "iran" {
-		acts = append(acts, MenuOpt{"Edit forwarded ports", strings.Join(tc.Ports, ", ")})
-	}
-	switch ChooseOpt("Tunnel "+tc.Name, acts) {
-	case 1:
-		showLink(tc)
-	case 2:
-		applyAndReport(tc)
-	case 3:
-		if Confirm("Delete tunnel "+tc.Name+"?", false) {
-			if err := tunnel.Remove(st, tc.Name); err != nil {
-				Err(err.Error())
-			} else {
-				Ok("Removed " + tc.Name)
-			}
-		}
-	case 4:
-		tc.Ports = tunnel.ParsePorts(Ask("Forward ports (e.g. 443, 2053=8443)", strings.Join(tc.Ports, ", ")))
-		if err := tunnel.Save(st, &tc); err != nil {
-			Err(err.Error())
-		} else {
-			applyAndReport(tc)
-		}
-	default:
-		return
-	}
-	Pause()
-}
-
-// ─── Link test ───────────────────────────────────────────────────────────────
-
-// ConnectionTestScreen finds out which methods pass between two servers (run it on the
-// iran server first, then on the kharej server) and measures speed.
+// ConnectionTestScreen finds out which methods pass between two servers and how fast.
 func ConnectionTestScreen() {
 	Header()
 	switch ChooseOpt("Connection Test", []MenuOpt{
-		{"This server is Iran", "start the test responder and get a link"},
-		{"This server is Kharej", "paste the iran server's link and run the test"},
-		{"Speed test", "latency, loss and speed to any IP, e.g. a tunnel IP"},
+		{"Iran", "start, get a link"},
+		{"Kharej", "paste the link, run"},
+		{"Speed test", "to any IP"},
 	}) {
 	case 1:
 		connTestIran()
 	case 2:
-		connTestKharej(Ask("Paste the ctunnel-test:// link from the iran server", ""))
+		connTestKharej(Ask("Link from iran", ""))
 	case 3:
 		speedTestScreen()
 	}
@@ -458,18 +412,10 @@ func connTestIran() {
 	}
 	defer stop()
 
-	Ok(fmt.Sprintf("Responder ready: UDP %d, TCP %d, IP protocols %v", link.UDPPort, link.TCPPort, r.RawOpen))
-	if r.RawError != nil && len(r.RawOpen) < len(conntest.RawProtocols) {
-		Warn("Some IP protocols could not be opened: " + r.RawError.Error())
-	}
-	Subtle("If a firewall runs here, allow those ports and protocols during the test.")
-	Title("Run This On The Kharej Server")
-	Subtle("ctunnel → 0) Connection Test → This server is Kharej, then paste:")
+	Ok(fmt.Sprintf("Ready · UDP %d · TCP %d · IP %v", link.UDPPort, link.TCPPort, r.RawOpen))
+	Subtle("On kharej: ctunnel → 0 → Kharej, and paste:")
 	fmt.Printf("\n   %s%s%s\n\n", Bold+White, conntest.EncodeLink(link), Reset)
-	Subtle("or: sudo ctunnel conntest '" + conntest.EncodeLink(link) + "'")
-	fmt.Println()
-	Info("Waiting for the test from Kharej (live results will appear here). Press Enter to stop.")
-	fmt.Println()
+	Subtle("Live results show here. Enter = stop.")
 	attachResponderUI(r, host)
 	_, _ = reader.ReadString('\n')
 }
@@ -509,8 +455,6 @@ func RunConnTest(raw string) error {
 		return err
 	}
 	board.Clear()
-	Info("Measuring path MTU...")
-	fmt.Println()
 	fmt.Print(conntest.Verdict(link.Host, rows))
 
 	best := conntest.BestSettings(rows, conntest.PathMTU(ctx, link))
@@ -784,6 +728,8 @@ func uninstallScreen() {
 		}
 	}
 	_ = systemctlRun("disable", "--now", "ctunnel-panel.service")
+	localproxy.Remove()
+	_ = schedule.SetAutoRefresh(0)
 	for _, p := range []string{
 		StoreDir, "/etc/sysctl.d/99-ctunnel.conf", "/usr/local/lib/ctunnel",
 		"/etc/systemd/system/ctunnel@.service", "/etc/systemd/system/ctunnel-engine@.service",

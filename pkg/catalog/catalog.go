@@ -4,6 +4,7 @@ package catalog
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -110,6 +111,23 @@ func PeerRole(role string) string {
 		return "kharej"
 	}
 	return "iran"
+}
+
+// TokenFromSecret turns what the user typed into the tunnel's 64-hex secret: a
+// 64-hex value is used as is, anything else (a passphrase, 8+ characters) is
+// hashed, so both servers derive the same secret from the same phrase.
+func TokenFromSecret(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if len(s) == 64 {
+		if _, err := hex.DecodeString(s); err == nil {
+			return strings.ToLower(s), nil
+		}
+	}
+	if len(s) < 8 {
+		return "", errors.New("secret must be at least 8 characters")
+	}
+	sum := sha256.Sum256([]byte("ctunnel-secret|" + s))
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func GenerateToken() string {

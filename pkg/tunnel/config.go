@@ -176,9 +176,21 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if tc.Lanes > 1 {
 		tc.GREKey = uint32(tc.Index) * 16
 	}
+	if tc.Token == "" {
+		tc.Token = catalog.GenerateToken()
+	}
+	if !tokenRe.MatchString(strings.ToLower(tc.Token)) {
+		t, err := catalog.TokenFromSecret(tc.Token)
+		if err != nil {
+			return err
+		}
+		tc.Token = t
+	}
+	tc.Token = strings.ToLower(tc.Token)
 	if tc.Method == "vxlan" || tc.Method == "geneve" {
-		if tc.VNI == 0 {
-			tc.VNI = uint32(100 + tc.Index)
+		if tc.VNI == 0 { // from the secret: a VXLAN packet without it never attaches
+			b, _ := hex.DecodeString(tc.Token[:6])
+			tc.VNI = 1000 + (uint32(b[0])<<16|uint32(b[1])<<8|uint32(b[2]))%16000000
 		}
 	} else {
 		tc.VNI = 0
@@ -214,14 +226,6 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	}
 	if tc.RateMbps < 0 {
 		return fmt.Errorf("rate limit cannot be negative")
-	}
-
-	if tc.Token == "" {
-		tc.Token = catalog.GenerateToken()
-	}
-	tc.Token = strings.ToLower(tc.Token)
-	if !tokenRe.MatchString(tc.Token) {
-		return fmt.Errorf("secret must be 64 hex characters")
 	}
 
 	if tc.Role != "iran" {

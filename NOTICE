@@ -1,0 +1,51 @@
+C-Tunnel
+Copyright (C) 2026 CIAUB. All rights reserved.
+https://github.com/CIAUB/C-Tunnel
+
+Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+See the LICENSE file for the full text.
+
+--------------------------------------------------------------------------------
+Additional terms under Section 7 of the AGPL-3.0
+--------------------------------------------------------------------------------
+
+Neither term takes away anything AGPL-3.0 grants: you may still use, study,
+modify, redistribute and sell services built on this software.
+
+  (1) ATTRIBUTION — Section 7(b).
+
+      If you convey a modified version of this software, or run one for others
+      over a network, keep this line visible and unaltered in this NOTICE file
+      and in the README of your distribution:
+
+        Based on C-Tunnel by CIAUB
+        https://github.com/CIAUB/C-Tunnel
+
+      Adding your own copyright and notices alongside it is expected. Replacing
+      or removing it is not permitted.
+
+  (2) TRADEMARK — Section 7(e).
+
+      "C-Tunnel", the C-Tunnel name and logo are marks of CIAUB and are NOT
+      licensed with this code. A modified version must carry a different name
+      and its own branding. Saying truthfully that your work is based on,
+      forked from, or compatible with C-Tunnel is always allowed.
+
+--------------------------------------------------------------------------------
+Third-party code
+--------------------------------------------------------------------------------
+
+The Manage menu and the features behind it — Manage Tunnels, Status, Health
+Check, Exit Health, Tunnel Metrics, Restart All, Auto Refresh, the Built-in
+SOCKS5/HTTP Proxy and File Locations — are taken from BackPack (AGPL-3.0),
+adapted to C-Tunnel. BackPack's IP Spoofing Tester is not included.
+The ported files say so at the top: pkg/cli/manage.go, pkg/cli/health.go,
+pkg/socks, pkg/localproxy, pkg/schedule and pkg/netscore.
+
+BackPack's NOTICE requires this line to stay visible and unaltered:
+
+  Based on BackPack by Amin Mohammadi (AminMGMT)
+  https://github.com/AminMGMT/BackPack
+
+"BackPack" is a mark of Amin Mohammadi (AminMGMT); C-Tunnel is a separate
+project with its own name and is not BackPack.

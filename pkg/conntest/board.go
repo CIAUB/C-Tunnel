@@ -3,21 +3,12 @@ package conntest
 import (
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"sort"
 	"strings"
 
 	"ctunnel/pkg/catalog"
 )
-
-const barSegments = 8
-
-func bar(share float64) string {
-	share = math.Max(0, math.Min(1, share))
-	n := int(math.Round(share * barSegments))
-	return fmt.Sprintf("%s%s %3d%%", strings.Repeat("▰", n), strings.Repeat("▱", barSegments-n), int(math.Round(share*100)))
-}
 
 func dot(r Result) string {
 	switch r.Status() {
@@ -51,19 +42,41 @@ func modeTag(r Result) string {
 	return "DIRECT"
 }
 
-const rowFormat = "%s      %-10s %-17s %-9s %-7s %-10s %-10s %s"
+const rowFormat = "%s %-8s %-17s %-8s %-6s %-11s %s"
 
-var boardHeader = fmt.Sprintf("%-7s %-10s %-17s %-9s %-7s %-10s %-10s %s", "RESULT", "FAMILY", "METHOD", "STATUS", "ECHOES", "DOWNLOAD", "UPLOAD", "PROGRESS")
+var boardHeader = fmt.Sprintf("   %-8s %-17s %-8s %-6s %-11s %s", "MODE", "METHOD", "STATUS", "ECHO", "DOWNLOAD", "UPLOAD")
 
 func row(r Result) string {
-	if r.Skipped != "" {
-		return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), "-", "-", "-", r.Skipped)
-	}
-	done, total := r.Received, Probes
-	if r.Phase == "echo" {
+	done := r.Received
+	switch r.Phase {
+	case "echo":
 		done = r.Sent
+	case "wait":
+		done = 0
 	}
-	return fmt.Sprintf(rowFormat, dot(r), r.Family, r.Method, label(r), fmt.Sprintf("%d/%d", done, total), mbps(r.DownMbps), mbps(r.UpMbps), bar(float64(done)/float64(total)))
+	return fmt.Sprintf(rowFormat, dot(r), modeTag(r), r.Method, label(r), fmt.Sprintf("%d/%d", done, Probes), mbps(r.DownMbps), mbps(r.UpMbps))
+}
+
+// skippedLine folds the methods that could not run into one line.
+func skippedLine(rows []Result) string {
+	why := map[string]int{}
+	var order []string
+	for _, r := range rows {
+		if r.Skipped != "" {
+			if why[r.Skipped] == 0 {
+				order = append(order, r.Skipped)
+			}
+			why[r.Skipped]++
+		}
+	}
+	var parts []string
+	for _, w := range order {
+		parts = append(parts, fmt.Sprintf("%d %s", why[w], w))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "⚪ skipped: " + strings.Join(parts, ", ")
 }
 
 func mbps(v float64) string {
@@ -75,8 +88,6 @@ func mbps(v float64) string {
 	}
 	return fmt.Sprintf("%.1f Mbps", v)
 }
-
-func rule() string { return strings.Repeat("─", 64) }
 
 // Board redraws the live table in place on a terminal; elsewhere it prints nothing
 // until Final.
@@ -102,11 +113,15 @@ func (b *Board) Update(rows []Result) {
 	if !b.tty {
 		return
 	}
-	lines := []string{"CONNECTION TEST — " + b.title, rule(), "", boardHeader, ""}
+	lines := []string{"CONNECTION TEST — " + b.title, boardHeader}
 	for _, r := range rows {
-		lines = append(lines, row(r))
+		if r.Skipped == "" {
+			lines = append(lines, row(r))
+		}
 	}
-	lines = append(lines, "", rule())
+	if l := skippedLine(rows); l != "" {
+		lines = append(lines, l)
+	}
 	var w strings.Builder
 	if len(b.shown) != len(lines) {
 		if len(b.shown) > 0 {
@@ -135,49 +150,55 @@ func (b *Board) Clear() {
 	}
 }
 
-// Verdict is the final table: working methods first (fastest first), then unstable,
-// blocked and skipped, followed by the list of methods that carried everything.
+// Verdict is the final table: what works, fastest total first, then unstable;
+// blocked and skipped methods are folded into one line each.
 func Verdict(title string, rows []Result) string {
-	group := map[string]int{"ok": 0, "unstable": 1, "blocked": 2, "skipped": 3}
 	rs := append([]Result(nil), rows...)
 	sort.SliceStable(rs, func(i, j int) bool {
-		gi, gj := group[rs[i].Status()], group[rs[j].Status()]
-		if gi != gj {
-			return gi < gj
+		if mi, mj := modeTag(rs[i]), modeTag(rs[j]); mi != mj {
+			return mi == "DIRECT"
 		}
-		if gi == 0 {
+		oi, oj := rs[i].Status() == "ok", rs[j].Status() == "ok"
+		if oi != oj {
+			return oi
+		}
+		if oi {
 			return rs[i].Total() > rs[j].Total()
 		}
 		return rs[i].Received > rs[j].Received
 	})
 	var b strings.Builder
-	fmt.Fprintf(&b, "CONNECTION TEST — %s\n%s\n\n%s\n", title, rule(), boardHeader)
-	last := -1
+	fmt.Fprintf(&b, "CONNECTION TEST — %s\n", title)
+	fmt.Fprintf(&b, "   %-8s %-17s %-14s %-5s %-11s %-11s %s\n", "MODE", "METHOD", "LATENCY", "LOSS", "DOWNLOAD", "UPLOAD", "TOTAL")
+	var blocked []string
+	last := ""
 	for _, r := range rs {
-		if g := group[r.Status()]; g != last {
-			b.WriteString("\n")
-			last = g
+		if m := modeTag(r); m != last && r.Skipped == "" && r.Status() != "blocked" {
+			if last != "" {
+				b.WriteString("\n")
+			}
+			last = m
 		}
-		b.WriteString(row(r) + "\n")
-	}
-	b.WriteString("\n" + rule() + "\n\nWorks steadily:\n\n")
-	fmt.Fprintf(&b, "   %-17s %-10s %-16s %-12s %-12s %s\n", "METHOD", "FAMILY", "LATENCY", "DOWNLOAD", "UPLOAD", "TOTAL")
-	n := 0
-	for _, r := range rs {
-		if r.Status() != "ok" {
-			continue
+		switch r.Status() {
+		case "ok", "unstable":
+			fmt.Fprintf(&b, "%s %-8s %-17s %-14s %-5s %-11s %-11s %s\n", dot(r), modeTag(r), r.Method,
+				fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs), fmt.Sprintf("%d%%", r.LossPct()),
+				mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
+		case "blocked":
+			blocked = append(blocked, r.Method)
 		}
-		n++
-		fmt.Fprintf(&b, "🟢 %-17s %-10s %-16s %-12s %-12s %s\n", r.Method, r.Family, fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs),
-			mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
 	}
-	if n == 0 {
-		b.WriteString("Nothing came back steadily. Check the iran server's firewall: UDP 7712 and\nIP protocols 4, 41, 47, 50, 97 and 115 must be open during the test.\n")
+	if len(blocked) > 0 {
+		b.WriteString("🔴 blocked: " + strings.Join(blocked, ", ") + "\n")
+	}
+	if l := skippedLine(rows); l != "" {
+		b.WriteString(l + "\n")
 	}
 	return b.String()
 }
 
-// Best summarizes the recommended settings for the measured path.
+// Best summarizes the recommended settings for the measured path: the best
+// DIRECT method and the best REVERSE one.
 type Best struct {
 	Method    string
 	Mode      string
@@ -188,89 +209,80 @@ type Best struct {
 	JitterMs  float64
 	LossPct   float64
 	PathMTU   int
-	Reverse   string
+	TunnelMTU int
+	Reverse   string // fastest REVERSE method that passed every probe
 	RevDown   float64
 	RevUp     float64
-	TunnelMTU int
+	RevRTTms  float64
+	RevMTU    int
+}
+
+func tunnelMTU(method string, pathMTU int) int {
+	m, ok := catalog.LookupMethod(strings.TrimPrefix(strings.TrimPrefix(method, "frp+"), "rev+"))
+	switch {
+	case !ok:
+		return 0
+	case strings.HasPrefix(method, "frp+"):
+		return 1500 - m.Overhead // the carrier is TCP: no path MTU limit
+	case pathMTU <= 0:
+		return 0
+	case m.Family == catalog.FamilyUDPCrypt:
+		return pathMTU - m.Overhead - 16
+	default:
+		return pathMTU - m.Overhead
+	}
 }
 
 func BestSettings(rows []Result, pathMTU int) Best {
-	b := Best{PathMTU: pathMTU}
-	b.Method, b.Reason = Recommend(rows)
-	var bestRow Result
-	var hasBest bool
+	b := Best{PathMTU: pathMTU, Mode: "DIRECT"}
+	var direct []Result
 	for _, r := range rows {
-		if r.Method == b.Method && (!hasBest || r.Total() > bestRow.Total() || (r.Total() == bestRow.Total() && r.Received > bestRow.Received)) {
-			bestRow = r
-			hasBest = true
+		if modeTag(r) == "DIRECT" {
+			direct = append(direct, r)
+		} else if r.Status() == "ok" && r.Total() > b.RevDown+b.RevUp {
+			b.Reverse, b.RevDown, b.RevUp, b.RevRTTms = r.Method, r.DownMbps, r.UpMbps, r.RTTms
 		}
 	}
-	if hasBest {
-		b.Mode = modeTag(bestRow)
-		b.DownMbps, b.UpMbps, b.RTTms, b.JitterMs = bestRow.DownMbps, bestRow.UpMbps, bestRow.RTTms, bestRow.JitterMs
-		if bestRow.Sent > 0 {
-			b.LossPct = 100 * float64(bestRow.Sent-bestRow.Received) / float64(bestRow.Sent)
-		}
-	}
-	for _, r := range rows {
-		if r.Mode == "REVERSE" && r.Status() == "ok" && r.Total() > b.RevDown+b.RevUp {
-			b.Reverse, b.RevDown, b.RevUp = r.Method, r.DownMbps, r.UpMbps
+	b.Method, b.Reason = Recommend(direct)
+	for _, r := range direct {
+		if r.Method == b.Method {
+			b.DownMbps, b.UpMbps, b.RTTms, b.JitterMs = r.DownMbps, r.UpMbps, r.RTTms, r.JitterMs
+			b.LossPct = float64(r.LossPct())
 		}
 	}
 	if b.Reverse == CarrierMethod {
-		b.Reverse = "frp+gre"
+		b.Reverse = "frp+gre" // any frp+ method rides the carrier; gre has the least overhead
 	}
-	if b.Method == CarrierMethod {
-		// The carrier carries any kernel method; gre has the least overhead.
-		b.Method = "frp+gre"
-		b.Reason = "the TCP carrier was fastest; any frp+ method rides it (gre has the least overhead)"
-	}
-	baseMethod := strings.TrimPrefix(strings.TrimPrefix(b.Method, "frp+"), "rev+")
-	if m, ok := catalog.LookupMethod(baseMethod); ok && pathMTU > 0 {
-		pad := 0
-		if m.Family == catalog.FamilyUDPCrypt {
-			pad = 16
-		}
-		if strings.HasPrefix(b.Method, "frp+") {
-			b.TunnelMTU = 1500 - m.Overhead // the carrier itself is TCP: no path MTU limit
-		} else {
-			b.TunnelMTU = pathMTU - m.Overhead - pad
-		}
-	}
+	b.TunnelMTU = tunnelMTU(b.Method, pathMTU)
+	b.RevMTU = tunnelMTU(b.Reverse, pathMTU)
 	return b
 }
 
 func (b Best) String() string {
 	var s strings.Builder
-	row := func(k, v, note string) { fmt.Fprintf(&s, "%-16s %-14s %s\n", k, v, note) }
-	s.WriteString("BEST SETTINGS\n" + rule() + "\n\n")
-	row("SETTING", "VALUE", "MEASURED")
-	s.WriteString("\n")
+	line := func(mode, method string, down, up, rtt float64, mtu int) {
+		m := ""
+		if mtu > 0 {
+			m = fmt.Sprintf("  MTU %d", mtu)
+		}
+		fmt.Fprintf(&s, "   %-8s %-17s ↓ %-11s ↑ %-11s %.1f ms%s\n", mode, method, mbps(down), mbps(up), rtt, m)
+	}
+	s.WriteString("BEST SETTINGS\n")
 	if b.Method == "" {
-		row("Method", "-", b.Reason)
+		fmt.Fprintf(&s, "   %-8s %s\n", "DIRECT", b.Reason)
 	} else {
-		row("Method", b.Method, fmt.Sprintf("%.1f ms ±%.1f, %.0f%% loss", b.RTTms, b.JitterMs, b.LossPct))
-		row("Mode", b.Mode, b.Reason)
-		row("Download", mbps(b.DownMbps), b.Method+" ("+b.Mode+") packets at full rate for 1 s")
-		row("Upload", mbps(b.UpMbps), b.Method+" ("+b.Mode+") packets at full rate for 1 s")
+		line("DIRECT", b.Method, b.DownMbps, b.UpMbps, b.RTTms, b.TunnelMTU)
 	}
 	if b.Reverse != "" {
-		row("Best REVERSE", b.Reverse, fmt.Sprintf("download %s, upload %s", mbps(b.RevDown), mbps(b.RevUp)))
+		line("REVERSE", b.Reverse, b.RevDown, b.RevUp, b.RevRTTms, b.RevMTU)
 	}
-	switch {
-	case b.PathMTU >= 1500:
-		row("Path MTU", "1500", "full-size packets pass")
-	case b.PathMTU > 0:
-		row("Path MTU", fmt.Sprint(b.PathMTU), "largest packet that passes unfragmented")
-	default:
-		row("Path MTU", "-", "could not be measured")
-	}
-	if b.TunnelMTU > 0 {
-		row("Tunnel MTU", fmt.Sprint(b.TunnelMTU), "path MTU minus "+b.Method+" overhead")
+	if b.PathMTU > 0 {
+		fmt.Fprintf(&s, "   path MTU %d · ↓ = iran → kharej, ↑ = kharej → iran\n", min(b.PathMTU, 1500))
+	} else {
+		s.WriteString("   ↓ = iran → kharej, ↑ = kharej → iran\n")
 	}
 	if b.LossPct > 0 && b.Method != "rudp-fec" {
-		row("FEC", "rudp-fec", "the path loses packets")
+		s.WriteString("   the path loses packets: try rudp-fec\n")
 	}
-	s.WriteString("\nDownload = iran → kharej, Upload = kharej → iran, each counted by the side\nthat received it. The test itself runs kharej → iran, the way rev+ methods\nconnect; frp-carrier is the 8-stream TLS-shaped TCP every frp+ method rides.\n\n" + rule() + "\n")
 	return s.String()
 }

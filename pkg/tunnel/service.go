@@ -116,6 +116,24 @@ func Apply(tc catalog.TunnelConfig) error {
 }
 
 // Remove stops the tunnel, tears down its interfaces and deletes its config.
+// Stop stops a tunnel and keeps it stopped across reboots; Apply starts it again.
+func Stop(tc catalog.TunnelConfig) error {
+	_ = systemctl("disable", "--now", otherUnit(tc))
+	return systemctl("disable", "--now", Unit(tc))
+}
+
+// Logs returns the last n journal lines of the tunnel's service.
+func Logs(tc catalog.TunnelConfig, n int) string {
+	out, _ := Run("journalctl", "-u", Unit(tc), "-n", fmt.Sprint(n), "--no-pager", "-o", "short-iso")
+	return out
+}
+
+// Since returns when the tunnel's service last started, or "" if it is not running.
+func Since(tc catalog.TunnelConfig) string {
+	out, _ := Run("systemctl", "show", "-p", "ActiveEnterTimestamp", "--value", Unit(tc))
+	return strings.TrimSpace(out)
+}
+
 func Remove(st *catalog.Store, name string) error {
 	tc, ok := st.Find(name)
 	if !ok {

@@ -8,12 +8,15 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/cli"
+	"ctunnel/pkg/localproxy"
 	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
@@ -102,6 +105,18 @@ func main() {
 		log.Printf("web panel on https://<server-ip>:%d", *port)
 		log.Fatal(srv.ListenAndServeTLS())
 
+	case "restart-all":
+		ok, failed := cli.RestartAll()
+		fmt.Printf("restarted %d tunnels (%d failed)\n", ok, failed)
+		if failed > 0 {
+			os.Exit(1)
+		}
+
+	case "proxy-serve":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		localproxy.Run(ctx)
+
 	case "optimize":
 		if err := tunnel.Optimize(); err != nil {
 			log.Fatal(err)
@@ -123,6 +138,8 @@ func main() {
   linktest [-port N] <host>    latency, loss and speed to <host>
   speedtest-server [-port N]   responder for linktest (default 7711/tcp)
   panel [-port N]              run the web panel in the foreground
+  restart-all                  restart every tunnel (Auto Refresh runs this)
+  proxy-serve                  run the built-in SOCKS5/HTTP proxy (its service runs this)
   optimize                     apply BBR and buffer tuning
   catalog                      list tunnel methods
   version

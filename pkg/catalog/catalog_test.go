@@ -3,6 +3,7 @@ package catalog
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +67,23 @@ func TestCorruptStateIsNotOverwritten(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dir, "state.json"))
 	if string(b) != "{broken" {
 		t.Fatal("corrupt state.json was overwritten")
+	}
+}
+
+func TestTokenFromSecret(t *testing.T) {
+	a, err := TokenFromSecret("my shared phrase")
+	b, _ := TokenFromSecret("  my shared phrase ")
+	if err != nil || a != b || len(a) != 64 {
+		t.Fatalf("phrase must give one stable 64-hex token: %q %q %v", a, b, err)
+	}
+	if c, _ := TokenFromSecret("another phrase!"); c == a {
+		t.Fatal("different phrases gave the same token")
+	}
+	hexTok := GenerateToken()
+	if got, _ := TokenFromSecret(strings.ToUpper(hexTok)); got != hexTok {
+		t.Fatal("a 64-hex token must be used as is")
+	}
+	if _, err := TokenFromSecret("short"); err == nil {
+		t.Fatal("short secret accepted")
 	}
 }

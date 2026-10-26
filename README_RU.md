@@ -45,6 +45,7 @@
 - [Файлы и службы](#файлы-и-службы)
 - [Решение проблем](#решение-проблем)
 - [Сборка из исходников](#сборка-из-исходников)
+- [Лицензия](#лицензия)
 - [Сообщество](#сообщество)
 
 ## Как это работает
@@ -278,6 +279,8 @@ https://<server-ip>:8443
 | `ctunnel linktest HOST` | Задержка, потери и скорость до HOST, например IP туннеля |
 | `ctunnel speedtest-server` | Ответчик для `linktest` (TCP 7711) |
 | `ctunnel optimize` | BBR + fq, буферы сокетов 64 МБ, IP forwarding |
+| `ctunnel restart-all` | Перезапуск всех туннелей (Manage → Auto Refresh запускает это из cron) |
+| `ctunnel proxy-serve` | Встроенный SOCKS5/HTTP-прокси (настраивается в Manage → Built-in Proxy) |
 | `ctunnel panel` | Запустить веб-панель в текущем терминале |
 | `ctunnel catalog` | Список всех методов |
 | `ctunnel version` | Показать версию |
@@ -325,6 +328,13 @@ bash scripts/build-release.sh 0.1.0   # файлы релиза и SHA256SUMS в
 Устройство проекта описано в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 > Методы UDP-Crypt делают пакеты похожими на DTLS, QUIC, RTP и другие протоколы для простых фильтров, но не являются полными реализациями этих протоколов.
+
+## Лицензия
+
+C-Tunnel — свободное ПО под лицензией [AGPL-3.0](LICENSE). Условия указания авторства и товарного знака — в [NOTICE](NOTICE).
+
+Меню Manage (туннели, статус, проверка состояния, Exit Health, метрики, автоперезапуск, встроенный прокси, расположение файлов) взято из BackPack:
+**Based on BackPack by Amin Mohammadi (AminMGMT)** — https://github.com/AminMGMT/BackPack
 
 ## Сообщество
 

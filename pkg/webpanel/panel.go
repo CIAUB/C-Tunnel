@@ -233,6 +233,10 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if tc.LocalIP == "" {
 		tc.LocalIP = detectHostIP()
 	}
+	if tc.Role == "kharej" && strings.TrimSpace(tc.Token) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a kharej tunnel needs the iran server's secret token (or use Add from link)"})
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, err := s.store()
@@ -282,7 +286,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 // tunnel stays saved so it can be fixed and restarted.
 func (s *Server) applyAndRespond(w http.ResponseWriter, tc catalog.TunnelConfig) {
 	link, _ := catalog.EncodeSetupLink(tc)
-	resp := map[string]any{"ok": true, "name": tc.Name, "setup_link": link, "mikrotik": tunnel.MikroTik(tc)}
+	resp := map[string]any{"ok": true, "name": tc.Name, "setup_link": link, "token": tc.Token, "mikrotik": tunnel.MikroTik(tc)}
 	if err := tunnel.Apply(tc); err != nil {
 		resp["ok"] = false
 		resp["error"] = "saved, but starting failed: " + err.Error()

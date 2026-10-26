@@ -45,6 +45,7 @@
 - [Files and services](#files-and-services)
 - [Troubleshooting](#troubleshooting)
 - [Building from source](#building-from-source)
+- [License](#license)
 - [Community](#community)
 
 ## How it works
@@ -278,6 +279,8 @@ Log in with the code shown in the same menu. The certificate is self-signed, so 
 | `ctunnel linktest HOST` | Latency, loss and throughput to HOST, e.g. a tunnel IP |
 | `ctunnel speedtest-server` | Responder for `linktest` (TCP 7711) |
 | `ctunnel optimize` | BBR + fq, 64 MB socket buffers, IP forwarding |
+| `ctunnel restart-all` | Restart every tunnel (Manage → Auto Refresh runs this from cron) |
+| `ctunnel proxy-serve` | The built-in SOCKS5/HTTP proxy (Manage → Built-in Proxy sets it up) |
 | `ctunnel panel` | Run the web panel in the foreground |
 | `ctunnel catalog` | List all methods |
 | `ctunnel version` | Show the version |
@@ -325,6 +328,13 @@ bash scripts/build-release.sh 0.1.0   # release assets and SHA256SUMS in dist/
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains how the pieces fit together.
 
 > The UDP-Crypt methods make packets look like DTLS, QUIC, RTP and the others to simple filters. They are not full implementations of those protocols.
+
+## License
+
+C-Tunnel is free software under [AGPL-3.0](LICENSE). See [NOTICE](NOTICE) for the attribution and trademark terms.
+
+The Manage menu (tunnels, status, health check, exit health, metrics, auto refresh, built-in proxy, file locations) is taken from BackPack:
+**Based on BackPack by Amin Mohammadi (AminMGMT)** — https://github.com/AminMGMT/BackPack
 
 ## Community
 
