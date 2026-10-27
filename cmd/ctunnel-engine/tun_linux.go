@@ -29,17 +29,32 @@ func openTun(name string, isTap bool) (*os.File, error) {
 		base = cIFFTAP | cIFFNOPI
 	}
 	for _, flags := range []uint16{base | cIFFMULTIQUEUE, base} {
-		f, err := os.OpenFile("/dev/net/tun", os.O_RDWR, 0)
+		f, err := os.OpenFile("/dev/net/tun", os.O_RDWR|syscall.O_NONBLOCK, 0)
 		if err != nil {
 			return nil, err
 		}
 		var req ifReq
 		copy(req.Name[:15], name)
 		req.Flags = flags
-		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(cTUNSETIFF), uintptr(unsafe.Pointer(&req)))
+		// File.Fd switches a pollable descriptor to blocking mode. Control keeps
+		// TUN reads on Go's poller, so Close can interrupt an idle device read.
+		raw, err := f.SyscallConn()
+		if err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+		var errno syscall.Errno
+		if err := raw.Control(func(fd uintptr) {
+			_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(cTUNSETIFF), uintptr(unsafe.Pointer(&req)))
+			if errno == 0 {
+				sndbuf := int32(8 << 20)
+				_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(cTUNSETSNDBUF), uintptr(unsafe.Pointer(&sndbuf)))
+			}
+		}); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
 		if errno == 0 {
-			sndbuf := int32(8 << 20)
-			_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), uintptr(cTUNSETSNDBUF), uintptr(unsafe.Pointer(&sndbuf)))
 			return f, nil
 		}
 		f.Close()

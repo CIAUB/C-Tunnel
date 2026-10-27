@@ -35,25 +35,43 @@ func StartServer(addr string) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	stopCh := make(chan struct{})
+	// Bound unauthenticated sessions, including peers that never finish a hello.
+	var mu sync.Mutex
+	active := map[net.Conn]bool{}
+	stopped := false
+	var once sync.Once
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				select {
-				case <-stopCh:
-					return
-				default:
-					continue
-				}
+				return
 			}
-			go serveSpeedOrEcho(conn)
+			mu.Lock()
+			if stopped || len(active) >= 32 {
+				mu.Unlock()
+				_ = conn.Close()
+				continue
+			}
+			active[conn] = true
+			mu.Unlock()
+			go func() {
+				defer func() { mu.Lock(); delete(active, conn); mu.Unlock() }()
+				serveSpeedOrEcho(conn)
+			}()
 		}
 	}()
 	stop := func() {
-		close(stopCh)
-		_ = ln.Close()
+		once.Do(func() {
+			mu.Lock()
+			stopped = true
+			_ = ln.Close()
+			for c := range active {
+				_ = c.Close()
+			}
+			mu.Unlock()
+		})
 	}
+
 	return ln.Addr().String(), stop, nil
 }
 

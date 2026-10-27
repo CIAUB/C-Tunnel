@@ -189,6 +189,10 @@ gre_up() {
 
 cmd_up() {
     load_env "$1"
+    # Fail before deleting a working interface or its firewall rules.
+    if [[ "$KIND" == wireguard ]]; then
+        command -v wg >/dev/null 2>&1 || die "wireguard-tools is not installed; run: apt-get update && apt-get install -y wireguard-tools"
+    fi
     links_down
     fw_clear
     modload ip_gre ip6_gre ipip sit ip6_tunnel tun
@@ -280,12 +284,14 @@ cmd_up() {
             local keyfile
             keyfile="$(umask 077; mktemp)"
             printf '%s\n' "${WG_PRIVATE}" > "${keyfile}"
-            if [[ "${REVERSE}" == "1" && "${ROLE}" == "iran" ]]; then
-                wg set "${DEV}" listen-port "${PORT}" private-key "${keyfile}" \
-                    peer "${WG_PEER_PUBLIC}" allowed-ips 0.0.0.0/0
-            else
-                wg set "${DEV}" listen-port "${PORT}" private-key "${keyfile}" \
-                    peer "${WG_PEER_PUBLIC}" endpoint "${REMOTE_IP}:${PORT}" persistent-keepalive 15 allowed-ips 0.0.0.0/0
+            local endpoint_args=()
+            if [[ "${REVERSE}" != "1" || "${ROLE}" != "iran" ]]; then
+                endpoint_args=(endpoint "${REMOTE_IP}:${PORT}" persistent-keepalive 15)
+            fi
+            if ! wg set "${DEV}" listen-port "${PORT}" private-key "${keyfile}" \
+                peer "${WG_PEER_PUBLIC}" allowed-ips 0.0.0.0/0 "${endpoint_args[@]}"; then
+                rm -f "${keyfile}"
+                die "failed to configure WireGuard interface ${DEV}"
             fi
             rm -f "${keyfile}"
             tune_dev "${DEV}"; addr4 "${DEV}"

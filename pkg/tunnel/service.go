@@ -25,7 +25,7 @@ var Run = func(name string, args ...string) (string, error) {
 // Unit is the systemd unit that runs a tunnel: a oneshot for kernel tunnels,
 // a long-running engine process for userspace or reverse-carrier ones.
 func Unit(tc catalog.TunnelConfig) string {
-	if m, ok := catalog.LookupMethod(tc.Method); ok && (m.Userspace || tc.Reverse) {
+	if m, ok := catalog.LookupMethod(tc.Method); ok && (m.Userspace || (tc.Reverse && m.Name != "wireguard")) {
 		return "ctunnel-engine@" + tc.Name + ".service"
 	}
 	return "ctunnel@" + tc.Name + ".service"

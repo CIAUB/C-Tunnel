@@ -115,7 +115,7 @@ func (b *Board) Update(rows []Result) {
 	}
 	lines := []string{"CONNECTION TEST — " + b.title, boardHeader}
 	for _, r := range rows {
-		if r.Skipped == "" {
+		if r.Skipped == "" || strings.HasPrefix(r.Method, "frp+") {
 			lines = append(lines, row(r))
 		}
 	}
@@ -184,8 +184,15 @@ func Verdict(title string, rows []Result) string {
 			fmt.Fprintf(&b, "%s %-8s %-17s %-14s %-5s %-11s %-11s %s\n", dot(r), modeTag(r), r.Method,
 				fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs), fmt.Sprintf("%d%%", r.LossPct()),
 				mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
-		case "blocked":
-			blocked = append(blocked, r.Method)
+			if r.Error != "" {
+				fmt.Fprintf(&b, "   %s\n", r.Error)
+			}
+		case "blocked", "skipped", "testing":
+			if strings.HasPrefix(r.Method, "frp+") {
+				fmt.Fprintf(&b, "%s %-8s %-17s %s\n", dot(r), modeTag(r), r.Method, strings.ToUpper(r.Status())+" "+r.Skipped)
+			} else if r.Status() == "blocked" {
+				blocked = append(blocked, r.Method)
+			}
 		}
 	}
 	if len(blocked) > 0 {
@@ -194,6 +201,7 @@ func Verdict(title string, rows []Result) string {
 	if l := skippedLine(rows); l != "" {
 		b.WriteString(l + "\n")
 	}
+	b.WriteString("frp+: independent carrier/encapsulation shape tests; kernel setup is not tested.\n")
 	return b.String()
 }
 
@@ -239,7 +247,7 @@ func BestSettings(rows []Result, pathMTU int) Best {
 	for _, r := range rows {
 		if modeTag(r) == "DIRECT" {
 			direct = append(direct, r)
-		} else if r.Status() == "ok" && r.Total() > b.RevDown+b.RevUp {
+		} else if r.Method != CarrierMethod && r.Status() == "ok" && r.Total() > b.RevDown+b.RevUp {
 			b.Reverse, b.RevDown, b.RevUp, b.RevRTTms = r.Method, r.DownMbps, r.UpMbps, r.RTTms
 		}
 	}
@@ -250,9 +258,7 @@ func BestSettings(rows []Result, pathMTU int) Best {
 			b.LossPct = float64(r.LossPct())
 		}
 	}
-	if b.Reverse == CarrierMethod {
-		b.Reverse = "frp+gre" // any frp+ method rides the carrier; gre has the least overhead
-	}
+
 	b.TunnelMTU = tunnelMTU(b.Method, pathMTU)
 	b.RevMTU = tunnelMTU(b.Reverse, pathMTU)
 	return b

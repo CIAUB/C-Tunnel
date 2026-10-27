@@ -131,6 +131,27 @@ if [[ "$url" == *mode=json* ]]; then cp "$FIXTURE/metadata" "$2"; else cp "$FIXT
         self.assertNotEqual(result.returncode,0)
         self.assertFalse((work/'go').exists())
         self.assertNotIn('.tar.gz', urls)
+    def test_wireguard_preflight_does_not_destroy_existing_interface(self):
+        text=(ROOT/'scripts/ctunnel-kernel.sh').read_text()
+        text=text[:text.index('\ncase "${1:-}" in')]
+        marker=self.d/'deleted-interface'
+        code=text+\
+            '\nload_env() { KIND=wireguard; }\n'+\
+            'links_down() { echo deleted > "$MARKER"; }\n'+\
+            'cmd_up t1\n'
+        env=dict(self.env, PATH=str(self.bin), MARKER=str(marker))
+        result=subprocess.run(['/bin/bash','-c',code],env=env,capture_output=True,text=True)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn('wireguard-tools',result.stderr)
+        self.assertFalse(marker.exists())
+    def test_installer_includes_wireguard_tools_dependency(self):
+        text=(ROOT/'install.sh').read_text()
+        start=text.index('missing=()')
+        end=text.index('if ! command -v go',start)
+        result=subprocess.run(['/bin/bash','-c',text[start:end]+'\nprintf "%s\\n" "${missing[@]}"'],
+                              env=dict(self.env,PATH=str(self.bin)),capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('wireguard-tools',result.stdout.splitlines())
     def watchdog_setup(self):
         (self.d/'config').mkdir()
         (self.d/'config'/'test.env').write_text('WATCH_UNIT=frpc.service\nTUNNEL_URL=http://tunnel/health\nORIGIN_URL=http://origin/health\nEXPECTED_BODY=ok\n')
