@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"runtime"
 	"sort"
@@ -63,7 +64,7 @@ func EncodeLink(l Link) string {
 
 func DecodeLink(s string) (Link, error) {
 	s = strings.Trim(strings.TrimSpace(s), "'\"")
-	if !strings.HasPrefix(s, "ctunnel-test://") {
+	if len(s) > 2048 || !strings.HasPrefix(s, "ctunnel-test://") {
 		return Link{}, errors.New("not a ctunnel-test:// link")
 	}
 	b, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(s, "ctunnel-test://"))
@@ -71,10 +72,19 @@ func DecodeLink(s string) (Link, error) {
 		return Link{}, errors.New("corrupt test link")
 	}
 	var l Link
-	if err := json.Unmarshal(b, &l); err != nil || net.ParseIP(l.Host) == nil {
+	if err := json.Unmarshal(b, &l); err != nil || validateLink(l) != nil {
 		return Link{}, errors.New("corrupt test link")
 	}
 	return l, nil
+}
+
+func validateLink(l Link) error {
+	ip := net.ParseIP(l.Host)
+	token, err := hex.DecodeString(l.TokenHex)
+	if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) || l.UDPPort < 1 || l.UDPPort > 65535 || l.TCPPort < 1 || l.TCPPort > 65535 || err != nil || len(token) != tokenLen {
+		return errors.New("invalid IPv4 test endpoint, port or token")
+	}
+	return nil
 }
 
 func NewToken() string {
@@ -123,22 +133,25 @@ type Responder struct {
 	RawOpen  []int // protocols with a working raw socket
 	RawError error
 
-	token    []byte
-	ps       []probe
-	udp      *net.UDPConn
-	raw      map[int]net.PacketConn
-	mu       sync.Mutex
-	counts   map[int]int64
-	nonces   map[uint32]bool
-	rows     []Result
-	probeRow []int // probe index → DIRECT row
-	revRow   []int // probe index → REVERSE row, -1 if the method has none
-	seenEcho map[[2]int]bool
-	pingRTT  map[int][]float64
-	pingSeen map[[2]int]bool
-	chunks   map[uint32][][]byte // report id → chunks received so far
-	onUpdate Progress
-	onReport func(Report)
+	token      []byte
+	ps         []probe
+	udp        *net.UDPConn
+	raw        map[int]net.PacketConn
+	mu         sync.Mutex
+	callbackMu sync.Mutex
+	counts     map[int]int64
+	nonces     map[uint32]bool
+	rows       []Result
+	probeRow   []int // probe index → DIRECT row
+	revRow     []int // probe index → REVERSE row, -1 if the method has none
+	seenEcho   map[[2]int]bool
+	pingRTT    map[int][]float64
+	pingSeen   map[[2]int]bool
+	chunks     map[uint32][][]byte // report id → chunks received so far
+	updates    chan []Result
+	busy       chan struct{}
+	onUpdate   Progress
+	onReport   func(Report)
 }
 
 // SetCallbacks registers live progress and final report callbacks for the Iran-side UI.
@@ -156,18 +169,18 @@ func (r *Responder) resetRowsLocked() {
 
 func (r *Responder) usable(i int) bool { return r.ps[i].proto == 0 || r.raw[r.ps[i].proto] != nil }
 
-// CarrierMethod is the row that measures the REVERSE TCP carrier every frp+ method rides.
+// CarrierMethod identifies legacy aggregate rows; never recommend them as a method.
 const CarrierMethod = "frp-carrier"
 
 // newRows builds the board: one DIRECT row per method (iran starts the traffic,
 // like a DIRECT tunnel), one REVERSE row per method that has a rev+ form (kharej
-// starts), and the frp-carrier row. dir and rev map a probe index to its rows.
+// starts), and independent frp+ carrier-shape rows. dir and rev map a probe index to its rows.
 func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int) {
 	dir, rev = make([]int, len(ps)), make([]int, len(ps))
 	byName := map[string]int{}
 	for i, p := range ps {
 		byName[p.method] = i
-		rev[i] = -1
+		dir[i], rev[i] = -1, -1
 	}
 	add := func(m catalog.MethodSpec, name, mode string) (int, bool) {
 		row := Result{Method: name, Family: string(m.Family), Mode: mode, Sent: Probes}
@@ -195,8 +208,16 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 			}
 		}
 	}
-	rows = append(rows, Result{Method: CarrierMethod, Family: "reverse", Mode: "REVERSE", Sent: Probes, Phase: "wait"})
+	for _, m := range catalog.Methods {
+		if frpMethod(m) {
+			rows = append(rows, Result{Method: "frp+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Sent: Probes, Phase: "wait"})
+		}
+	}
 	return rows, dir, rev
+}
+
+func frpMethod(m catalog.MethodSpec) bool {
+	return !m.IPv6Underlay && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard"
 }
 
 func (r *Responder) notifyLocked() {
@@ -204,8 +225,19 @@ func (r *Responder) notifyLocked() {
 		return
 	}
 	cp := append([]Result(nil), r.rows...)
-	cb := r.onUpdate
-	go cb(cp)
+	// A single worker serializes callbacks; retain only the newest pending board.
+	select {
+	case r.updates <- cp:
+	default:
+		select {
+		case <-r.updates:
+		default:
+		}
+		select {
+		case r.updates <- cp:
+		default:
+		}
+	}
 }
 
 func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error) {
@@ -232,7 +264,26 @@ func Serve(ctx context.Context, udpPort int, tokenHex string) (*Responder, error
 		r.raw[p] = pc
 		conns = append(conns, pc)
 	}
+	r.updates = make(chan []Result, 1)
+	r.busy = make(chan struct{}, 2)
 	r.resetRowsLocked()
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case rows := <-r.updates:
+				r.callbackMu.Lock()
+				r.mu.Lock()
+				cb := r.onUpdate
+				r.mu.Unlock()
+				if cb != nil {
+					cb(rows)
+				}
+				r.callbackMu.Unlock()
+			}
+		}
+	}()
 	for _, c := range conns {
 		go r.serve(c)
 	}
@@ -269,7 +320,7 @@ func (r *Responder) serve(c net.PacketConn) {
 			idx := int(pkt[n-trailerLen+1])
 			seq := int(binary.BigEndian.Uint16(pkt[n-trailerLen+2 : n-trailerLen+4]))
 			r.mu.Lock()
-			if idx < len(r.ps) && r.revRow[idx] >= 0 && !r.seenEcho[[2]int{idx, seq}] {
+			if idx < len(r.ps) && seq < Probes && r.revRow[idx] >= 0 && !r.seenEcho[[2]int{idx, seq}] {
 				r.seenEcho[[2]int{idx, seq}] = true
 				row := &r.rows[r.revRow[idx]]
 				row.Phase = "echo"
@@ -283,7 +334,7 @@ func (r *Responder) serve(c net.PacketConn) {
 			idx, seq := int(t[1]), int(binary.BigEndian.Uint16(t[2:4]))
 			rtt := float64(time.Now().UnixNano()-int64(binary.BigEndian.Uint64(t[4:12]))) / 1e6
 			r.mu.Lock()
-			if idx < len(r.ps) && !r.pingSeen[[2]int{idx, seq}] {
+			if idx < len(r.ps) && seq < Probes && r.probeRow[idx] >= 0 && rtt >= 0 && rtt <= 10000 && !r.pingSeen[[2]int{idx, seq}] {
 				r.pingSeen[[2]int{idx, seq}] = true
 				r.pingRTT[idx] = append(r.pingRTT[idx], rtt)
 				r.rows[r.probeRow[idx]].Received = len(r.pingRTT[idx])
@@ -299,10 +350,19 @@ func (r *Responder) serve(c net.PacketConn) {
 }
 
 func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
+	if len(pkt) < len(ctlMagic)+8+tokenLen {
+		return
+	}
 	o := len(ctlMagic)
 	cmd, idx := pkt[o], int(pkt[o+1])
 	dur := time.Duration(binary.BigEndian.Uint16(pkt[o+2:o+4])) * time.Millisecond
 	nonce := binary.BigEndian.Uint32(pkt[o+4 : o+8])
+	r.mu.Lock()
+	full := !r.nonces[nonce] && len(r.nonces) >= 4096
+	r.mu.Unlock()
+	if full {
+		return
+	}
 	ack := func() {
 		reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
 		reply = append(reply, pkt[:o+8]...)
@@ -323,7 +383,11 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		r.mu.Unlock()
 		ack()
 		if fresh {
-			go r.ping(from.IP, int(binary.BigEndian.Uint16(pkt[o+2:o+4])))
+			select {
+			case r.busy <- struct{}{}:
+				go func() { defer func() { <-r.busy }(); r.ping(from.IP, int(binary.BigEndian.Uint16(pkt[o+2:o+4]))) }()
+			default:
+			}
 		}
 		return
 	case ctlPingRead:
@@ -342,10 +406,11 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		return
 	case ctlRow:
 		var row Result
-		if json.Unmarshal(body, &row) == nil {
+		if json.Unmarshal(body, &row) == nil && validResult(row) {
 			r.mu.Lock()
 			for i := range r.rows {
 				if r.rows[i].Method == row.Method {
+					row.Mode, row.Family = r.rows[i].Mode, r.rows[i].Family
 					r.rows[i] = row
 					r.notifyLocked()
 					break
@@ -359,7 +424,7 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		// The report is split into chunks small enough to never fragment; idx is the
 		// chunk number and the duration field carries the chunk count.
 		total := int(binary.BigEndian.Uint16(pkt[o+2 : o+4]))
-		if total == 0 || total > 255 || idx >= total {
+		if total == 0 || total > 255 || idx >= total || len(body) > reportChunk {
 			return
 		}
 		r.mu.Lock()
@@ -367,6 +432,10 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		if !r.nonces[nonce] {
 			parts := r.chunks[nonce]
 			if parts == nil {
+				if len(r.chunks) >= 4 {
+					r.mu.Unlock()
+					return
+				}
 				parts = make([][]byte, total)
 				r.chunks[nonce] = parts
 			}
@@ -391,9 +460,15 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 			if zr, err := zlib.NewReader(bytes.NewReader(done)); err == nil {
 				raw, _ := io.ReadAll(io.LimitReader(zr, 1<<20))
 				_ = zr.Close()
-				if json.Unmarshal(raw, &rep) == nil && cb != nil {
+				if json.Unmarshal(raw, &rep) == nil && validReport(rep) && cb != nil {
+					rep.Best = BestSettings(rep.Rows, 0)
 					rep.Peer = from.IP.String()
-					go cb(rep)
+					r.callbackMu.Lock()
+					r.mu.Lock()
+					r.onUpdate = nil
+					r.mu.Unlock()
+					cb(rep)
+					r.callbackMu.Unlock()
 				}
 			}
 		}
@@ -407,7 +482,7 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	switch cmd {
 	case ctlCountStart:
 		r.counts[idx] = 0
-		if len(r.rows) > 0 {
+		if len(r.rows) > 0 && r.probeRow[idx] >= 0 {
 			ri := r.probeRow[idx]
 			r.rows[ri].Sent = Probes
 			r.rows[ri].Phase = "speed"
@@ -427,7 +502,11 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 			if conn != nil {
 				// What arrives is counted by kharej and synced back with ctlRow;
 				// bytes sent here say nothing about what got through.
-				go stream(conn, dst, p, idx, kindDownload, r.token, dur)
+				select {
+				case r.busy <- struct{}{}:
+					go func() { defer func() { <-r.busy }(); stream(conn, dst, p, idx, kindDownload, r.token, dur) }()
+				default:
+				}
 			}
 		}
 	}
@@ -528,7 +607,50 @@ type Result struct {
 	UpMbps   float64 `json:"up_mbps"`   // sent from this server (upload)
 	DownMbps float64 `json:"down_mbps"` // received by this server (download)
 	Skipped  string  `json:"skipped,omitempty"`
+	Error    string  `json:"error,omitempty"`
 	Phase    string  `json:"-"` // "", "echo", "speed-queued", "speed" while the test runs
+}
+
+// Only catalog-backed, bounded, printable results may reach terminal output.
+func validResult(r Result) bool {
+	base := strings.TrimPrefix(strings.TrimPrefix(r.Method, "frp+"), "rev+")
+	m, ok := catalog.LookupMethod(base)
+	if !ok || base != m.Name || (strings.HasPrefix(r.Method, "frp+") && !frpMethod(m)) || (strings.HasPrefix(r.Method, "rev+") && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard") {
+		return false
+	}
+	if r.Sent < 0 || r.Sent > Probes || r.Received < 0 || r.Received > r.Sent {
+		return false
+	}
+	for _, v := range []float64{r.RTTms, r.JitterMs, r.DownMbps, r.UpMbps} {
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1e9 {
+			return false
+		}
+	}
+	for _, v := range []string{r.Skipped, r.Error} {
+		if len(v) > 128 {
+			return false
+		}
+		for _, c := range v {
+			if c < 32 || c > 126 {
+				return false
+			}
+		}
+	}
+	return r.Mode == "" || r.Mode == "DIRECT" || r.Mode == "REVERSE"
+}
+
+func validReport(rep Report) bool {
+	if len(rep.Rows) > 2*len(catalog.Methods) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, r := range rep.Rows {
+		if !validResult(r) || seen[r.Method] {
+			return false
+		}
+		seen[r.Method] = true
+	}
+	return true
 }
 
 // Total is download plus upload, the number results are ranked by.
@@ -550,7 +672,7 @@ func (r Result) Status() string {
 		return "skipped"
 	case r.Received == 0:
 		return "blocked"
-	case r.Received < r.Sent:
+	case r.Error != "" || r.Received < r.Sent:
 		return "unstable"
 	default:
 		return "ok"
@@ -714,10 +836,10 @@ func (s *session) receive(c net.PacketConn) {
 		}
 		s.mu.Lock()
 		h := s.handler
-		s.mu.Unlock()
 		if h != nil {
 			h(t[0], idx, binary.BigEndian.Uint16(t[2:4]), int64(binary.BigEndian.Uint64(t[4:12])), n)
 		}
+		s.mu.Unlock()
 	}
 }
 
@@ -739,6 +861,9 @@ type Progress func(rows []Result)
 // Run probes every method against the responder in l: first Probes echoes per method,
 // then, for each method that answered every echo, a short throughput test.
 func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
+	if err := validateLink(l); err != nil {
+		return nil, err
+	}
 	token, err := hex.DecodeString(l.TokenHex)
 	if err != nil || len(token) != tokenLen {
 		return nil, errors.New("bad token in link")
@@ -840,7 +965,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	rtts := make([][]float64, len(s.ps))
 	seen := map[[2]int]bool{}
 	s.setHandler(func(kind byte, idx int, seq uint16, sentNs int64, _ int) {
-		if kind != kindEcho || revRow[idx] < 0 {
+		if kind != kindEcho || revRow[idx] < 0 || int(seq) >= Probes {
 			return
 		}
 		rowsMu.Lock()
@@ -905,30 +1030,55 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		}
 	}
 
-	// Phase 4: the TLS-shaped TCP carrier every frp+ method rides.
-	ci := len(rows) - 1
-	set(ci, func(r *Result) { r.Phase = "speed" })
-	notify()
-	carrier := measureCarrier(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)))
-	set(ci, func(r *Result) { *r = carrier })
-	notify()
-	push(ci)
+	// Phase 4: each frp+ method gets fresh TCP streams, its own method-specific
+	// payload, verified echoes and bidirectional throughput. No aggregate is copied.
+	for ci := range rows {
+		if !strings.HasPrefix(rows[ci].Method, "frp+") {
+			continue
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		set(ci, func(r *Result) { r.Phase = "speed" })
+		notify()
+		measured := measureCarrier(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), rows[ci].Method)
+		set(ci, func(r *Result) { *r = measured })
+		notify()
+		push(ci)
+	}
 	return rows, ctx.Err()
 }
 
-// measureCarrier times record-framed echoes and measures 8-stream speed over the
-// carrier shape the frp+ methods use. down is iran → kharej, as everywhere else.
-func measureCarrier(ctx context.Context, addr string) Result {
-	r := Result{Method: CarrierMethod, Family: "reverse", Mode: "REVERSE", Sent: Probes}
-	rtts := speedtest.CarrierRTT(ctx, addr, Probes, probeInterval)
+// These are carrier/encapsulation shape probes, not kernel tunnel integration tests.
+func measureCarrier(ctx context.Context, addr, method string) Result {
+	base := strings.TrimPrefix(method, "frp+")
+	spec, ok := catalog.LookupMethod(base)
+	r := Result{Method: method, Family: string(spec.Family), Mode: "REVERSE", Sent: Probes}
+	if !ok || !frpMethod(spec) {
+		r.Skipped = "unsupported frp method"
+		return r
+	}
+	var prefix []byte
+	for _, p := range probes() {
+		if p.method == base {
+			prefix = append([]byte(method+"\x00"), p.header()...)
+			break
+		}
+	}
+	if len(prefix) == 0 {
+		r.Skipped = "no carrier probe"
+		return r
+	}
+	rtts := speedtest.CarrierPayloadRTT(ctx, addr, prefix, Probes, probeInterval)
 	r.Received = len(rtts)
 	r.RTTms, r.JitterMs = stats(rtts)
 	if r.Received == 0 {
 		return r
 	}
-	down, up, err := speedtest.MeasureCarrier(ctx, addr, 500*time.Millisecond, 2*time.Second)
-	if err == nil {
-		r.DownMbps, r.UpMbps = down, up
+	down, up, err := speedtest.MeasureCarrierPayload(ctx, addr, prefix, 200*time.Millisecond, time.Second)
+	r.DownMbps, r.UpMbps = down, up
+	if err != nil {
+		r.Error = "carrier throughput failed"
 	}
 	return r
 }
@@ -1136,12 +1286,12 @@ func SendReport(ctx context.Context, l Link, rows []Result, best Best) {
 			_, _ = uc.WriteTo(msg, dst)
 			_ = uc.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
 			for !acked {
-				n, _, err := uc.ReadFrom(buf)
+				n, from, err := uc.ReadFromUDP(buf)
 				if err != nil {
 					break
 				}
 				o := len(ctlMagic)
-				acked = n >= o+8 && buf[o] == ctlReport && buf[o+1] == byte(c) && string(buf[o+4:o+8]) == string(nonce[:])
+				acked = from.IP.Equal(dst.IP) && from.Port == dst.Port && n >= o+8+tokenLen && bytes.Equal(buf[n-tokenLen:n], token) && buf[o] == ctlReport && buf[o+1] == byte(c) && string(buf[o+4:o+8]) == string(nonce[:])
 			}
 		}
 		if !acked {
