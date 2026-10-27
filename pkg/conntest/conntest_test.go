@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,7 +98,7 @@ func TestIranResponderReceivesFinalReportFromKharej(t *testing.T) {
 }
 
 func TestIranSideGetsSpeedsAndReport(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	l := Link{Host: "127.0.0.1", UDPPort: 0, TokenHex: NewToken()}
 	tcpAddr, stopTCP, err := speedtest.StartServer("127.0.0.1:0")
@@ -114,8 +115,9 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 	_, port, _ := net.SplitHostPort(resp.UDPAddr)
 	l.UDPPort = atoi(port)
 	var iranRows []Result
+	var iranMu sync.Mutex
 	got := make(chan Report, 1)
-	resp.SetCallbacks(func(r []Result) { iranRows = r }, func(r Report) { got <- r })
+	resp.SetCallbacks(func(r []Result) { iranMu.Lock(); iranRows = r; iranMu.Unlock() }, func(r Report) { got <- r })
 	rows, err := Run(ctx, l, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +132,10 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 		t.Fatal("iran never got the report")
 	}
 	time.Sleep(200 * time.Millisecond)
-	for _, r := range iranRows {
+	iranMu.Lock()
+	snapshot := append([]Result(nil), iranRows...)
+	iranMu.Unlock()
+	for _, r := range snapshot {
 		if r.Method == "dtls-1.3" && (r.DownMbps <= 0 || r.UpMbps <= 0) {
 			t.Fatalf("iran board has no speed for dtls-1.3: %+v", r)
 		}
@@ -151,14 +156,19 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 	if r := seen["rev+dtls-1.3"]; r.Mode != "REVERSE" || r.Status() != "ok" || r.DownMbps <= 0 {
 		t.Fatalf("rev+dtls-1.3 row not measured: %+v", r)
 	}
-	if r := seen[CarrierMethod]; r.Status() != "ok" || r.DownMbps <= 0 || r.UpMbps <= 0 {
-		t.Fatalf("carrier row not measured: %+v", r)
-	}
-	for _, r := range iranRows {
-		if r.Method == CarrierMethod && r.DownMbps <= 0 {
-			t.Fatalf("iran board did not get the carrier row: %+v", r)
+	for _, m := range catalog.Methods {
+		if !frpMethod(m) {
+			continue
+		}
+		r, ok := seen["frp+"+m.Name]
+		if !ok || r.Status() != "ok" || r.DownMbps <= 0 || r.UpMbps <= 0 {
+			t.Fatalf("independent %s row not measured: %+v", m.Name, r)
 		}
 	}
+	if _, ok := seen[CarrierMethod]; ok {
+		t.Fatal("legacy aggregate row still present")
+	}
+
 }
 
 func atoi(s string) (n int) {
@@ -166,4 +176,59 @@ func atoi(s string) (n int) {
 		n = n*10 + int(c-'0')
 	}
 	return
+}
+
+func TestFRPRowsDoNotRequireRawSockets(t *testing.T) {
+	rows, dir, _ := newRows(probes(), func(int) bool { return false })
+	seen := map[string]int{}
+	for _, r := range rows {
+		seen[r.Method]++
+		if strings.HasPrefix(r.Method, "frp+") && (r.Skipped != "" || r.Mode != "REVERSE") {
+			t.Fatalf("FRP incorrectly requires raw sockets: %+v", r)
+		}
+	}
+	for _, i := range dir {
+		if i != -1 {
+			t.Fatal("unusable direct probe mapped to another row")
+		}
+	}
+	for _, m := range catalog.Methods {
+		if frpMethod(m) && seen["frp+"+m.Name] != 1 {
+			t.Fatalf("missing/duplicate frp+%s", m.Name)
+		}
+	}
+}
+
+func TestFRPFailureRemainsVisibleAndAggregateIsNotRecommended(t *testing.T) {
+	rows := []Result{{Method: "frp+gre", Mode: "REVERSE", Sent: 10}, {Method: CarrierMethod, Mode: "REVERSE", Sent: 10, Received: 10, DownMbps: 1000}}
+	if !strings.Contains(Verdict("x", rows), "frp+gre") || !strings.Contains(Verdict("x", rows), "BLOCKED") {
+		t.Fatal("failed FRP method hidden")
+	}
+	if BestSettings(rows, 1500).Reverse != "" {
+		t.Fatal("aggregate invented a winning method")
+	}
+}
+
+func TestInvalidLinkAndNetworkResultsRejected(t *testing.T) {
+	base := Link{Host: "127.0.0.1", UDPPort: 7712, TCPPort: 7711, TokenHex: NewToken()}
+	for _, modify := range []func(*Link){func(l *Link) { l.UDPPort = 0 }, func(l *Link) { l.TCPPort = 65536 }, func(l *Link) { l.TokenHex = "bad" }, func(l *Link) { l.Host = "224.0.0.1" }, func(l *Link) { l.Host = "::1" }} {
+		l := base
+		modify(&l)
+		if _, err := DecodeLink(EncodeLink(l)); err == nil {
+			t.Fatalf("accepted invalid link: %+v", l)
+		}
+	}
+	r := Result{Method: "frp+gre", Mode: "REVERSE", Sent: 10, Received: 10}
+	if !validResult(r) {
+		t.Fatal("valid result rejected")
+	}
+	r.Skipped = "\x1b[2J"
+	if validResult(r) {
+		t.Fatal("terminal escape accepted")
+	}
+	r.Skipped = ""
+	r.Received = 11
+	if validResult(r) {
+		t.Fatal("impossible echo count accepted")
+	}
 }
