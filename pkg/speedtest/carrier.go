@@ -1,10 +1,12 @@
 package speedtest
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -26,11 +28,24 @@ func writeRecord(w io.Writer, body []byte) error {
 	var hdr [5]byte
 	hdr[0], hdr[1], hdr[2] = recordType, 0x03, 0x03
 	binary.BigEndian.PutUint16(hdr[3:], uint16(len(body)))
-	if _, err := w.Write(hdr[:]); err != nil {
+	if err := writeFull(w, hdr[:]); err != nil {
 		return err
 	}
-	_, err := w.Write(body)
-	return err
+	return writeFull(w, body)
+}
+
+func writeFull(w io.Writer, b []byte) error {
+	for len(b) > 0 {
+		n, err := w.Write(b)
+		if err != nil {
+			return err
+		}
+		if n <= 0 || n > len(b) {
+			return io.ErrShortWrite
+		}
+		b = b[n:]
+	}
+	return nil
 }
 
 func readRecord(r io.Reader, buf []byte) (int, error) {
@@ -42,7 +57,7 @@ func readRecord(r io.Reader, buf []byte) (int, error) {
 		return 0, errors.New("not a record")
 	}
 	n := int(binary.BigEndian.Uint16(hdr[3:]))
-	if n > len(buf) {
+	if n == 0 || n > len(buf) {
 		return 0, errors.New("record too large")
 	}
 	_, err := io.ReadFull(r, buf[:n])
@@ -64,6 +79,10 @@ func serveCarrier(c net.Conn) {
 		return
 	}
 	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
+	prefix, err := carrierPrefix(hello)
+	if err != nil {
+		return
+	}
 	switch hello[0] {
 	case 'P': // latency probe: echo records back
 		buf := make([]byte, 1024)
@@ -79,6 +98,7 @@ func serveCarrier(c net.Conn) {
 	case 'D':
 		body := make([]byte, carrierRecord)
 		_, _ = rand.Read(body)
+		copy(body, prefix)
 		for writeRecord(c, body) == nil {
 		}
 	case 'U':
@@ -90,7 +110,10 @@ func serveCarrier(c net.Conn) {
 			if err != nil {
 				return
 			}
-			total += uint64(n)
+			if !bytes.HasPrefix(buf[:n], prefix) {
+				return
+			}
+			total += uint64(n - len(prefix))
 			binary.BigEndian.PutUint64(ack[:], total)
 			if writeRecord(c, ack[:]) != nil {
 				return
@@ -99,8 +122,11 @@ func serveCarrier(c net.Conn) {
 	}
 }
 
-func dialCarrier(addr string, mode byte) (net.Conn, error) {
-	c, err := net.DialTimeout("tcp", addr, 3*time.Second)
+func dialCarrier(ctx context.Context, addr string, mode byte, prefix []byte) (net.Conn, error) {
+	if len(prefix) > 512 {
+		return nil, errors.New("carrier prefix too long")
+	}
+	c, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +136,9 @@ func dialCarrier(addr string, mode byte) (net.Conn, error) {
 	hello := make([]byte, 32)
 	_, _ = rand.Read(hello)
 	hello[0] = mode
+	if len(prefix) > 0 {
+		hello = append([]byte{mode, 'C', 'T', 'M', '1', byte(len(prefix) >> 8), byte(len(prefix))}, prefix...)
+	}
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
 	if err := writeRecord(c, hello); err != nil {
 		_ = c.Close()
@@ -118,32 +147,57 @@ func dialCarrier(addr string, mode byte) (net.Conn, error) {
 	return c, nil
 }
 
-// CarrierRTT opens one carrier-shaped stream and times probes round trips on it.
-// It returns the RTTs that came back (in ms) out of probes sent.
+// carrierPrefix preserves compatibility with old 32-byte random hellos.
+func carrierPrefix(hello []byte) ([]byte, error) {
+	if len(hello) < 5 || string(hello[1:5]) != "CTM1" {
+		return nil, nil
+	}
+	if len(hello) < 7 {
+		return nil, errors.New("truncated method hello")
+	}
+	n := int(binary.BigEndian.Uint16(hello[5:7]))
+	if n == 0 || n > 512 || len(hello) != 7+n {
+		return nil, errors.New("invalid method hello")
+	}
+	return hello[7:], nil
+}
+
+// CarrierRTT probes the legacy aggregate carrier.
 func CarrierRTT(ctx context.Context, addr string, probes int, interval time.Duration) []float64 {
-	c, err := dialCarrier(addr, 'P')
+	return CarrierPayloadRTT(ctx, addr, nil, probes, interval)
+}
+
+// CarrierPayloadRTT verifies full echoes, including the method-specific prefix.
+func CarrierPayloadRTT(ctx context.Context, addr string, prefix []byte, probes int, interval time.Duration) []float64 {
+	c, err := dialCarrier(ctx, addr, 'P', prefix)
 	if err != nil {
 		return nil
 	}
 	defer c.Close()
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
 	buf := make([]byte, 1024)
-	if _, err := readRecord(c, buf); err != nil {
+	if _, err = readRecord(c, buf); err != nil {
 		return nil
 	}
 	var rtts []float64
-	body := make([]byte, 64)
+	body := make([]byte, len(prefix)+64)
+	copy(body, prefix)
 	for i := 0; i < probes && ctx.Err() == nil; i++ {
-		_, _ = rand.Read(body)
+		_, _ = rand.Read(body[len(prefix):])
 		_ = c.SetDeadline(time.Now().Add(1500 * time.Millisecond))
 		t0 := time.Now()
 		if writeRecord(c, body) != nil {
 			break
 		}
-		if _, err := readRecord(c, buf); err != nil {
+		n, err := readRecord(c, buf)
+		if err != nil || !bytes.Equal(body, buf[:n]) {
 			break
 		}
 		rtts = append(rtts, float64(time.Since(t0).Microseconds())/1000)
-		time.Sleep(interval)
+		if !sleepCtx(ctx, interval) {
+			break
+		}
 	}
 	return rtts
 }
@@ -151,19 +205,27 @@ func CarrierRTT(ctx context.Context, addr string, probes int, interval time.Dura
 // MeasureCarrier measures download (server → client) and upload over CarrierStreams
 // record-framed TCP streams, counting only bytes the receiver got.
 func MeasureCarrier(ctx context.Context, addr string, warmup, duration time.Duration) (down, up float64, err error) {
-	if down, err = carrierDirection(ctx, addr, 'D', warmup, duration); err != nil {
+	return MeasureCarrierPayload(ctx, addr, nil, warmup, duration)
+}
+
+// MeasureCarrierPayload runs fresh streams for one method, counting verified payload bytes.
+func MeasureCarrierPayload(ctx context.Context, addr string, prefix []byte, warmup, duration time.Duration) (down, up float64, err error) {
+	if warmup < 0 || duration <= 0 {
+		return 0, 0, errors.New("invalid measurement duration")
+	}
+	if down, err = carrierDirection(ctx, addr, 'D', prefix, warmup, duration); err != nil {
 		return 0, 0, err
 	}
-	up, err = carrierDirection(ctx, addr, 'U', warmup, duration)
+	up, err = carrierDirection(ctx, addr, 'U', prefix, warmup, duration)
 	return down, up, err
 }
 
-func carrierDirection(parent context.Context, addr string, dir byte, warmup, duration time.Duration) (float64, error) {
+func carrierDirection(parent context.Context, addr string, dir byte, prefix []byte, warmup, duration time.Duration) (float64, error) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	var conns []net.Conn
 	for i := 0; i < CarrierStreams; i++ {
-		c, err := dialCarrier(addr, dir)
+		c, err := dialCarrier(ctx, addr, dir, prefix)
 		if err != nil {
 			for _, c := range conns {
 				_ = c.Close()
@@ -172,8 +234,15 @@ func carrierDirection(parent context.Context, addr string, dir byte, warmup, dur
 		}
 		conns = append(conns, c)
 	}
+	defer func() {
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	}()
 	var got atomic.Uint64
+	var failed atomic.Bool
 	var wg sync.WaitGroup
+	defer func() { cancel(); wg.Wait() }()
 	for _, c := range conns {
 		_ = c.SetDeadline(time.Now().Add(warmup + duration + 3*time.Second))
 		wg.Add(1)
@@ -184,14 +253,18 @@ func carrierDirection(parent context.Context, addr string, dir byte, warmup, dur
 			if dir == 'D' {
 				for {
 					n, err := readRecord(c, buf)
-					if err != nil {
+					if err != nil || !bytes.HasPrefix(buf[:n], prefix) {
+						if ctx.Err() == nil {
+							failed.Store(true)
+						}
 						return
 					}
-					got.Add(uint64(n))
+					got.Add(uint64(n - len(prefix)))
 				}
 			}
 			body := make([]byte, carrierRecord)
 			_, _ = rand.Read(body)
+			copy(body, prefix)
 			go func() {
 				for ctx.Err() == nil && writeRecord(c, body) == nil {
 				}
@@ -200,6 +273,9 @@ func carrierDirection(parent context.Context, addr string, dir byte, warmup, dur
 			for {
 				n, err := readRecord(c, buf)
 				if err != nil || n != 8 {
+					if ctx.Err() == nil {
+						failed.Store(true)
+					}
 					return
 				}
 				if v := binary.BigEndian.Uint64(buf[:8]); v > prior {
@@ -219,6 +295,9 @@ func carrierDirection(parent context.Context, addr string, dir byte, warmup, dur
 	total, el := got.Load()-base, time.Since(t0).Seconds()
 	cancel()
 	wg.Wait()
+	if failed.Load() || total == 0 {
+		return 0, fmt.Errorf("carrier %c stream failed or returned no verified payload", dir)
+	}
 	return float64(total) * 8 / el / 1e6, nil
 }
 
