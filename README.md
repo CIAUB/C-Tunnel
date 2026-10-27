@@ -199,7 +199,7 @@ In REVERSE mode the kharej server dials in and the iran server only listens, so 
 | WireGuard (`rev+wireguard`) | kharej is the WireGuard client | MikroTik and standard clients |
 | Kernel L3/L2 (`frp+gre`, `frp+vxlan`…) | inside 8 parallel TCP streams that look like TLS records | clean links where only TCP gets through |
 
-Every inner connection stays on one TCP stream, so it is never reordered, and each stream has its own queue. In our test this roughly doubled the speed of the TCP carrier compared with 0.1.5 (about 390 → 690 Mbit/s on an 800 Mbit/s link). The Connection Test measures every reverse option too: a `rev+` row for each UDP method and an `frp-carrier` row for the TLS-shaped TCP carrier all `frp+` methods ride. Best Settings names the fastest reverse option.
+Every inner connection stays on one TCP stream, so it is never reordered, and each stream has its own queue. In our test this roughly doubled the speed of the TCP carrier compared with 0.1.5 (about 390 → 690 Mbit/s on an 800 Mbit/s link). The Connection Test measures every reverse option too: a `rev+` row for each UDP method and independent `frp+METHOD` rows with fresh TCP streams, method-specific payloads, verified echoes and separate speeds for every supported FRP-style option. These are carrier/encapsulation shape tests, not kernel tunnel integration tests. Best Settings names the fastest reverse option.
 
 ## All methods
 

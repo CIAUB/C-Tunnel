@@ -1,8 +1,11 @@
 package tunnel
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"ctunnel/pkg/catalog"
@@ -202,5 +205,50 @@ func TestReverseKernelTunnelUsesReverseCarrierAndCustomLocalIPs(t *testing.T) {
 	}
 	if greRev2.TunLocal4 != "10.88.1.1" || greRev2.TunRemote4 != "10.88.20.2" {
 		t.Fatalf("custom local tunnel IPs were overwritten: %+v", greRev2)
+	}
+}
+
+func TestReverseWireGuardUsesKernelService(t *testing.T) {
+	for _, role := range []string{"iran", "kharej"} {
+		tc := catalog.TunnelConfig{Name: "t1", Method: "wireguard", Role: role, Reverse: true}
+		if got := Unit(tc); got != "ctunnel@t1.service" {
+			t.Fatalf("reverse WireGuard must use kernel unit, got %s", got)
+		}
+		if got := otherUnit(tc); got != "ctunnel-engine@t1.service" {
+			t.Fatalf("old incorrect engine unit must be disabled, got %s", got)
+		}
+	}
+}
+
+func TestConcurrentWriteEnvHasUniqueTemporaryFiles(t *testing.T) {
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			tc := iranTunnel("gre", "203.0.113.1")
+			tc.Name, tc.Token = "t1", fmt.Sprintf("%064x", i+1)
+			for j := 0; j < 4; j++ {
+				if err := WriteEnv(dir, tc); err != nil {
+					t.Error(err)
+					return
+				}
+				env, err := ParseEnv(EnvPath(dir, "t1"))
+				if err != nil || len(env["SECRET"]) != 64 {
+					t.Errorf("partial env: %v %v", env, err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+	files, err := os.ReadDir(EnvDir(dir))
+	if err != nil || len(files) != 1 || files[0].Name() != "t1.env" {
+		t.Fatalf("temporary file leak: %v %v", files, err)
+	}
+	info, err := os.Stat(EnvPath(dir, "t1"))
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("env permissions: %v %v", info, err)
 	}
 }

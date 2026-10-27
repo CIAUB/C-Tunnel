@@ -33,6 +33,7 @@ flock -w 120 9 || die "another installation is running"
 missing=()
 command -v ip >/dev/null 2>&1        || missing+=(iproute2)
 command -v iptables >/dev/null 2>&1  || missing+=(iptables)
+command -v wg >/dev/null 2>&1        || missing+=(wireguard-tools)
 command -v curl >/dev/null 2>&1      || missing+=(curl)
 command -v sha256sum >/dev/null 2>&1 || missing+=(coreutils)
 if ! command -v go >/dev/null 2>&1 && ! command -v python3 >/dev/null 2>&1; then
@@ -43,6 +44,8 @@ if [[ "${#missing[@]}" -gt 0 ]]; then
     echo "Installing ${missing[*]}..."
     apt-get update -qq && apt-get install -y -qq "${missing[@]}"
 fi
+
+command -v wg >/dev/null 2>&1 || die "wireguard-tools installation failed; install wireguard-tools and retry"
 
 ASSETS=(
     "ctunnel-linux-${ARCH}"

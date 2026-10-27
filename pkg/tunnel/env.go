@@ -69,8 +69,22 @@ func WriteEnv(storeDir string, tc catalog.TunnelConfig) error {
 	if err := os.MkdirAll(EnvDir(storeDir), 0o700); err != nil {
 		return err
 	}
-	tmp := EnvPath(storeDir, tc.Name) + ".tmp"
-	if err := os.WriteFile(tmp, []byte(Env(tc)), 0o600); err != nil {
+	// A shared .tmp name races between concurrent CLI and panel saves.
+	f, err := os.CreateTemp(EnvDir(storeDir), "."+tc.Name+"-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err := f.WriteString(Env(tc)); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, EnvPath(storeDir, tc.Name))
