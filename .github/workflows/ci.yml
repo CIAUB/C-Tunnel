@@ -16,6 +16,51 @@ jobs:
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test ./...
-      - run: go test -race ./cmd/ctunnel-engine ./pkg/tunnel
+      - run: go test -race ./cmd/ctunnel-engine ./pkg/tunnel ./pkg/webpanel
       - run: shellcheck install.sh scripts/*.sh
       - run: python3 -m unittest discover -s tests -v
+
+  kernel-gre:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build current and 0.2.0 engines
+        run: |
+          mkdir -p "$RUNNER_TEMP/gre-old"
+          git archive v0.2.0 | tar -x -C "$RUNNER_TEMP/gre-old"
+          go build -o "$RUNNER_TEMP/engine-fixed" ./cmd/ctunnel-engine
+          (cd "$RUNNER_TEMP/gre-old" && go build -o "$RUNNER_TEMP/engine-old" ./cmd/ctunnel-engine)
+      - name: Reproduce 0.2.0 GRE regression in isolated namespaces
+        run: |
+          set +e
+          sudo timeout 60 unshare --mount --net --pid --fork --mount-proc env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin CTUNNEL_TEST_NETNS=1 bash tests/integration-gre.sh "$RUNNER_TEMP/engine-old" "$PWD/scripts/ctunnel-kernel.sh"
+          result=$?
+          set -e
+          test "$result" -eq 42
+      - name: Verify fixed DIRECT and REVERSE GRE with real kernel devices
+        run: sudo timeout 60 unshare --mount --net --pid --fork --mount-proc env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin CTUNNEL_TEST_NETNS=1 bash tests/integration-gre.sh "$RUNNER_TEMP/engine-fixed" "$PWD/scripts/ctunnel-kernel.sh"
+
+  panel-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix "$RUNNER_TEMP/panel-browser" --no-audit --no-fund playwright@1.56.1
+      - run: '"$RUNNER_TEMP/panel-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - run: node tests/panel-browser.mjs
+        env:
+          PLAYWRIGHT_PATH: ${{ runner.temp }}/panel-browser/node_modules/playwright
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panel-browser-screenshots
+          path: test-results/
