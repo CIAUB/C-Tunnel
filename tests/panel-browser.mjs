@@ -12,11 +12,12 @@ let state;
 function reset() { state = { path: '/panel-browser-test', tunnels: [], createCalls: 0, deployCalls: 0, restartCalls: 0, failStart: false, lastCreate: null }; }
 reset();
 const config = () => ({ base_path: state.path, domain: '', cert_file: '', key_file: '' });
-const overview = () => ({ csrf_token: 'fixture-csrf', version: '0.2.1', panel: config(), methods: [
+const overview = () => ({ csrf_token: 'fixture-csrf', version: '0.2.3', panel: config(), methods: [
  { Name: 'gre', Title: 'Kernel GRE', Family: 'L3-Direct', IPv6Underlay: false },
  { Name: 'dtls-1.3', Title: 'Encrypted UDP', Family: 'UDP-Crypt', IPv6Underlay: false }
 ], system: { hostname: 'edge-01', os: 'Ubuntu 24.04 LTS', ipv4: '198.51.100.10', ipv6: '', uptime_sec: 281520, cores: 8, cpu_pct: 18, mem_total: 8589934592, mem_used: 2147483648, disk_total: 85899345920, disk_used: 12884901888, swap_total: 0, swap_used: 0, rx_rate: 7864320, tx_rate: 4194304, rx_total: 120259084288, tx_total: 75161927680, load: [0.4, 0.5, 0.3] }, tunnels: state.tunnels });
 const makeTunnel = payload => ({ ...payload, name: 't' + (state.tunnels.length + 1), method: payload.method || 'gre', role: payload.role || 'iran', remote_ip: payload.remote_ip || '203.0.113.8', tun_local4: '10.77.1.1', tun_remote4: '10.77.1.2', token: 'fixture-token', setup_link: 'ctunnel://fixture', ports: payload.ports || [], state: 'up', status: { rx_bytes: 1048576, tx_bytes: 524288 }, mikrotik: '' });
+const sessionName = host => state.legacyCookie ? 'ct_session' : 'ct_session_v2_' + createHash('sha256').update('http|' + host.toLowerCase() + '|' + state.path).digest('hex').slice(0, 24);
 const server = createServer(async (req, res) => {
  try {
   const prefix = state.path;
@@ -30,9 +31,13 @@ const server = createServer(async (req, res) => {
   const route = req.url.slice(prefix.length);
   if (route === '/api/login') {
    if (body.code !== fixtureCode) { send(401, { error: 'Wrong login code' }); return; }
-   res.setHeader('Set-Cookie', `ct_session=fixture; Path=${prefix}/; HttpOnly; SameSite=Strict`); send(200, { ok: true }); return;
+   res.setHeader('Set-Cookie', `${sessionName(req.headers.host)}=fixture; Path=${prefix}/; HttpOnly; SameSite=Strict`); send(200, { ok: true }); setTimeout(() => state.releaseOverview?.(), 100); return;
   }
-  if (!req.headers.cookie?.includes('ct_session=fixture')) { send(401, { error: 'unauthorized' }); return; }
+  if (route === '/api/overview' && state.holdOverview) {
+   state.holdOverview = false; state.onOverviewHeld();
+   await new Promise(resolve => { state.releaseOverview = resolve; });
+  }
+  if (!req.headers.cookie?.split('; ').includes(sessionName(req.headers.host) + '=fixture')) { send(401, { error: 'unauthorized' }); return; }
   if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'fixture-csrf') { send(403, { error: 'invalid CSRF token' }); return; }
   if (route === '/api/overview') { send(200, overview()); return; }
   if (route === '/api/tunnels') {
@@ -59,10 +64,16 @@ const server = createServer(async (req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const port = server.address().port;
 await mkdir('test-results', { recursive: true });
-const browser = await chromium.launch({ headless: true });
-async function login(page) {
- await page.goto(`http://127.0.0.1:${port}${state.path}/`);
+const browser = await chromium.launch({ headless: true, args: ['--host-resolver-rules=MAP panel.test 127.0.0.1', '--no-proxy-server'] });
+async function login(page, race = false) {
+ await page.goto(`http://panel.test:${port}${state.path}/`);
  await page.getByLabel('Login code', { exact: true }).fill(fixtureCode);
+ if (race) {
+  const held = new Promise(resolve => { state.onOverviewHeld = resolve; });
+  state.holdOverview = true;
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await Promise.race([held, new Promise((_, reject) => setTimeout(() => reject(new Error('overview was not held')), 5000))]);
+ }
  await page.getByRole('button', { name: 'Log in', exact: true }).click();
  await page.getByRole('button', { name: 'New tunnel', exact: true }).waitFor();
 }
@@ -70,7 +81,17 @@ const errors = [];
 try {
  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
  page.on('pageerror', err => errors.push(err.message));
- await login(page);
+ // Reproduce the legacy Secure-cookie collision on a non-loopback hostname.
+ await page.context().addCookies([{ name: 'ct_session', value: 'old-secure-session', domain: 'panel.test', path: '/', secure: true, httpOnly: true, sameSite: 'Strict' }]);
+ state.legacyCookie = true;
+ await page.goto(`http://panel.test:${port}${state.path}/`);
+ await page.getByLabel('Login code', { exact: true }).fill(fixtureCode);
+ await page.getByRole('button', { name: 'Log in', exact: true }).click();
+ await page.locator('#toast').filter({ hasText: 'Session expired' }).waitFor({ state: 'visible' });
+ assert.equal(await page.getByRole('button', { name: 'New tunnel', exact: true }).isVisible(), false);
+ state.legacyCookie = false;
+ // Login must succeed with that cookie still present and a stale overview in flight.
+ await login(page, true);
  await page.getByRole('button', { name: 'Settings', exact: true }).click();
  const menu = page.locator('#menu'); await menu.waitFor({ state: 'visible' });
  assert.equal(await menu.evaluate(e => { const r = e.getBoundingClientRect(); return e.contains(document.elementFromPoint(r.left + 20, r.top + 20)); }), true);
@@ -103,7 +124,7 @@ try {
  await page.getByRole('button', { name: 'Panel settings', exact: true }).click();
  await page.getByLabel('Base path', { exact: true }).fill('/panel-changed');
  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
- await page.waitForURL(`http://127.0.0.1:${port}/panel-changed/`);
+ await page.waitForURL(`http://panel.test:${port}/panel-changed/`);
  assert.equal(state.path, '/panel-changed');
  await page.close();
  reset(); state.failStart = true;
@@ -116,5 +137,5 @@ try {
  await retryPage.locator('#dlg-link').waitFor({ state: 'visible' });
  assert.equal(state.createCalls, 1); assert.equal(state.restartCalls, 1);
  assert.deepEqual(errors, []);
- console.log('PASS: settings layering, validation, Create, failed-start retry, deployment, routing, desktop/mobile overflow');
+ console.log('PASS: legacy Secure cookie recovery, login/overview race, settings layering, validation, Create, failed-start retry, deployment, routing, desktop/mobile overflow');
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
