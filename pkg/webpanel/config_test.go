@@ -228,6 +228,31 @@ func TestBestSelectionAndDeployAreMeasuredAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestMethodTestSurvivesPanelPathChange(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	owner := c.cookie.Value
+	original := runMethodTest
+	defer func() { runMethodTest = original }()
+	runMethodTest = func(context.Context, conntest.Link, conntest.Progress) ([]conntest.Result, error) {
+		c.server.configMu.Lock()
+		c.server.panelConfig.BasePath = "/panel-changed-during-test"
+		c.server.configMu.Unlock()
+		return []conntest.Result{{Method: "gre", Mode: "DIRECT", Sent: 10, Received: 10, RTTms: 5, DownMbps: 100, UpMbps: 100}}, nil
+	}
+	link := conntest.EncodeLink(conntest.Link{Host: "203.0.113.8", UDPPort: 7712, TCPPort: 7711, TokenHex: conntest.NewToken()})
+	response, result := c.do("POST", "/api/linktest", map[string]any{"link": link, "role": "iran"})
+	if response.StatusCode != http.StatusOK || result["deployment_available"] != true {
+		t.Fatalf("path change broke an in-flight test: %d %v", response.StatusCode, result)
+	}
+	c.server.mu.Lock()
+	actualOwner := c.server.tests[result["test_id"].(string)].Owner
+	c.server.mu.Unlock()
+	if actualOwner != owner {
+		t.Fatal("in-flight test lost its original session owner")
+	}
+}
+
 func TestResultInjectionCannotChooseDeployment(t *testing.T) {
 	c, st, _ := setup(t)
 	c.login(st.PanelCode)
