@@ -19,6 +19,7 @@ jobs:
       - run: bash scripts/build-release.sh "${GITHUB_REF_NAME#v}"
       - uses: softprops/action-gh-release@v2
         with:
+          name: ${{ github.ref_name }}
           files: dist/*
           body_path: CHANGELOG.md
           generate_release_notes: false
