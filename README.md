@@ -260,7 +260,7 @@ Every inner connection stays on one TCP stream, so it is never reordered, and ea
 Open `sudo ctunnel` → **4) Web Panel** → **Start** and use the exact URL printed by the menu. Initial startup uses HTTP with a persisted random path:
 
 ```text
-http://<server-ip>:8443/panel-<random-id>/
+http://<server-ip>:6969/panel-<random-id>/
 ```
 
 Log in with the code shown in the same menu. Five wrong codes block that IP for five minutes. The terminal menu can change the port or rotate the code; rotation logs out existing sessions.
