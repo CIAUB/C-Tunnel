@@ -17,6 +17,7 @@ type client struct {
 	base   string
 	cookie *http.Cookie
 	csrf   string
+	server *Server
 }
 
 func (c *client) do(method, path string, body any) (*http.Response, map[string]any) {
@@ -28,6 +29,7 @@ func (c *client) do(method, path string, body any) (*http.Response, map[string]a
 		rd = bytes.NewReader(nil)
 	}
 	req, _ := http.NewRequest(method, c.base+path, rd)
+	req.Header.Set("Content-Type", "application/json")
 	if c.cookie != nil {
 		req.AddCookie(c.cookie)
 	}
@@ -57,9 +59,10 @@ func setup(t *testing.T) (*client, *catalog.Store, *[]string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := httptest.NewServer(NewServer(dir, "").Handler())
+	srv := NewServer(dir, "")
+	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &client{t: t, base: ts.URL}, st, &calls
+	return &client{t: t, base: ts.URL + srv.config().BasePath, server: srv}, st, &calls
 }
 
 func (c *client) login(code string) {
