@@ -35,7 +35,7 @@ import (
 var indexHTML []byte
 
 const (
-	sessionCookie = "ct_session"
+	sessionCookie = "ct_session_v2"
 	maxBody       = 64 << 10
 	loginFailures = 5
 	loginLockout  = 5 * time.Minute
@@ -225,6 +225,22 @@ func (s *Server) sign(code string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// Browsers share cookies between ports and refuse an insecure cookie that
+// overlaps an existing Secure cookie. Isolate panels and HTTP/HTTPS sessions so
+// an old HTTPS ct_session cookie cannot prevent login after the HTTP migration.
+func panelCookieName(r *http.Request, basePath string) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	sum := sha256.Sum256([]byte(scheme + "|" + strings.ToLower(r.Host) + "|" + basePath))
+	return sessionCookie + "_" + hex.EncodeToString(sum[:12])
+}
+
+func (s *Server) session(r *http.Request) (*http.Cookie, error) {
+	return r.Cookie(panelCookieName(r, s.config().BasePath))
+}
+
 func (s *Server) newSession(code string) string {
 	expiry := strconv.FormatInt(time.Now().Add(7*24*time.Hour).Unix(), 10)
 	return expiry + "." + s.sign(code+"|"+expiry)
@@ -252,7 +268,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		c, err := r.Cookie(sessionCookie)
+		c, err := s.session(r)
 		if err != nil || !s.validSession(c.Value, st.PanelCode) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
@@ -305,14 +321,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.limiter.reset(ip)
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: s.newSession(st.PanelCode), Path: s.config().BasePath + "/",
+		Name: panelCookieName(r, s.config().BasePath), Value: s.newSession(st.PanelCode), Path: s.config().BasePath + "/",
 		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 86400,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: s.config().BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, s.config().BasePath), Path: s.config().BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
