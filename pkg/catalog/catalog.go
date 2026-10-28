@@ -222,7 +222,7 @@ type Store struct {
 
 const (
 	DefaultGitHubRepo = "https://github.com/CIAUB/C-Tunnel"
-	DefaultPanelPort  = 8443
+	DefaultPanelPort  = 6969
 )
 
 func GeneratePanelCode() string {

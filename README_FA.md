@@ -258,7 +258,7 @@ TCP upload       431.0 Mbps     4 TCP streams, bytes confirmed by the receiver
 از منوی `sudo ctunnel` → **4) Web Panel** → **Start**، آدرس کامل نمایش‌داده‌شده را باز کنید. راه‌اندازی اولیه با HTTP و مسیر تصادفیِ ذخیره‌شده انجام می‌شود:
 
 ```text
-http://<server-ip>:8443/panel-<random-id>/
+http://<server-ip>:6969/panel-<random-id>/
 ```
 
 با کد همان منو وارد شوید. بعد از ۵ کد اشتباه، IP پنج دقیقه مسدود می‌شود. تغییر کد ورود، نشست‌های قبلی را خارج می‌کند.
