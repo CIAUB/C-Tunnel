@@ -3,7 +3,17 @@
 # The two peers use real kernel GRE devices and the actual ctunnel-engine binary.
 set -euo pipefail
 [[ "${CTUNNEL_TEST_NETNS:-}" == 1 && "$(id -u)" == 0 ]] || { echo 'isolated root test only' >&2; exit 1; }
-[[ "$(ip -o link show | wc -l)" -eq 1 ]] || { echo 'refusing a namespace with external interfaces' >&2; exit 1; }
+# Loaded tunnel modules create inert fallback devices in every new namespace.
+# Allow those, but reject any NIC, veth or non-loopback UP interface.
+while IFS= read -r line; do
+    name="${line#*: }"; name="${name%%:*}"; name="${name%%@*}"
+    case "$name" in
+        lo) ;;
+        gre0|gretap0|erspan0|ip6tnl0|ip6gre0|tunl0|sit0)
+            [[ "$line" != *",UP,"* && "$line" != *"<UP,"* ]] || exit 1 ;;
+        *) echo 'refusing a namespace with external interfaces' >&2; exit 1 ;;
+    esac
+done < <(ip -o link show)
 engine="$(realpath "${1:?engine binary required}")"
 helper="$(realpath "${2:?kernel helper required}")"
 work="$(mktemp -d)"
