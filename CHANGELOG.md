@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.3] - 2026-10-28
+
+### Fixed
+- A version appended to the documented `sudo bash -c "$(curl ...)" v0.2.1` command is now recognized, including Bash's special `$0` handling. Script arguments also work, with or without the leading `v`.
+- Explicit version arguments take precedence over `CTUNNEL_VERSION`; invalid tags or extra arguments fail before installation.
+
+### Changed
+- No version selects GitHub's latest stable release, excluding draft and pre-release entries. All assets remain pinned to one resolved tag and verified against SHA256SUMS.
+- Release titles contain only the tag/version.
+
+[0.2.3]: https://github.com/CIAUB/C-Tunnel/compare/v0.2.2...v0.2.3
+
 ## [0.2.2] - 2026-10-28
 
 ### Changed
