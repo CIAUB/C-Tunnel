@@ -81,6 +81,42 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
             with self.subTest(args=args):
                 self.assertNotEqual(self.installer_version(args=args).returncode, 0)
         self.assertNotEqual(self.installer_version(launcher='v0.2.1/invalid').returncode, 0)
+    def installer_menu(self, interactive=True, disabled=False):
+        import pty
+        import shlex
+        script = (ROOT/'install.sh').read_text()
+        helper = script[script.index('launch_menu() {'):script.index('\nlaunch_menu\n')]
+        work = self.d/'menu-work'; work.mkdir()
+        marker = self.d/'menu-opened'
+        executable = self.d/'menu'
+        executable.write_text('#!/bin/bash\nset -eu\n'
+                              '[[ ! -e "$WORK" && ! -e /proc/self/fd/9 ]]\n'
+                              'flock -n "$MENU_LOCK" -c true\n'
+                              'echo opened > "$MENU_MARKER"\n')
+        executable.chmod(0o755)
+        helper = helper.replace('/usr/local/bin/ctunnel', shlex.quote(str(executable)))
+        code = ('set -euo pipefail\nexec 9>"$MENU_LOCK"\nflock 9\n' + helper + '\nlaunch_menu\n')
+        env = dict(self.env, WORK=str(work), MENU_MARKER=str(marker),
+                   MENU_LOCK=str(self.d/'menu.lock'), CTUNNEL_NO_MENU='1' if disabled else '0')
+        if interactive:
+            master, slave = pty.openpty()
+            try:
+                process = subprocess.Popen(['bash', '-c', code], env=env, stdin=slave, stdout=slave, stderr=slave)
+                process.wait(timeout=5)
+                result = process.returncode
+            finally:
+                os.close(slave)
+                os.close(master)
+        else:
+            result = subprocess.run(['bash', '-c', code], env=env, stdin=subprocess.DEVNULL,
+                                    capture_output=True, timeout=5).returncode
+        return result, marker.exists(), work.exists()
+    def test_installer_opens_menu_and_releases_lock_in_terminal(self):
+        self.assertEqual(self.installer_menu(), (0, True, False))
+    def test_installer_skips_menu_without_terminal(self):
+        self.assertEqual(self.installer_menu(interactive=False), (0, False, True))
+    def test_installer_menu_can_be_disabled_for_automation(self):
+        self.assertEqual(self.installer_menu(disabled=True), (0, False, True))
     def test_installer_latest_pins_stable_endpoint_before_asset_downloads(self):
         import hashlib
         fixture=self.d/'release-fixture'; fixture.mkdir()
