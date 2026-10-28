@@ -302,7 +302,7 @@ func TestHTTPAutomaticallySwitchesToValidatedHTTPS(t *testing.T) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-CSRF-Token", srv.csrfToken)
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: srv.newSession(st.PanelCode)})
+	req.AddCookie(&http.Cookie{Name: panelCookieName(req, srv.config().BasePath), Value: srv.newSession(st.PanelCode)})
 	res, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
