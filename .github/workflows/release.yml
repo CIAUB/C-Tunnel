@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -17,11 +17,9 @@ jobs:
           go-version-file: go.mod
       - run: go test ./...
       - run: bash scripts/build-release.sh "${GITHUB_REF_NAME#v}"
-      - name: Replace an existing release for this tag
-        run: gh release delete "${GITHUB_REF_NAME}" --yes || true
-        env:
-          GH_TOKEN: ${{ github.token }}
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: CHANGELOG.md
+          generate_release_notes: false
+          make_latest: true
