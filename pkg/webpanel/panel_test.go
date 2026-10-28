@@ -2,6 +2,7 @@ package webpanel
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -84,6 +85,46 @@ func TestAuthRequired(t *testing.T) {
 	res, _ = c.do("POST", "/api/login", map[string]string{"code": "wrong"})
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("wrong code: %d", res.StatusCode)
+	}
+}
+
+func TestLoginCookieIsolationAndLegacyCookies(t *testing.T) {
+	c, st, _ := setup(t)
+	var names []string
+	for _, target := range []string{"http://panel.test:6969", "https://panel.test:6969", "http://panel.test:8443"} {
+		req := httptest.NewRequest("POST", target+c.server.config().BasePath+"/api/login", strings.NewReader(`{"code":"`+st.PanelCode+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		if strings.HasPrefix(target, "https:") {
+			req.TLS = &tls.ConnectionState{}
+		}
+		out := httptest.NewRecorder()
+		c.server.Handler().ServeHTTP(out, req)
+		cookies := out.Result().Cookies()
+		if out.Code != http.StatusOK || len(cookies) != 1 {
+			t.Fatalf("login %s: status=%d cookies=%v", target, out.Code, cookies)
+		}
+		cookie := cookies[0]
+		if cookie.Name == "ct_session" || cookie.Name != panelCookieName(req, c.server.config().BasePath) || !cookie.HttpOnly || cookie.Secure != (req.TLS != nil) || cookie.SameSite != http.SameSiteStrictMode {
+			t.Fatalf("invalid session cookie: %+v", cookie)
+		}
+		for _, previous := range names {
+			if cookie.Name == previous {
+				t.Fatalf("session cookie shared by separate origins: %s", cookie.Name)
+			}
+		}
+		names = append(names, cookie.Name)
+		if cookie.Name == panelCookieName(req, "/panel-other") {
+			t.Fatal("cookie name shared by different panel paths")
+		}
+		request := httptest.NewRequest("GET", target+c.server.config().BasePath+"/api/overview", nil)
+		request.TLS = req.TLS
+		request.AddCookie(&http.Cookie{Name: "ct_session", Value: "stale-legacy-session"})
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		c.server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("legacy cookie prevented authenticated overview: %d", response.Code)
+		}
 	}
 }
 
