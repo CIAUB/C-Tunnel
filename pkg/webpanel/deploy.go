@@ -123,7 +123,7 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, e)
 			return
 		}
-		cookie, _ := r.Cookie(sessionCookie)
+		cookie, _ := s.session(r)
 		tc := catalog.TunnelConfig{Role: req.Role, Method: strings.TrimPrefix(strings.TrimPrefix(best.Method, "frp+"), "rev+"), Reverse: best.Mode == "REVERSE", LocalIP: req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports}
 		if tc.Role != "iran" {
 			tc.Ports = nil
@@ -157,7 +157,7 @@ func (s *Server) handleDeployBest(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	test, ok := s.tests[req.TestID]
-	cookie, _ := r.Cookie(sessionCookie)
+	cookie, _ := s.session(r)
 	if !ok || test.Owner != cookie.Value || time.Now().After(test.Expires) {
 		writeError(w, 404, errors.New("test expired or unavailable; run the method test again"))
 		return
