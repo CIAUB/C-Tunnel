@@ -3,24 +3,56 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild from main
+        required: true
+        default: v0.2.3
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
   release:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref }}
+      - name: Validate release version
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          source_version=$(sed -n 's/^var Version = "\(.*\)"/\1/p' pkg/version/version.go)
+          test "$RELEASE_TAG" = "v$source_version"
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
       - run: go test ./...
-      - run: bash scripts/build-release.sh "${GITHUB_REF_NAME#v}"
+      - run: bash scripts/build-release.sh "${RELEASE_TAG#v}"
+      - name: Retarget an existing release after a validated hotfix build
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          source_sha=$(git rev-parse HEAD)
+          gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" --method PATCH -f "sha=$source_sha" -F force=true
       - uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
           files: dist/*
+          overwrite_files: true
           body_path: CHANGELOG.md
           generate_release_notes: false
           make_latest: true

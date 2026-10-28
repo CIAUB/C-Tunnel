@@ -211,7 +211,7 @@
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let csrf = "", methods = [], timer = 0, refreshing = false, panel = {}, testedID = "";
+let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, testedID = "";
 const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
 
 function toast(msg, ok) {
@@ -379,10 +379,15 @@ function fillMethods(list) {
   syncForm();
 }
 
-async function refresh() {
-  if (refreshing || document.hidden) return;
-  refreshing = true;
-  try {
+async function refresh({ force = false, reportErrors = false } = {}) {
+  if (document.hidden && !force) return;
+  // Drain a pre-login overview before requesting authenticated state. Reusing
+  // its stale 401 or skipping refresh would leave a successful login at the gate.
+  if (refreshTask) {
+    await refreshTask.catch(() => {});
+    if (!force) return;
+  }
+  const task = (async () => {
     const data = await api("/api/overview");
     csrf = data.csrf_token;
     panel = data.panel || {};
@@ -394,11 +399,15 @@ async function refresh() {
     renderTunnels(data.tunnels);
     $("sync-status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (!timer) timer = setInterval(refresh, 4000);
-  } catch (err) {
+  })();
+  refreshTask = task;
+  try { await task; }
+  catch (err) {
     $("boot").hidden = true;
     $("sync-status").textContent = "Connection unavailable · retrying";
     if (!csrf) showGate();
-  } finally { refreshing = false; }
+    if (reportErrors) throw err;
+  } finally { if (refreshTask === task) refreshTask = null; }
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
@@ -604,7 +613,7 @@ $("login-form").addEventListener("submit", async e => {
  e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('[type="submit"]');
  if (form.busy || !form.reportValidity()) return;
  form.busy = true; btn.disabled = true; btn.textContent = "Logging in…";
- try { await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) }); $("login-code").value = ""; await refresh(); }
+ try { await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) }); await refresh({ force: true, reportErrors: true }); $("login-code").value = ""; }
  catch (err) { toast(err.message); }
  finally { form.busy = false; btn.disabled = false; btn.textContent = "Log in"; }
 });

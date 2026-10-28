@@ -327,7 +327,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	s.panelConfig = c
 	if c != previous {
 		s.authGeneration.Add(1)
-		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Path: previous.BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+		http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, previous.BasePath), Path: previous.BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	}
 	host, port, err := net.SplitHostPort(r.Host)
 	if err != nil {
