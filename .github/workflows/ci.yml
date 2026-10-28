@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -21,7 +21,7 @@ jobs:
       - run: python3 -m unittest discover -s tests -v
 
   kernel-gre:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
         run: sudo timeout 60 unshare --mount --net --pid --fork --mount-proc env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin CTUNNEL_TEST_NETNS=1 bash tests/integration-gre.sh "$RUNNER_TEMP/engine-fixed" "$PWD/scripts/ctunnel-kernel.sh"
 
   panel-browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
