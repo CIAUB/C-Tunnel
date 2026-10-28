@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.2] - 2026-10-28
+
+### Changed
+- The initial web panel port is now **6969** instead of 8443. New installations and stores without a configured panel port use this default.
+- Updated the panel URL examples in the English, Persian and Russian documentation.
+- Existing saved panel ports are preserved; change an existing installation through the terminal Web Panel menu if needed.
+
+[0.2.2]: https://github.com/CIAUB/C-Tunnel/compare/v0.2.1...v0.2.2
+
 ## [0.2.1] - 2026-10-28
 
 ### Added

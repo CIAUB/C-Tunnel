@@ -260,7 +260,7 @@ TCP upload       431.0 Mbps     4 TCP streams, bytes confirmed by the receiver
 Откройте `sudo ctunnel` → **4) Web Panel** → **Start** и используйте полный URL из меню. При первом запуске используется HTTP с сохранённым случайным путём:
 
 ```text
-http://<server-ip>:8443/panel-<random-id>/
+http://<server-ip>:6969/panel-<random-id>/
 ```
 
 Код входа показан в том же меню. Пять неверных попыток блокируют IP на пять минут. Смена кода завершает существующие сеансы.
