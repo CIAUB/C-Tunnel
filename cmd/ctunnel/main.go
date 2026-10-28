@@ -102,8 +102,12 @@ func main() {
 			*port = st.PanelPort
 		}
 		srv := webpanel.NewServer(cli.StoreDir, fmt.Sprintf(":%d", *port))
-		log.Printf("web panel on https://<server-ip>:%d", *port)
-		log.Fatal(srv.ListenAndServeTLS())
+		address, err := webpanel.PanelURL(cli.StoreDir, "<server-ip>", *port)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("web panel on %s", address)
+		log.Fatal(srv.ListenAndServe())
 
 	case "restart-all":
 		ok, failed := cli.RestartAll()

@@ -29,38 +29,38 @@ func openTun(name string, isTap bool) (*os.File, error) {
 		base = cIFFTAP | cIFFNOPI
 	}
 	for _, flags := range []uint16{base | cIFFMULTIQUEUE, base} {
-		f, err := os.OpenFile("/dev/net/tun", os.O_RDWR|syscall.O_NONBLOCK, 0)
+		// TUNSETIFF must run before os.NewFile registers the descriptor with
+		// Go's netpoller. An unattached TUN returns POLLERR without registering
+		// its wait queue; attaching it afterwards can strand the first idle Read.
+		fd, err := syscall.Open("/dev/net/tun", syscall.O_RDWR|syscall.O_CLOEXEC, 0)
 		if err != nil {
 			return nil, err
 		}
 		var req ifReq
 		copy(req.Name[:15], name)
 		req.Flags = flags
-		// File.Fd switches a pollable descriptor to blocking mode. Control keeps
-		// TUN reads on Go's poller, so Close can interrupt an idle device read.
-		raw, err := f.SyscallConn()
-		if err != nil {
-			_ = f.Close()
-			return nil, err
-		}
-		var errno syscall.Errno
-		if err := raw.Control(func(fd uintptr) {
-			_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(cTUNSETIFF), uintptr(unsafe.Pointer(&req)))
-			if errno == 0 {
-				sndbuf := int32(8 << 20)
-				_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, fd, uintptr(cTUNSETSNDBUF), uintptr(unsafe.Pointer(&sndbuf)))
+		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(cTUNSETIFF), uintptr(unsafe.Pointer(&req)))
+		if errno != 0 {
+			_ = syscall.Close(fd)
+			if errno == syscall.EINVAL {
+				continue
 			}
-		}); err != nil {
-			_ = f.Close()
-			return nil, err
-		}
-		if errno == 0 {
-			return f, nil
-		}
-		f.Close()
-		if errno != syscall.EINVAL {
 			return nil, errno
 		}
+		sndbuf := int32(8 << 20)
+		_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(cTUNSETSNDBUF), uintptr(unsafe.Pointer(&sndbuf)))
+		if err := syscall.SetNonblock(fd, true); err != nil {
+			_ = syscall.Close(fd)
+			return nil, err
+		}
+		// Ownership transfers only after attach + nonblock. Do not call File.Fd:
+		// it switches pollable descriptors back to blocking mode.
+		f := os.NewFile(uintptr(fd), "/dev/net/tun")
+		if f == nil {
+			_ = syscall.Close(fd)
+			return nil, os.ErrInvalid
+		}
+		return f, nil
 	}
 	return nil, syscall.EINVAL
 }

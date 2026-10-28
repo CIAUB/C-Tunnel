@@ -1,0 +1,46 @@
+name: Refresh panel screenshot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: panel-readme-screenshot
+  cancel-in-progress: false
+
+jobs:
+  screenshot:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix "$RUNNER_TEMP/panel-browser" --no-audit --no-fund playwright@1.56.1
+      - run: '"$RUNNER_TEMP/panel-browser/node_modules/.bin/playwright" install --with-deps chromium'
+      - run: node tests/panel-browser.mjs
+        env:
+          PLAYWRIGHT_PATH: ${{ runner.temp }}/panel-browser/node_modules/playwright
+      - name: Update documented screenshots from the tested UI
+        run: |
+          cp test-results/panel-desktop.png docs/panel.png
+          cp test-results/panel-mobile.png docs/panel-mobile.png
+          cp test-results/panel-settings.png docs/panel-settings.png
+          git add docs/panel.png docs/panel-mobile.png docs/panel-settings.png
+          if ! git diff --cached --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "docs: refresh 0.2.1 panel screenshots from Chromium"
+            git push origin HEAD:main
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: panel-readme-screenshots
+          path: test-results/

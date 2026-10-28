@@ -75,7 +75,7 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 | **Protocol look-alike** | Each UDP-Crypt method wraps packets in the header of the protocol it is named after |
 | **Loss recovery** | `rudp-fec` adds one XOR parity packet per two data packets and rebuilds a lost packet without retransmission |
 | **MikroTik** | Ready-to-paste RouterOS 7 commands for `gre`, `ipip`, `6to4`, `eoip`, `vxlan` and `wireguard` |
-| **Web panel** | HTTPS, server gauges, live traffic, create, import, restart and delete tunnels, link test |
+| **Web panel** | Dark responsive UI, HTTP by default, private base path, custom domain/TLS, live traffic, tunnel management and measured deployment |
 | **Connection test** | Sends real GRE, IPIP, SIT, ESP, WireGuard, VXLAN, QUIC, DTLS… packets between the two servers, shows which methods pass or are blocked, measures speed and recommends the best one |
 | **Persistent** | Every tunnel is a systemd unit, so it comes back after a reboot and is rebuilt cleanly on restart |
 
@@ -257,13 +257,20 @@ Every inner connection stays on one TCP stream, so it is never reordered, and ea
 
 ## Web panel
 
-`sudo ctunnel` → **4) Web Panel** → **Start**, then open:
+Open `sudo ctunnel` → **4) Web Panel** → **Start** and use the exact URL printed by the menu. Initial startup uses HTTP with a persisted random path:
 
 ```text
-https://<server-ip>:8443
+http://<server-ip>:8443/panel-<random-id>/
 ```
 
-Log in with the code shown in the same menu. The certificate is self-signed, so accept the browser warning once. Five wrong codes block that IP for five minutes. You can change the port or rotate the login code from the menu. Changing the code logs out every browser.
+Log in with the code shown in the same menu. Five wrong codes block that IP for five minutes. The terminal menu can change the port or rotate the code; rotation logs out existing sessions.
+
+In **Settings → Panel settings**, customize the base path and domain. Set the paths to a valid `fullchain.pem` and matching `privkey.pem`, or upload the pair over HTTPS/loopback. A valid pair enables HTTPS automatically after a graceful listener reload. Domain DNS must already point to the server, and the panel port must be reachable. A changed address or transport requires logging in again.
+
+**Link test** accepts the peer's `ctunnel-test://` link, measures methods separately, and offers **Deploy Best Tunnel** for a successful measured result. Deployment creates this endpoint and returns a setup link to apply on the peer. Carrier-shape tests do not replace real kernel tunnel checks.
+
+The screenshots use synthetic demonstration data and are generated from the actual UI with Chromium. See [mobile](docs/panel-mobile.png), [settings](docs/panel-settings.png), and [0.2.1 changes and upgrade notes](CHANGELOG.md).
+
 
 ## Command line
 
@@ -290,6 +297,7 @@ Log in with the code shown in the same menu. The certificate is self-signed, so 
 | Path | Purpose |
 |---|---|
 | `/etc/ctunnel/state.json` | Tunnels, panel port and login code |
+| `/etc/ctunnel/panel.json` | Persisted panel base path, domain and certificate paths |
 | `/etc/ctunnel/tunnels/NAME.env` | Settings of one tunnel |
 | `/usr/local/lib/ctunnel/ctunnel-kernel` | Builds interfaces, port forwards and IPsec |
 | `ctunnel@NAME.service` | Kernel tunnels |
