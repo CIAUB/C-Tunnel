@@ -68,6 +68,7 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
                 self.assertEqual(result.stdout.strip(), 'v0.2.1')
         result = self.installer_version('v0.2.1', configured='v0.2.2')
         self.assertEqual(result.stdout.strip(), 'v0.2.1')
+        self.assertEqual(self.installer_version('latest', configured='v0.2.2').stdout.strip(), 'latest')
     def test_installer_default_and_environment_version(self):
         for launcher, source in (('bash', ''), ('/bin/bash', ''), ('/tmp/v0.2.1', '/tmp/v0.2.1')):
             with self.subTest(launcher=launcher):
