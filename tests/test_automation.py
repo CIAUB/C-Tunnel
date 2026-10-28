@@ -42,6 +42,72 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
         self.assertNotIn('nf_conntrack_max', text)
     def test_sysctl_failure_is_not_success(self):
         self.assertNotEqual(self.optimize(True).returncode, 0)
+    def installer_version(self, launcher='bash', args=(), source='', configured=None):
+        script = (ROOT/'install.sh').read_text()
+        helper = script[script.index('resolve_installer_version() {'):
+                        script.index('\nresolve_installer_version "$0"')]
+        code = ('set -euo pipefail\ndie() { echo "$*" >&2; exit 1; }\n' + helper +
+                '\nresolve_installer_version "$0" "$INSTALLER_SOURCE" "$@"\nprintf "%s\\n" "$VERSION"\n')
+        env = dict(self.env, INSTALLER_SOURCE=source)
+        env.pop('CTUNNEL_VERSION', None)
+        if configured is not None:
+            env['CTUNNEL_VERSION'] = configured
+        return subprocess.run(['bash', '-c', code, launcher, *args], env=env,
+                              capture_output=True, text=True)
+    def test_installer_version_from_bash_c_zero_argument(self):
+        for tag in ('v0.2.1', '0.2.1', 'v0.3.0-rc.1'):
+            with self.subTest(tag=tag):
+                result = self.installer_version(launcher=tag)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), tag if tag.startswith('v') else 'v'+tag)
+    def test_installer_version_from_script_or_bash_c_positional(self):
+        for launcher, source in (('/tmp/install.sh', '/tmp/install.sh'), ('--', ''), ('bash', '')):
+            with self.subTest(launcher=launcher):
+                result = self.installer_version(launcher, ('v0.2.1',), source, 'v0.2.2')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), 'v0.2.1')
+        result = self.installer_version('v0.2.1', configured='v0.2.2')
+        self.assertEqual(result.stdout.strip(), 'v0.2.1')
+        self.assertEqual(self.installer_version('latest', configured='v0.2.2').stdout.strip(), 'latest')
+    def test_installer_default_and_environment_version(self):
+        for launcher, source in (('bash', ''), ('/bin/bash', ''), ('/tmp/v0.2.1', '/tmp/v0.2.1')):
+            with self.subTest(launcher=launcher):
+                result = self.installer_version(launcher, source=source)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), 'latest')
+        self.assertEqual(self.installer_version(configured='0.2.1').stdout.strip(), 'v0.2.1')
+    def test_installer_rejects_invalid_or_multiple_versions(self):
+        for args in (('',), ('../../etc/passwd',), ('--help',), ('v0.2.1;id',), ('v0.2.1', 'v0.2.2')):
+            with self.subTest(args=args):
+                self.assertNotEqual(self.installer_version(args=args).returncode, 0)
+        self.assertNotEqual(self.installer_version(launcher='v0.2.1/invalid').returncode, 0)
+    def test_installer_latest_pins_stable_endpoint_before_asset_downloads(self):
+        import hashlib
+        fixture=self.d/'release-fixture'; fixture.mkdir()
+        work=self.d/'release-work'; work.mkdir()
+        data=b'stable release asset'
+        (fixture/'binary').write_bytes(data)
+        (fixture/'SHA256SUMS').write_text(hashlib.sha256(data).hexdigest()+'  binary\n')
+        self.tool('curl', '''url=''; for arg; do [[ "$arg" == https://* ]] && url="$arg"; done
+printf '%s\\n' "$url" >> "$FIXTURE/urls"
+if [[ "$url" == */releases/latest ]]; then
+    printf '%s' 'https://github.com/CIAUB/C-Tunnel/releases/tag/v0.2.2'
+else
+    [[ "$url" == */releases/download/v0.2.2/* ]] || exit 1
+    while [[ "$1" != -o ]]; do shift; done
+    cp "$FIXTURE/${url##*/}" "$2"
+fi''')
+        script=(ROOT/'install.sh').read_text()
+        helper=script[script.index('fetch_release() {'):script.index('\n# Go publishes')]
+        code='set -euo pipefail\ndie() { echo "$*" >&2; exit 1; }\nASSETS=(binary)\n'+helper+'\nfetch_release\n'
+        result=subprocess.run(['bash','-c',code], env=dict(self.env, WORK=str(work),
+                              FIXTURE=str(fixture), VERSION='latest', REPO='CIAUB/C-Tunnel'),
+                              capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((fixture/'urls').read_text().splitlines(), [
+            'https://github.com/CIAUB/C-Tunnel/releases/latest',
+            'https://github.com/CIAUB/C-Tunnel/releases/download/v0.2.2/SHA256SUMS',
+            'https://github.com/CIAUB/C-Tunnel/releases/download/v0.2.2/binary'])
     def test_release_checksums_reject_duplicates_and_corruption(self):
         import hashlib
         fixture=self.d/'fixture'; fixture.mkdir()

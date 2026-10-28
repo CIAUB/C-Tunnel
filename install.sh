@@ -3,18 +3,37 @@
 #
 #   sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)"
 #
-# Downloads the latest GitHub Release, checks every file against the release's SHA256SUMS
-# and installs only if all of them match. Set CTUNNEL_VERSION=v0.1.0 to pick a version.
+# A trailing version also works with bash -c (where it becomes $0):
+#   sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" v0.2.1
+# Downloads the latest stable GitHub Release by default and verifies SHA256SUMS.
+# Explicit arguments override CTUNNEL_VERSION; source mode uses CTUNNEL_LOCAL=1.
 # From a git checkout (sudo bash install.sh) it installs the local files instead.
 set -euo pipefail
 
 REPO="${CTUNNEL_REPO:-CIAUB/C-Tunnel}"
-VERSION="${CTUNNEL_VERSION:-latest}"
 GO_VERSION="${CTUNNEL_GO_VERSION:-}"
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "invalid repository" >&2; exit 1; }
-[[ "$VERSION" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "invalid version" >&2; exit 1; }
 
 die() { echo "error: $*" >&2; exit 1; }
+
+# bash -c SCRIPT VERSION puts VERSION in $0, whereas bash install.sh VERSION
+# and bash -c SCRIPT -- VERSION put it in $1. Never treat a file path as a tag.
+resolve_installer_version() {
+    local launch_name="$1" source_path="$2"
+    shift 2
+    [[ "$#" -le 1 ]] || die "expected at most one version argument"
+    VERSION="${CTUNNEL_VERSION:-latest}"
+    if [[ "$#" -eq 1 ]]; then
+        VERSION="$1"
+    elif [[ -z "$source_path" && ( "$launch_name" == latest || "$launch_name" =~ ^v?[0-9] ) ]]; then
+        VERSION="$launch_name"
+    fi
+    [[ "$VERSION" == latest || "$VERSION" =~ ^v?[0-9][A-Za-z0-9_.-]*$ ]] || die "invalid version"
+    if [[ "$VERSION" != latest && "$VERSION" != v* ]]; then
+        VERSION="v${VERSION}"
+    fi
+}
+resolve_installer_version "$0" "${BASH_SOURCE[0]:-}" "$@"
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "run as root: sudo bash -c \"\$(curl -sL https://raw.githubusercontent.com/${REPO}/main/install.sh)\""
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
@@ -61,7 +80,8 @@ ASSETS=(
 fetch_release() {
     local base a line
     if [[ "${VERSION}" == "latest" ]]; then
-        # Resolve latest once: all assets must belong to the same immutable tag.
+        # GitHub /releases/latest excludes draft and pre-release entries.
+        # Resolve it once so every asset belongs to the same stable tag.
         local resolved
         resolved="$(curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")"
         VERSION="${resolved##*/}"

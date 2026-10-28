@@ -106,7 +106,13 @@ sudo ctunnel
 ```
 
 To update, choose **Update** in the menu or run the install command again. Running tunnels are kept.
-To install a specific version, add `CTUNNEL_VERSION=v0.1.0` after `sudo`.
+Without a version, the installer selects the latest stable GitHub release and excludes drafts and pre-releases. To install a specific version:
+
+```bash
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" v0.2.1
+```
+
+`bash install.sh v0.2.1` and `CTUNNEL_VERSION=v0.2.1` are also supported. An explicit version argument takes precedence over the environment variable.
 
 ## Quick start
 
