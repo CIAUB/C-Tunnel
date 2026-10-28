@@ -210,3 +210,15 @@ systemctl try-restart 'ctunnel-engine@*.service' ctunnel-panel.service || die "f
 echo
 echo "C-Tunnel $(/usr/local/bin/ctunnel version | awk '{print $2}') installed."
 echo "Run: sudo ctunnel"
+
+# Only open the interactive menu in a terminal. Never leave the installation lock
+# or temporary release files attached to the menu's long-running process.
+launch_menu() {
+    [[ "${CTUNNEL_NO_MENU:-0}" != 1 && -t 0 && -t 1 ]] || return 0
+    flock -u 9
+    exec 9>&-
+    rm -rf -- "$WORK"
+    trap - EXIT
+    exec /usr/local/bin/ctunnel
+}
+launch_menu
