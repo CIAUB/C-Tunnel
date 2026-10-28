@@ -32,13 +32,13 @@ mkdir -p /run/netns
 mount -t tmpfs -o size=1m tmpfs /run/netns
 ip netns add iran
 ip netns add kharej
-ip link add a type veth peer name b
-ip link set a netns iran
-ip link set b netns kharej
-ip -n iran addr add 192.0.2.1/30 dev a
-ip -n kharej addr add 192.0.2.2/30 dev b
-ip -n iran link set a up
-ip -n kharej link set b up
+ip link add name veth-iran type veth peer name veth-kharej
+ip link set veth-iran netns iran
+ip link set veth-kharej netns kharej
+ip -n iran addr add 192.0.2.1/30 dev veth-iran
+ip -n kharej addr add 192.0.2.2/30 dev veth-kharej
+ip -n iran link set veth-iran up
+ip -n kharej link set veth-kharej up
 ip -n iran link set lo up
 ip -n kharej link set lo up
 
