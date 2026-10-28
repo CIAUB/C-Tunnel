@@ -3,180 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="dark">
 <title>C-Tunnel</title>
 <style>
-:root {
-  --bg: #070707; --s1: #111; --s2: #181818; --s3: #202020;
-  --ln: rgba(255,255,255,.08); --ln2: rgba(255,255,255,.15);
-  --tx: #fafafa; --tx2: #dcdcdc; --mu: #8e8e8e; --dim: #6a6a6a;
-  --ac: #ef4444; --ac2: #dc2626; --ac-soft: rgba(239,68,68,.12); --ac-line: rgba(239,68,68,.3);
-  --ok: #22c55e; --wr: #f59e0b; --er: #ef4444;
-  --field: #0c0c0c;
-  --card: color-mix(in srgb, var(--s1) 86%, transparent);
-  --edge: rgba(255,255,255,.09);
-  --glow: radial-gradient(1200px 600px at 50% 110%, rgba(220,38,38,.10), transparent 70%),
-          radial-gradient(900px 500px at 0% 0%, rgba(220,38,38,.06), transparent 60%);
-  --r-lg: 18px; --r: 12px; --r-sm: 9px;
-  --ease: cubic-bezier(.32,.72,0,1);
-  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
-}
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #f2f2f2; --s1: #fff; --s2: #fafafa; --s3: #f1f1f1;
-    --ln: rgba(0,0,0,.09); --ln2: rgba(0,0,0,.16);
-    --tx: #0a0a0a; --tx2: #2e2e2e; --mu: #636363; --dim: #8a8a8a;
-    --ac: #dc2626; --ac2: #b91c1c; --ac-soft: rgba(220,38,38,.09); --ac-line: rgba(220,38,38,.28);
-    --field: #fff; --edge: rgba(0,0,0,.08);
-    --glow: radial-gradient(1200px 600px at 50% 110%, rgba(220,38,38,.06), transparent 70%);
-  }
-}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-[hidden] { display: none !important; }
-button, input, select, textarea { font: inherit; color: inherit; }
-svg { fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-body { min-height: 100dvh; background: var(--glow), var(--bg); background-attachment: fixed; color: var(--tx); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
-.num { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-code, .mono { font-family: var(--mono); font-size: .92em; }
-
-.card { background: var(--card); border: 1px solid var(--edge); border-radius: var(--r-lg); backdrop-filter: blur(20px) saturate(150%); -webkit-backdrop-filter: blur(20px) saturate(150%); }
-.icon-sq { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r-sm); background: var(--ac-soft); color: var(--ac); border: 1px solid var(--ac-line); }
-.icon-sq svg { width: 18px; height: 18px; }
-.k { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--mu); font-weight: 560; }
-
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid var(--ln2); background: var(--s2); cursor: pointer; font-weight: 560; font-size: 13px; transition: background-color 150ms, border-color 150ms, transform 120ms var(--ease); }
-.btn:hover { border-color: var(--mu); }
-.btn:active { transform: translateY(1px); }
-.btn:disabled { opacity: .55; cursor: progress; }
-.btn svg { width: 16px; height: 16px; }
-.btn.primary { background: linear-gradient(180deg, var(--ac), var(--ac2)); border-color: transparent; color: #fff; box-shadow: 0 8px 22px -10px rgba(239,68,68,.7); }
-.btn.ghost { background: transparent; }
-.btn.danger { color: var(--er); }
-.btn.sm { min-height: 32px; padding: 0 11px; font-size: 12px; }
-.btn.square { width: 46px; height: 46px; padding: 0; border-radius: var(--r); }
-.btn.square svg { width: 20px; height: 20px; }
-:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
-label { display: block; font-size: 12px; color: var(--mu); margin-bottom: 6px; font-weight: 520; }
-input, select, textarea { width: 100%; min-height: 42px; padding: 9px 12px; background: var(--field); border: 1px solid var(--ln2); border-radius: var(--r-sm); }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ac); box-shadow: 0 0 0 3px var(--ac-soft); }
-.hint { font-size: 12px; color: var(--dim); margin-top: 6px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.stack { display: grid; gap: 14px; }
-
-.gate { min-height: 100dvh; display: grid; place-items: center; padding: 20px; }
-.gate form { width: 100%; max-width: 380px; padding: 28px; display: grid; gap: 18px; }
-.gate p { color: var(--mu); font-size: 13px; }
-
-.shell { max-width: 1420px; margin: 0 auto; padding: 24px 20px 48px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
-.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.logo { flex: none; width: 50px; height: 50px; border-radius: 13px; display: grid; place-items: center; color: #fff; background: linear-gradient(180deg, #f05252, #c81e1e); box-shadow: 0 10px 26px -10px rgba(239,68,68,.75), inset 0 1px 0 rgba(255,255,255,.25); }
-.logo svg { width: 24px; height: 24px; stroke-width: 2.1; }
-.brand b { display: block; font-size: 19px; letter-spacing: -.02em; font-weight: 680; }
-.brand span { display: block; font-size: 12.5px; color: var(--mu); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-header.card { display: flex; align-items: center; gap: 28px; padding: 16px 20px; }
-.facts { display: flex; flex-wrap: wrap; gap: 6px 26px; flex: 1; min-width: 0; }
-.fact { min-width: 0; }
-.fact .k { text-transform: none; letter-spacing: 0; font-size: 12.5px; font-weight: 450; }
-.fact div:last-child { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
-.menu-wrap { position: relative; }
-a.btn { text-decoration: none; color: inherit; }
-.hdr-acts { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-.btn.tg { min-height: 46px; border-radius: var(--r); }
-.tg-link { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 13px; color: var(--mu); text-decoration: none; }
-.tg-link:hover { color: var(--tx); }
-.tg-link svg, .btn.tg svg { width: 16px; height: 16px; }
-.menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 220px; padding: 6px; display: grid; gap: 2px; background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r); box-shadow: 0 22px 50px -20px rgba(0,0,0,.8); }
-.menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; background: none; cursor: pointer; text-align: left; font-size: 13.5px; }
-.menu button:hover { background: var(--s3); }
-.menu svg { width: 16px; height: 16px; color: var(--mu); }
-
-.gauges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
-.gauge { padding: 24px 16px 20px; display: grid; justify-items: center; gap: 4px; text-align: center; }
-.ring { position: relative; width: 132px; height: 132px; }
-.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.ring circle { stroke-width: 7; }
-.ring .track { stroke: var(--s3); }
-.ring .val { stroke: var(--ac); transition: stroke-dashoffset .6s var(--ease); }
-.ring .lbl { position: absolute; inset: 0; display: grid; align-content: center; justify-items: center; gap: 22px; }
-.ring .lbl b { font-size: 28px; font-weight: 640; }
-.ring .lbl small { font-size: 12px; color: var(--mu); }
-.gauge .k { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
-.gauge .k svg { width: 15px; height: 15px; }
-.gauge .sub { font-size: 13px; color: var(--tx2); }
-
-.stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
-.stat { display: flex; align-items: center; gap: 14px; padding: 18px; min-width: 0; }
-.stat > div:last-child { min-width: 0; }
-.stat .v { font-size: 18px; font-weight: 660; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#s-load { white-space: normal; line-height: 1.2; }
-
-.section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 2px 0; }
-.section-head h2 { font-size: 17px; font-weight: 650; }
-.pill { font-size: 12px; padding: 2px 10px; border-radius: 999px; border: 1px solid var(--ln2); color: var(--mu); }
-.section-head .acts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-.tunnels { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
-.empty { grid-column: 1 / -1; padding: 56px 16px; text-align: center; color: var(--mu); }
-.tun { padding: 18px; display: grid; gap: 14px; }
-.tun-top { display: flex; align-items: center; gap: 12px; }
-.tun-top > div:nth-child(2) { flex: 1; min-width: 0; }
-.tun-top .name { font-weight: 660; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tun-top .meth { font-size: 12.5px; color: var(--mu); }
-.state { margin-left: auto; flex-shrink: 0; max-width: 46%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--s3); color: var(--mu); }
-.state::before { flex-shrink: 0; content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.state.up { color: var(--ok); background: rgba(34,197,94,.1); }
-.state.warn { color: var(--wr); background: rgba(245,158,11,.1); }
-.state.bad { color: var(--er); background: rgba(239,68,68,.1); }
-.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; padding: 14px 0; border-top: 1px solid var(--ln); border-bottom: 1px solid var(--ln); }
-.kv .k { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 450; }
-.kv div div:last-child { font-weight: 560; overflow-wrap: anywhere; }
-.tun .row { display: flex; gap: 8px; flex-wrap: wrap; }
-.tun .row .btn.danger { margin-left: auto; }
-
-dialog { margin: auto; width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); color: var(--tx); background: var(--s1); border: 1px solid var(--ln2); border-radius: var(--r-lg); padding: 0; box-shadow: 0 30px 80px -30px rgba(0,0,0,.9); }
-dialog.wide { width: min(760px, calc(100vw - 24px)); }
-dialog::backdrop { background: rgba(0,0,0,.6); backdrop-filter: blur(4px); }
-dialog form, dialog > div { padding: 22px; display: grid; gap: 16px; }
-dialog h3 { font-size: 17px; font-weight: 650; }
-dialog form { padding-bottom: 0; }
-dialog .foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; position: sticky; bottom: 0; z-index: 2; margin: 0 -22px; padding: 14px 22px 22px; background: var(--s1); border-radius: 0 0 var(--r-lg) var(--r-lg); }
-dialog > div .foot { margin-bottom: -22px; }
-details summary { cursor: pointer; color: var(--mu); font-size: 13px; }
-details[open] summary { margin-bottom: 14px; }
-pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: var(--r-sm); padding: 12px 14px; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all; color: var(--tx2); max-height: 40vh; overflow: auto; }
-.toast { position: fixed; z-index: 50; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: min(520px, calc(100vw - 24px)); padding: 12px 16px; border-radius: var(--r); background: var(--s2); border: 1px solid var(--ac-line); box-shadow: 0 20px 50px -20px rgba(0,0,0,.8); font-size: 13.5px; }
-.toast.ok { border-color: rgba(34,197,94,.4); }
-
-@media (max-width: 1180px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 900px) {
-  header.card { flex-wrap: wrap; gap: 12px; }
-  .facts { order: 3; flex-basis: 100%; }
-  .gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 560px) {
-  .shell { padding: 14px 12px 40px; gap: 14px; }
-  .btn.tg { width: 46px; padding: 0; }
-  .btn.tg span { display: none; }
-  .section-head .acts { margin-left: 0; width: 100%; }
-  .section-head .acts .btn { flex: 1; }
-  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .stat { padding: 14px; gap: 10px; }
-  .stat .icon-sq { width: 34px; height: 34px; }
-  .stat .v { font-size: 15px; }
-  .gauges { gap: 10px; }
-  .ring { width: 104px; height: 104px; }
-  .ring .lbl b { font-size: 22px; }
-  .ring .lbl { gap: 14px; }
-  .tunnels { grid-template-columns: minmax(0, 1fr); }
-  .grid2 { grid-template-columns: 1fr; }
-}
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+:root{color-scheme:dark;--bg:#0a0a0b;--s1:#111113;--s2:#19191c;--s3:#232326;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.16);--tx:#f1f1f3;--tx2:#c9c9ce;--mu:#a2a2aa;--dim:#92929a;--ac:#e4e4e7;--ac-soft:rgba(255,255,255,.05);--ac-line:rgba(255,255,255,.18);--ok:#7bc49d;--wr:#e2ba74;--er:#f19191;--field:#0d0d0f;--r-lg:12px;--r:8px;--r-sm:6px;--sans:Inter,Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:"Geist Mono","SFMono-Regular",Consolas,monospace}
+*{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit;color:inherit}button,a,input,select,textarea{touch-action:manipulation}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}code,.mono,.num,.kv div div:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums}code{font-size:.92em}.card{background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg)}.k{color:var(--mu);font-size:12px;font-weight:500}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 14px;border-radius:var(--r-sm);border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:550;cursor:pointer;transition:background-color 150ms,border-color 150ms}.btn:hover{background:var(--s3);border-color:#55555d}.btn:active{background:#303034}.btn:disabled{opacity:.45;cursor:not-allowed}.btn[aria-busy=true]{cursor:progress}.btn svg{width:17px;height:17px;flex-shrink:0}.btn.primary{background:#e7e7eb;color:#111113;border-color:#e7e7eb}.btn.primary:hover{background:#fff}.btn.ghost{background:transparent}.btn.danger{color:var(--er)}.btn.sm{min-height:40px;padding:0 11px;font-size:12px}.btn.square{width:44px;padding:0;flex-shrink:0}.btn.square svg{width:19px;height:19px}a.btn{text-decoration:none;color:inherit}:focus-visible{outline:2px solid #d4d4db;outline-offset:3px}label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--tx2)}input,select,textarea{width:100%;min-height:44px;padding:10px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:var(--r-sm)}input:focus,select:focus,textarea:focus{outline:2px solid #878790;outline-offset:1px}input[aria-invalid=true]{border-color:var(--er)}input[type=checkbox]{width:18px;min-height:18px}textarea{resize:vertical}.hint{font-size:12px;color:var(--mu);margin-top:6px;line-height:1.6}.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.stack{display:grid;gap:16px}.gate{min-height:100dvh;display:grid;place-items:center;padding:24px}.gate form{width:100%;max-width:400px;padding:32px;display:grid;gap:24px}.gate p{color:var(--mu)}.shell{max-width:1440px;margin:auto;padding:24px 28px 64px;display:grid;gap:24px;isolation:isolate;overflow:visible}.brand{display:flex;align-items:center;gap:12px;min-width:0}.logo{flex:none;width:40px;height:40px;border:1px solid var(--ln2);border-radius:9px;display:grid;place-items:center;background:var(--s2);color:var(--tx)}.logo svg{width:23px;height:23px}.brand b{display:block;font-size:17px;letter-spacing:-.04em;font-weight:650}.brand span{display:block;font-size:12px;color:var(--mu)}header.card{position:relative;z-index:40;overflow:visible;display:flex;align-items:center;gap:24px;padding:20px}.facts{display:flex;flex-wrap:wrap;gap:12px 24px;flex:1;min-width:0}.fact{min-width:0}.fact div:last-child{font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hdr-acts{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;overflow:visible}.menu-wrap{position:relative;z-index:50;overflow:visible}.menu{position:absolute;z-index:60;right:0;top:calc(100% + 8px);width:min(260px,calc(100vw - 48px));padding:6px;background:#19191c;border:1px solid var(--ln2);border-radius:var(--r);box-shadow:0 12px 40px #0008;display:grid;gap:2px}.menu button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;background:none;border:0;border-radius:5px;text-align:left;cursor:pointer;font-size:13px}.menu button:hover,.menu button:focus-visible{background:var(--s3)}.menu svg,.tg-link svg{width:17px;height:17px}.tg-link{display:inline-flex;align-items:center;gap:8px;color:var(--mu);font-size:12px;text-decoration:none}.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.gauge{padding:20px;display:grid;gap:14px}.gauge .k{display:flex;align-items:center;gap:8px}.gauge .k svg{width:16px;height:16px}.gauge .reading{display:flex;align-items:baseline;gap:4px}.gauge .reading b{font-size:30px;line-height:1;font-weight:550;letter-spacing:-.05em}.gauge .reading small{font-size:13px;color:var(--mu)}.gauge progress{width:100%;height:4px;border:0;appearance:none;background:var(--s3);border-radius:2px;overflow:hidden}.gauge progress::-webkit-progress-bar{background:var(--s3)}.gauge progress::-webkit-progress-value{background:#a1a1aa}.gauge progress::-moz-progress-bar{background:#a1a1aa}.gauge .sub{color:var(--mu);font-size:12px}.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat{display:flex;align-items:center;gap:12px;padding:16px;min-width:0}.stat>div:last-child{min-width:0}.stat .v{font-size:15px;font-weight:500;overflow-wrap:anywhere}.icon-sq{width:32px;height:32px;flex:none;display:grid;place-items:center;color:var(--mu);border:1px solid var(--ln);border-radius:6px;background:var(--s2)}.icon-sq svg{width:16px;height:16px}.section-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:12px}.section-head h2{font-size:16px;letter-spacing:-.02em;font-weight:600}.pill{border:1px solid var(--ln2);border-radius:5px;padding:2px 7px;font-size:12px;color:var(--mu)}.section-head .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:16px}.empty{grid-column:1/-1;padding:64px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r)}.tun{padding:20px;display:grid;gap:16px}.tun-top{display:flex;align-items:center;gap:12px}.tun-top>div:nth-child(2){flex:1;min-width:0}.name{font-size:15px;font-weight:600}.meth{font-size:12px;color:var(--mu);overflow-wrap:anywhere}.state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:3px 7px;flex-shrink:0;border:1px solid var(--ln);border-radius:5px;font-size:12px;color:var(--mu)}.state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.state.up{color:var(--ok)}.state.warn{color:var(--wr)}.state.bad{color:var(--er)}.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;border-top:1px solid var(--ln);border-bottom:1px solid var(--ln);padding:16px 0}.kv div div:last-child{font-size:12px;overflow-wrap:anywhere}.tun .row{display:flex;flex-wrap:wrap;gap:8px}.tun .row .danger{margin-left:auto}dialog{margin:auto;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;background:var(--s1);color:var(--tx);border:1px solid var(--ln2);border-radius:12px;padding:0;box-shadow:0 24px 80px #0009}dialog.wide{width:min(760px,calc(100vw - 32px))}dialog::backdrop{background:#000b}dialog form,dialog>div{padding:24px;display:grid;gap:20px}dialog h3{font-size:18px;font-weight:600;letter-spacing:-.025em}dialog form{padding-bottom:0}dialog .foot{position:sticky;bottom:0;z-index:2;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 -24px;padding:16px 24px 24px;background:var(--s1);border-top:1px solid var(--ln)}dialog>div .foot{margin-bottom:-24px}details summary{cursor:pointer;color:var(--mu);font-size:13px;min-height:36px}details[open] summary{margin-bottom:16px}pre.out{background:var(--field);border:1px solid var(--ln);padding:16px;border-radius:6px;color:var(--tx2);font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}.toast{position:fixed;z-index:100;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:14px 18px;border:1px solid #805252;border-radius:8px;background:#202023;color:var(--tx);box-shadow:0 8px 30px #0008;font-size:13px}.toast.ok{border-color:#3e6751}.form-error{padding:12px 14px;border:1px solid #805252;border-radius:6px;color:#f3b5b5;font-size:13px;white-space:pre-wrap}.form-error a{color:inherit}.field-error{display:block;min-height:18px;color:var(--er);font-size:12px;margin-top:4px}.test-choice{padding:16px;background:var(--s2);border:1px solid var(--ln2);border-radius:8px;display:grid;gap:10px}.test-choice h4{font-size:14px}.test-choice p{font-size:12px;color:var(--mu)}#sync-status{font-size:12px;color:var(--mu)}#boot{padding:40px;color:var(--mu)}
+@media(max-width:1180px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.facts{gap:8px 16px}}@media(max-width:900px){header.card{flex-wrap:wrap;gap:16px}.facts{order:3;flex-basis:100%}.gauges{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.shell{padding:16px 16px 40px;gap:16px}header.card{padding:16px}.btn.tg{width:44px;padding:0}.btn.tg span{display:none}.grid2{grid-template-columns:minmax(0,1fr)}.gauges{gap:12px}.gauge{padding:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stat{padding:12px;gap:8px}.section-head .acts{margin-left:0;width:100%}.section-head .acts .btn{flex:1}dialog form,dialog>div{padding:20px}dialog form{padding-bottom:0}dialog .foot{margin:0 -20px;padding:16px 20px 20px}.tun{padding:16px}.fact div:last-child{max-width:140px}.brand b{font-size:16px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
 <body>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<svg width="0" height="0"  aria-hidden="true">
   <symbol id="i-logo" viewBox="0 0 24 24"><path d="M3 19V12a9 9 0 0 1 18 0v7"/><path d="M7.5 19v-6a4.5 4.5 0 0 1 9 0v6"/><path d="M3 19h18"/></symbol>
   <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
   <symbol id="i-mem" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M11 11h2M16 11h2"/></symbol>
@@ -197,22 +35,23 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
   <symbol id="i-exit" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
 </svg>
 
+<div id="boot" role="status">Connecting to C-Tunnel…</div>
 <main id="gate" class="gate" hidden>
   <form id="login-form" class="card">
-    <div class="brand"><div class="logo"><svg><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span>Panel login</span></div></div>
+    <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span>Panel login</span></div></div>
     <p>Enter the login code shown in <code>sudo ctunnel</code> → Web Panel.</p>
     <div>
       <label for="login-code">Login code</label>
       <input id="login-code" type="password" autocomplete="current-password" required>
     </div>
     <button class="btn primary" type="submit">Log in</button>
-    <a class="tg-link" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer"><svg><use href="#i-tg"/></svg>Telegram channel: @CiAUB_CH</a>
+    <a class="tg-link" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true"><use href="#i-tg"/></svg>Telegram channel: @CiAUB_CH</a>
   </form>
 </main>
 
 <div id="app" class="shell" hidden>
   <header class="card">
-    <div class="brand"><div class="logo"><svg><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span id="h-host"></span></div></div>
+    <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span id="h-host"></span></div></div>
     <div class="facts">
       <div class="fact"><div class="k">OS</div><div id="h-os">—</div></div>
       <div class="fact"><div class="k">Uptime</div><div id="h-up" class="num">—</div></div>
@@ -221,48 +60,50 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
       <div class="fact"><div class="k">Version</div><div id="h-ver" class="num">—</div></div>
     </div>
     <div class="hdr-acts">
-    <a class="btn tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg><use href="#i-tg"/></svg><span>Telegram</span></a>
+    <a class="btn tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg><span>Telegram</span></a>
     <div class="menu-wrap">
-      <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-gear"/></svg></button>
+      <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
       <div id="menu" class="menu" hidden>
-        <button type="button" id="m-test"><svg><use href="#i-gauge"/></svg>Link test</button>
-        <button type="button" id="m-restart"><svg><use href="#i-refresh"/></svg>Restart all tunnels</button>
-        <button type="button" id="m-optimize"><svg><use href="#i-bolt"/></svg>Apply kernel tuning</button>
-        <button type="button" id="m-logout"><svg><use href="#i-exit"/></svg>Log out</button>
+        <button type="button" id="m-settings"><svg aria-hidden="true"><use href="#i-gear"/></svg>Panel settings</button>
+        <button type="button" id="m-test"><svg aria-hidden="true"><use href="#i-gauge"/></svg>Link test</button>
+        <button type="button" id="m-restart"><svg aria-hidden="true"><use href="#i-refresh"/></svg>Restart all tunnels</button>
+        <button type="button" id="m-optimize"><svg aria-hidden="true"><use href="#i-bolt"/></svg>Apply kernel tuning</button>
+        <button type="button" id="m-logout"><svg aria-hidden="true"><use href="#i-exit"/></svg>Log out</button>
       </div>
     </div>
     </div>
   </header>
 
-  <section class="gauges">
-    <div class="card gauge" data-g="cpu"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-cpu"/></svg>CPU</div><div class="sub num"></div></div>
-    <div class="card gauge" data-g="mem"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-mem"/></svg>Memory</div><div class="sub num"></div></div>
-    <div class="card gauge" data-g="disk"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-disk"/></svg>Disk</div><div class="sub num"></div></div>
-    <div class="card gauge" data-g="swap"><div class="ring"><svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="val" cx="60" cy="60" r="52"/></svg><div class="lbl"><b class="num">0</b><small>%</small></div></div><div class="k"><svg><use href="#i-swap"/></svg>Swap</div><div class="sub num"></div></div>
+  <section class="gauges" aria-label="Resource usage">
+    <article class="card gauge" data-g="cpu"><div class="k"><svg aria-hidden="true"><use href="#i-cpu"/></svg>CPU</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="CPU usage"></progress><div class="sub num"></div></article>
+    <article class="card gauge" data-g="mem"><div class="k"><svg aria-hidden="true"><use href="#i-mem"/></svg>Memory</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Memory usage"></progress><div class="sub num"></div></article>
+    <article class="card gauge" data-g="disk"><div class="k"><svg aria-hidden="true"><use href="#i-disk"/></svg>Storage</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Storage usage"></progress><div class="sub num"></div></article>
+    <article class="card gauge" data-g="swap"><div class="k"><svg aria-hidden="true"><use href="#i-swap"/></svg>Swap</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Swap usage"></progress><div class="sub num"></div></article>
   </section>
 
   <section class="stats">
-    <div class="card stat"><div class="icon-sq"><svg><use href="#i-down"/></svg></div><div><div class="k">Download</div><div id="s-rx" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg><use href="#i-up"/></svg></div><div><div class="k">Upload</div><div id="s-tx" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg><use href="#i-in"/></svg></div><div><div class="k">Total in</div><div id="s-rxt" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg><use href="#i-out"/></svg></div><div><div class="k">Total out</div><div id="s-txt" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg><use href="#i-load"/></svg></div><div><div class="k">Load</div><div id="s-load" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg><use href="#i-link"/></svg></div><div><div class="k">Tunnels</div><div id="s-tun" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-down"/></svg></div><div><div class="k">Download</div><div id="s-rx" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-up"/></svg></div><div><div class="k">Upload</div><div id="s-tx" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-in"/></svg></div><div><div class="k">Total in</div><div id="s-rxt" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-out"/></svg></div><div><div class="k">Total out</div><div id="s-txt" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-load"/></svg></div><div><div class="k">Load</div><div id="s-load" class="v num">—</div></div></div>
+    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-link"/></svg></div><div><div class="k">Tunnels</div><div id="s-tun" class="v num">—</div></div></div>
   </section>
 
   <div class="section-head">
-    <h2>Tunnels</h2><span id="t-count" class="pill">0</span>
+    <h2>Tunnels</h2><span id="t-count" class="pill">0</span><span id="sync-status" role="status">Connecting…</span>
     <div class="acts">
-      <button id="btn-import" class="btn" type="button"><svg><use href="#i-link"/></svg>Add from link</button>
-      <button id="btn-new" class="btn primary" type="button"><svg><use href="#i-plus"/></svg>New tunnel</button>
+      <button id="btn-import" class="btn" type="button"><svg aria-hidden="true"><use href="#i-link"/></svg>Add from link</button>
+      <button id="btn-new" class="btn primary" type="button"><svg aria-hidden="true"><use href="#i-plus"/></svg>New tunnel</button>
     </div>
   </div>
   <section id="tunnels" class="tunnels"></section>
 </div>
 
 <dialog id="dlg-new" class="wide">
-  <form id="create-form" method="dialog">
+  <form id="create-form" novalidate>
     <h3>New tunnel</h3>
+    <div id="create-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div class="grid2">
       <div><label for="f-role">This server is</label>
         <select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
@@ -309,25 +150,49 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
 </dialog>
 
 <dialog id="dlg-import">
-  <form id="import-form" method="dialog">
+  <form id="import-form" novalidate>
     <h3>Add from link</h3>
+    <div id="import-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div><label for="i-link">Link printed on the other server</label><textarea id="i-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
     <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="9"></div>
     <div class="foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
   </form>
 </dialog>
 
-<dialog id="dlg-test">
-  <form id="test-form" method="dialog">
-    <h3>Link test</h3>
+<dialog id="dlg-test" class="wide">
+  <form id="test-form" novalidate>
+    <h3>Connection test</h3>
+    <p class="hint">Start Connection Test on the peer server, then paste its test link. Each supported method is measured separately.</p>
+    <div id="test-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+    <div><label for="t-link">Peer test link</label><input id="t-link" class="mono" required autocomplete="off" placeholder="ctunnel-test://…"></div>
     <div class="grid2">
-      <div><label for="t-host">Server IP</label><input id="t-host" class="num" placeholder="203.0.113.10 or 10.77.1.2" required></div>
-      <div><label for="t-port">Responder port</label><input id="t-port" class="num" type="number" min="1" max="65535" value="7711"></div>
+      <div><label for="t-role">Deploy on this server as</label><select id="t-role"><option value="iran">Iran — create first endpoint</option><option value="kharej">Kharej — use matching Iran configuration</option></select></div>
+      <div><label for="t-local">This server IPv4</label><input id="t-local" class="mono" placeholder="Auto-detect"></div>
     </div>
-    <p class="hint">Run <code>ctunnel speedtest-server</code> on that server first. Testing a tunnel IP measures the tunnel itself.</p>
+    <div><label for="t-secret">Tunnel secret</label><input id="t-secret" type="password" autocomplete="new-password" placeholder="Generate for Iran; required for Kharej"></div>
+    <div><label for="t-forwards">Forward ports on Iran</label><input id="t-forwards" class="mono" placeholder="443, 2053=8443"></div>
+    <p class="hint">The peer test link is not a tunnel setup link. Deployment creates this endpoint; apply the returned setup link on the peer. Carrier shape tests do not verify kernel setup.</p>
     <pre id="t-out" class="out" hidden></pre>
-    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="t-btn" class="btn primary" type="submit">Run test</button></div>
+    <section id="t-best" class="test-choice" hidden aria-live="polite"><h4 id="t-best-title"></h4><p id="t-best-stats"></p><button id="t-deploy" class="btn primary" type="button">Deploy Best Tunnel</button></section>
+    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="t-btn" class="btn primary" type="submit">Run method test</button></div>
   </form>
+</dialog>
+
+<dialog id="dlg-settings" class="wide">
+ <form id="settings-form" novalidate>
+  <h3>Panel settings</h3>
+  <div id="settings-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+  <div class="grid2"><div><label for="p-path">Base path</label><input id="p-path" class="mono" required pattern="/[A-Za-z0-9][A-Za-z0-9_-]{5,63}" autocomplete="off"></div><div><label for="p-domain">Custom domain</label><input id="p-domain" class="mono" placeholder="panel.example.com" autocomplete="off"></div></div>
+  <p class="hint">Use a hostname without a scheme, port or path. Point its DNS record to this server before saving.</p>
+  <div><label for="p-mode">Transport</label><select id="p-mode"><option value="http">HTTP</option><option value="https">HTTPS — custom certificate</option></select></div>
+  <section id="p-tls" class="stack" hidden>
+   <div class="grid2"><div><label for="p-cert">Fullchain path on server</label><input id="p-cert" class="mono" placeholder="/etc/ssl/panel/fullchain.pem" autocomplete="off"></div><div><label for="p-key">Private key path on server</label><input id="p-key" class="mono" placeholder="/etc/ssl/panel/privkey.pem" autocomplete="off"></div></div>
+   <p class="hint">Provide existing server paths, or upload a matching PEM pair over HTTPS or a loopback connection. Certificates must be current and cover the configured domain.</p>
+   <div class="grid2"><div><label for="p-cert-upload">Upload fullchain.pem</label><input id="p-cert-upload" type="file" accept=".pem,.crt"></div><div><label for="p-key-upload">Upload privkey.pem</label><input id="p-key-upload" type="file" accept=".pem,.key"></div></div>
+  </section>
+  <p class="hint">HTTP is the initial default. HTTPS activates only after certificate validation. Saving a path, domain or transport change opens the new panel address.</p>
+  <div class="foot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save settings</button></div>
+ </form>
 </dialog>
 
 <dialog id="dlg-link" class="wide">
@@ -341,35 +206,46 @@ pre.out { background: var(--field); border: 1px solid var(--ln); border-radius: 
   </div>
 </dialog>
 
-<div id="toast" class="toast" role="status" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let csrf = "", methods = [], timer = 0;
+let csrf = "", methods = [], timer = 0, refreshing = false, panel = {}, testedID = "";
+const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
 
 function toast(msg, ok) {
   const t = $("toast");
   t.textContent = msg;
   t.className = "toast" + (ok ? " ok" : "");
+  t.setAttribute("role", ok ? "status" : "alert");
   t.hidden = false;
   clearTimeout(toast.h);
   toast.h = setTimeout(() => { t.hidden = true; }, ok ? 3000 : 7000);
 }
 
 async function api(path, opts = {}) {
-  const headers = { "Content-Type": "application/json" };
+  const { timeout = 30000, ...request } = opts;
+  const headers = { "Content-Type": "application/json", ...(request.headers || {}) };
   if (csrf) headers["X-CSRF-Token"] = csrf;
-  const res = await fetch(path, { ...opts, headers });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401) { showGate(); throw new Error("Logged out"); }
-  if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
-  return data;
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(BASE_PATH + path, { ...request, headers, credentials: "same-origin", redirect: "error", signal: controller.signal });
+    const data = await res.json().catch(() => { throw new Error("The server returned an unexpected response."); });
+    if (res.status === 401) { showGate(); throw new Error(path === "/api/login" ? (data.error || "Wrong login code") : "Session expired. Log in again."); }
+    if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+    return data;
+  } catch (err) {
+    if (err.name === "AbortError") throw new Error("The request timed out. Refresh before retrying a create action.");
+    throw err;
+  } finally { clearTimeout(deadline); }
 }
 
 function showGate() {
   clearInterval(timer);
   timer = 0;
+  $("boot").hidden = true;
   $("app").hidden = true;
   $("gate").hidden = false;
   $("login-code").focus();
@@ -392,13 +268,10 @@ function el(tag, cls, text) {
   return e;
 }
 
-const CIRC = 2 * Math.PI * 52;
 function gauge(name, pct, sub) {
   const g = document.querySelector('[data-g="' + name + '"]');
   const p = Math.max(0, Math.min(100, pct || 0));
-  const arc = g.querySelector(".val");
-  arc.style.strokeDasharray = CIRC;
-  arc.style.strokeDashoffset = CIRC * (1 - p / 100);
+  g.querySelector("progress").value = p;
   g.querySelector("b").textContent = Math.round(p);
   g.querySelector(".sub").textContent = sub;
 }
@@ -418,7 +291,7 @@ function renderSystem(s, version, tunnels) {
   $("s-tx").textContent = bytes(s.tx_rate) + "/s";
   $("s-rxt").textContent = bytes(s.rx_total);
   $("s-txt").textContent = bytes(s.tx_total);
-  $("s-load").textContent = s.load.map(v => v.toFixed(2)).join(", ");
+  $("s-load").textContent = (s.load || []).map(v => Number(v).toFixed(2)).join(", ");
   $("s-tun").textContent = tunnels.filter(t => t.state === "up").length + " / " + tunnels.length;
 }
 
@@ -444,6 +317,7 @@ function button(label, cls, onClick) {
 function icon(id) {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("aria-hidden", "true");
   const use = document.createElementNS(ns, "use");
   use.setAttribute("href", "#" + id);
   svg.appendChild(use);
@@ -506,30 +380,65 @@ function fillMethods(list) {
 }
 
 async function refresh() {
+  if (refreshing || document.hidden) return;
+  refreshing = true;
   try {
     const data = await api("/api/overview");
     csrf = data.csrf_token;
+    panel = data.panel || {};
+    $("boot").hidden = true;
     $("gate").hidden = true;
     $("app").hidden = false;
     if (!methods.length) fillMethods(data.methods);
     renderSystem(data.system, data.version, data.tunnels);
     renderTunnels(data.tunnels);
+    $("sync-status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (!timer) timer = setInterval(refresh, 4000);
-  } catch (_) { /* a 401 already switched to the login screen */ }
+  } catch (err) {
+    $("boot").hidden = true;
+    $("sync-status").textContent = "Connection unavailable · retrying";
+    if (!csrf) showGate();
+  } finally { refreshing = false; }
 }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
 async function run(btn, fn, okMsg) {
-  if (btn) btn.disabled = true;
+  if (btn && btn.disabled) return;
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = "Working…"; }
   try {
     const r = await fn();
     if (r && r.ok === false) toast(r.error); else if (okMsg) toast(okMsg, true);
     await refresh();
     return r;
-  } catch (err) {
-    toast(err.message);
-  } finally {
-    if (btn) btn.disabled = false;
+  } catch (err) { toast(err.message); }
+  finally { if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); btn.textContent = label; } }
+}
+
+function formError(id, message) {
+  const box = $(id);
+  box.replaceChildren(document.createTextNode(message));
+  box.hidden = false;
+  box.focus();
+}
+function validateForm(form, errorID) {
+  const invalid = Array.from(form.elements).filter(e => e.willValidate && !e.validity.valid);
+  form.querySelectorAll('[aria-invalid="true"]').forEach(e => e.removeAttribute("aria-invalid"));
+  $(errorID).hidden = true;
+  if (!invalid.length) return true;
+  const box = $(errorID);
+  box.replaceChildren(document.createTextNode("Check the following fields:"));
+  for (const field of invalid) {
+    field.setAttribute("aria-invalid", "true");
+    const details = field.closest("details"); if (details) details.open = true;
+    const link = el("a", "field-error", (field.labels?.[0]?.textContent || field.id) + ": " + field.validationMessage);
+    link.href = "#" + field.id;
+    link.onclick = e => { e.preventDefault(); field.focus(); };
+    box.appendChild(link);
   }
+  box.hidden = false;
+  box.focus();
+  return false;
 }
 
 function showLink(name, link, mikrotik, token) {
@@ -542,8 +451,16 @@ function showLink(name, link, mikrotik, token) {
 }
 
 document.querySelectorAll("[data-close]").forEach(b => { b.onclick = () => b.closest("dialog").close(); });
-$("btn-new").onclick = () => $("dlg-new").showModal();
-$("btn-import").onclick = () => $("dlg-import").showModal();
+$("btn-new").onclick = () => {
+  $("create-form").reset(); $("create-form").saved = null;
+  $("create-form").querySelector('[type="submit"]').textContent = "Create and start";
+  $("create-error").hidden = true; syncForm(); $("dlg-new").showModal();
+};
+$("btn-import").onclick = () => {
+ $("import-form").reset(); $("import-form").saved = null;
+ $("import-form").querySelector('[type="submit"]').textContent = "Create and start";
+ $("import-error").hidden = true; $("dlg-import").showModal();
+};
 $("d-copy").onclick = async () => {
   try { await navigator.clipboard.writeText($("d-link").textContent); toast("Copied", true); }
   catch (_) { toast("Copy failed: select the link and copy it by hand"); }
@@ -552,10 +469,11 @@ $("d-copy").onclick = async () => {
 function setMenu(open) {
   $("menu").hidden = !open;
   $("menu-btn").setAttribute("aria-expanded", String(open));
+  if (open) $("menu").querySelector("button").focus();
 }
 $("menu-btn").onclick = e => { e.stopPropagation(); setMenu($("menu").hidden); };
-document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) setMenu(false); });
-document.addEventListener("keydown", e => { if (e.key === "Escape") setMenu(false); });
+document.addEventListener("click", e => { if (!(e.target instanceof Element) || !e.target.closest(".menu-wrap")) setMenu(false); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("menu").hidden) { setMenu(false); $("menu-btn").focus(); } });
 $("m-test").onclick = () => { setMenu(false); $("dlg-test").showModal(); };
 $("m-restart").onclick = () => { setMenu(false); run(null, () => api("/api/tunnels/all/restart", { method: "POST" }), "All tunnels restarted"); };
 $("m-optimize").onclick = () => { setMenu(false); run(null, () => api("/api/optimize", { method: "POST" }), "Kernel tuning applied"); };
@@ -563,7 +481,7 @@ $("m-logout").onclick = async () => { setMenu(false); await api("/api/logout", {
 
 function num(id) {
   const v = $(id).value.trim();
-  return v === "" ? 0 : parseInt(v, 10);
+  return v === "" ? 0 : Number(v);
 }
 
 function syncForm() {
@@ -586,52 +504,110 @@ $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
 $("f-reverse").onchange = syncForm;
 
-$("create-form").onsubmit = e => {
+async function saveTunnel(form, submitter, body, endpoint, dialog, errorID) {
+  if (form.busy || !validateForm(form, errorID)) return;
+  form.busy = true;
+  const label = submitter.textContent;
+  submitter.disabled = true; submitter.textContent = form.saved ? "Starting…" : "Creating…"; submitter.setAttribute("aria-busy", "true");
+  try {
+    let result;
+    if (form.saved) {
+      await api("/api/tunnels/" + encodeURIComponent(form.saved.name) + "/restart", { method: "POST", timeout: 120000 });
+      result = { ...form.saved, ok: true };
+    } else {
+      result = await api(endpoint, { method: "POST", timeout: 120000, body: JSON.stringify(body) });
+      if (result.name) form.saved = result;
+      if (result.ok === false) throw new Error(result.error);
+    }
+    await refresh();
+    $(dialog).close(); form.reset(); form.saved = null;
+    syncForm(); toast("Tunnel created and started", true);
+    if (result.setup_link) showLink(result.name, result.setup_link, result.mikrotik, result.token);
+  } catch (err) { formError(errorID, err.message); toast(err.message); await refresh(); }
+  finally {
+    form.busy = false; submitter.disabled = false; submitter.removeAttribute("aria-busy");
+    submitter.textContent = form.saved ? "Retry start" : label;
+  }
+}
+
+$("create-form").addEventListener("submit", async e => {
   e.preventDefault();
   const iran = $("f-role").value === "iran";
-  const tunIran = $("f-tun-iran").value.trim();
-  const tunKharej = $("f-tun-kharej").value.trim();
+  const a = $("f-tun-iran").value.trim(), b = $("f-tun-kharej").value.trim();
   const body = {
     role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").value === "1",
-    token: $("f-token").value.trim(),
-    remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
-    tun_local4: iran ? tunIran : tunKharej, tun_remote4: iran ? tunKharej : tunIran,
-    index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"),
-    rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"),
+    token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
+    tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
+    index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"),
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
   };
-  run(e.submitter, () => api("/api/tunnels", { method: "POST", body: JSON.stringify(body) }), "Tunnel created").then(r => {
-    if (r && r.setup_link) { $("dlg-new").close(); e.target.reset(); syncForm(); showLink(r.name, r.setup_link, r.mikrotik, r.token); }
-  });
+  if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or import its setup link."); $("f-token").closest("details").open = true; return; }
+  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), body, "/api/tunnels", "dlg-new", "create-error");
+});
+$("import-form").addEventListener("submit", async e => {
+ e.preventDefault();
+ await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
+});
+
+$("t-role").onchange = () => { $("t-secret").required = $("t-role").value === "kharej"; };
+$("test-form").addEventListener("submit", async e => {
+ e.preventDefault(); if (!validateForm(e.currentTarget, "test-error") || $("t-btn").disabled) return;
+ testedID = ""; $("t-best").hidden = true; $("t-out").hidden = false;
+ $("t-out").textContent = "Testing each method independently. This may take several minutes…";
+ const r = await run($("t-btn"), () => api("/api/linktest", { method: "POST", timeout: 330000, body: JSON.stringify({ link: $("t-link").value.trim(), role: $("t-role").value, local_ip: $("t-local").value.trim(), token: $("t-secret").value.trim(), ports: $("t-forwards").value.split(/[\s,]+/).filter(Boolean) }) }));
+ $("t-out").textContent = r ? r.text : "Test failed. Check the peer responder and try again.";
+ if (r && r.deployment_available && r.best) {
+  testedID = r.test_id;
+  $("t-best-title").textContent = r.best.method + " · " + r.best.mode;
+  $("t-best-stats").textContent = `${r.best.rtt_ms.toFixed(1)} ms · ↓ ${r.best.down_mbps.toFixed(1)} Mbps · ↑ ${r.best.up_mbps.toFixed(1)} Mbps. Ranked by throughput with latency and jitter penalties.`;
+  $("t-deploy").disabled = false; $("t-deploy").textContent = "Deploy Best Tunnel"; $("t-best").hidden = false;
+ }
+});
+$("t-deploy").onclick = async () => {
+ if (!testedID) return;
+ const r = await run($("t-deploy"), () => api("/api/deploy-best", { method: "POST", body: JSON.stringify({ test_id: testedID }) }));
+ if (r && r.name) {
+  $("t-deploy").disabled = true; $("t-deploy").textContent = r.ok ? "Deployed" : "Saved · restart from tunnel card";
+  if (r.ok) { $("dlg-test").close(); showLink(r.name, r.setup_link, r.mikrotik, r.token); }
+ }
 };
 
-$("import-form").onsubmit = e => {
-  e.preventDefault();
-  const body = { link: $("i-link").value.trim(), name: $("i-name").value.trim() };
-  run(e.submitter, () => api("/api/import", { method: "POST", body: JSON.stringify(body) }), "Tunnel created from link").then(r => {
-    if (r && r.name) { $("dlg-import").close(); e.target.reset(); }
-  });
+$("p-mode").onchange = () => { $("p-tls").hidden = $("p-mode").value !== "https"; };
+$("m-settings").onclick = async () => {
+ setMenu(false);
+ const r = await run(null, () => api("/api/settings")); if (!r) return;
+ $("settings-form").reset(); $("settings-error").hidden = true;
+ $("p-path").value = r.base_path; $("p-domain").value = r.domain;
+ $("p-cert").value = r.cert_file; $("p-key").value = r.key_file;
+ $("p-mode").value = r.cert_file ? "https" : "http"; $("p-mode").onchange();
+ const uploadAllowed = location.protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+ $("p-cert-upload").disabled = $("p-key-upload").disabled = !uploadAllowed;
+ $("dlg-settings").showModal();
 };
+$("settings-form").addEventListener("submit", async e => {
+ e.preventDefault(); const form = e.currentTarget;
+ if (form.busy || !validateForm(form, "settings-error")) return;
+ const btn = e.submitter || form.querySelector('[type="submit"]'); form.busy = true; btn.disabled = true; btn.textContent = "Saving…";
+ try {
+  const cert = $("p-cert-upload").files[0], key = $("p-key-upload").files[0];
+  if ((cert && !key) || (!cert && key)) throw new Error("Upload both certificate and key.");
+  if ((cert && cert.size > 48000) || (key && key.size > 16000)) throw new Error("The certificate or key file is too large.");
+  const r = await api("/api/settings", { method: "POST", body: JSON.stringify({ base_path: $("p-path").value.trim(), domain: $("p-domain").value.trim(), cert_file: $("p-cert").value.trim(), key_file: $("p-key").value.trim(), tls_mode: $("p-mode").value, cert_pem: cert ? await cert.text() : "", key_pem: key ? await key.text() : "" }) });
+  $("dlg-settings").close(); toast("Settings saved. Opening the new address…", true);
+  clearInterval(timer); timer = 0;
+  setTimeout(() => window.location.assign(r.url), 1500);
+ } catch (err) { formError("settings-error", err.message); }
+ finally { form.busy = false; btn.disabled = false; btn.textContent = "Save settings"; }
+});
 
-$("test-form").onsubmit = async e => {
-  e.preventDefault();
-  const out = $("t-out");
-  out.hidden = false;
-  out.textContent = "Testing, about 10 seconds…";
-  const r = await run($("t-btn"), () => api("/api/linktest", {
-    method: "POST", body: JSON.stringify({ host: $("t-host").value.trim(), port: num("t-port") })
-  }));
-  out.textContent = r ? r.text : "Test failed.";
-};
-
-$("login-form").onsubmit = async e => {
-  e.preventDefault();
-  try {
-    await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) });
-    $("login-code").value = "";
-    await refresh();
-  } catch (err) { toast(err.message); }
-};
+$("login-form").addEventListener("submit", async e => {
+ e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('[type="submit"]');
+ if (form.busy || !form.reportValidity()) return;
+ form.busy = true; btn.disabled = true; btn.textContent = "Logging in…";
+ try { await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) }); $("login-code").value = ""; await refresh(); }
+ catch (err) { toast(err.message); }
+ finally { form.busy = false; btn.disabled = false; btn.textContent = "Log in"; }
+});
 
 refresh();
 </script>
