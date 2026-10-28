@@ -19,6 +19,7 @@ import (
 	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
+	"ctunnel/pkg/webpanel"
 )
 
 // StoreDir holds state.json and the per-tunnel env files.
@@ -520,10 +521,15 @@ func webPanelMenu() {
 		Header()
 		Title("Web Panel")
 		state, _ := tunnel.Run("systemctl", "is-active", "ctunnel-panel.service")
-		KV("Address", fmt.Sprintf("https://%s:%d", detectIP("udp4", "8.8.8.8:80"), st.PanelPort))
+		address, err := webpanel.PanelURL(st.Dir, detectIP("udp4", "8.8.8.8:80"), st.PanelPort)
+		if err != nil {
+			Err(err.Error())
+			return
+		}
+		KV("Address", address)
 		KV("Login code", st.PanelCode)
 		KV("Service", state)
-		Subtle("The certificate is self-signed: accept the browser warning once.")
+		Subtle("HTTP by default. Configure a domain and valid custom certificate in panel settings to enable HTTPS.")
 		switch ChooseOpt("Web Panel", []MenuOpt{
 			{"Start / restart", "choose port, run in the background and at boot"},
 			{"Stop", "stop and disable"},
