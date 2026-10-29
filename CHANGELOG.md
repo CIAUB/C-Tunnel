@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.4] - 2026-10-30
+
+### Fixed
+- Normalize inline CSP hashes for CRLF checkouts so the web panel is not blocked on Windows builds.
+- Fix the duplicate import field ID and keep tunnel action buttons attached across status refreshes.
+- Retry atomic file replacement on Windows and serialize env reads and writes.
+- Reject FOU and duplicate forward-port collisions; trim IP fields before writing env files.
+- Invalidate sessions on logout and fall back to an interface IPv4 address when no default route exists.
+
+### Changed
+- Automated panel screenshot commits use the `CIAUB` identity instead of `github-actions[bot]`.
+- Repository checkout enforces LF line endings except for `.bat` files.
+
+[0.2.4]: https://github.com/CIAUB/C-Tunnel/compare/v0.2.3...v0.2.4
+
 ## [0.2.3] - 2026-10-28
 
 ### Hotfix - 2026-10-29
