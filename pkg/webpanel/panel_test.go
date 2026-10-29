@@ -2,7 +2,9 @@ package webpanel
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -76,6 +78,19 @@ func (c *client) login(code string) {
 	c.csrf, _ = ov["csrf_token"].(string)
 }
 
+func TestInlineHashNormalizesNewlines(t *testing.T) {
+	orig := indexHTML
+	defer func() { indexHTML = orig }()
+	indexHTML = []byte("<style>a\r\nb</style>\r\n<script>c\r\nd</script>")
+	for tag, body := range map[string]string{"style": "a\nb", "script": "c\nd"} {
+		sum := sha256.Sum256([]byte(body))
+		want := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+		if got := inlineHash(tag); got != want {
+			t.Errorf("%s hash = %s, want %s", tag, got, want)
+		}
+	}
+}
+
 func TestAuthRequired(t *testing.T) {
 	c, _, _ := setup(t)
 	res, _ := c.do("GET", "/api/overview", nil)
@@ -125,6 +140,19 @@ func TestLoginCookieIsolationAndLegacyCookies(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("legacy cookie prevented authenticated overview: %d", response.Code)
 		}
+	}
+}
+
+func TestLogoutInvalidatesSession(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	old := c.cookie
+	if res, _ := c.do("POST", "/api/logout", nil); res.StatusCode != http.StatusOK {
+		t.Fatalf("logout: %d", res.StatusCode)
+	}
+	c.cookie = old
+	if res, _ := c.do("GET", "/api/overview", nil); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("logged-out cookie still accepted: %d", res.StatusCode)
 	}
 }
 

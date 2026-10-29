@@ -178,7 +178,7 @@ func (s *Server) handleDeployBest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tc := test.Config
-	if tc.LocalIP == "" {
+	if strings.TrimSpace(tc.LocalIP) == "" {
 		tc.LocalIP = detectHostIP()
 	}
 	st, err := s.store()

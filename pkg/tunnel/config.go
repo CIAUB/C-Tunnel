@@ -65,7 +65,9 @@ func NextIndex(existing []catalog.TunnelConfig) int {
 // exclusivePort reports whether the tunnel owns its UDP/TCP port on this server
 // (a second tunnel cannot share it).
 func exclusivePort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
-	return (tc.Reverse || m.Family == catalog.FamilyUDPCrypt || tc.Method == "wireguard" || tc.Method == "l2tpv3") && tc.Port > 0
+	// VXLAN/GENEVE demultiplex by VNI, so several tunnels may share 4789/6081.
+	// FOU, WireGuard, UDP-Crypt, L2TPv3 and reverse carriers bind a unique socket.
+	return tc.Port > 0 && (tc.Reverse || m.Family == catalog.FamilyUDPCrypt || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
 }
 
 // Normalize validates tc, fills defaults and allocates the subnet, ports and keys that
@@ -80,6 +82,8 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if tc.Role != "iran" && tc.Role != "kharej" {
 		return fmt.Errorf("role must be iran or kharej")
 	}
+	tc.LocalIP = strings.TrimSpace(tc.LocalIP)
+	tc.RemoteIP = strings.TrimSpace(tc.RemoteIP)
 	if tc.Index == 0 {
 		tc.Index = NextIndex(others)
 	}
@@ -115,10 +119,12 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if tc.Role == "kharej" {
 		defA, defB = defB, defA
 	}
-	if strings.TrimSpace(tc.TunLocal4) == "" {
+	tc.TunLocal4 = strings.TrimSpace(tc.TunLocal4)
+	tc.TunRemote4 = strings.TrimSpace(tc.TunRemote4)
+	if tc.TunLocal4 == "" {
 		tc.TunLocal4 = defA
 	}
-	if strings.TrimSpace(tc.TunRemote4) == "" {
+	if tc.TunRemote4 == "" {
 		tc.TunRemote4 = defB
 	}
 	if err := checkIP("tunnel local IPv4", tc.TunLocal4, false); err != nil {
@@ -128,6 +134,8 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		return err
 	}
 	if usesCarrier6(tc.Method) {
+		tc.CarrierLocal6 = strings.TrimSpace(tc.CarrierLocal6)
+		tc.CarrierRemote6 = strings.TrimSpace(tc.CarrierRemote6)
 		if tc.CarrierLocal6 == "" {
 			a, b := fmt.Sprintf("fd77:%x::1", tc.Index), fmt.Sprintf("fd77:%x::2", tc.Index)
 			if tc.Role == "kharej" {
@@ -234,11 +242,17 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if len(tc.Ports) > 0 && IPv6Only(tc.Method) {
 		return fmt.Errorf("%s carries only IPv6, so ports cannot be forwarded over it; use 6to4 instead", tc.Method)
 	}
+	seenForward := map[string]bool{}
 	for i, p := range tc.Ports {
 		norm, err := normalizeForward(p)
 		if err != nil {
 			return err
 		}
+		listen := strings.SplitN(norm, "=", 2)[0]
+		if seenForward[listen] {
+			return fmt.Errorf("port %s is forwarded twice", listen)
+		}
+		seenForward[listen] = true
 		tc.Ports[i] = norm
 	}
 

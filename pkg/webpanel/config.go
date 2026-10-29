@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"ctunnel/pkg/atomicfile"
 )
 
 // PanelConfig contains no certificate contents or private key material.
@@ -58,7 +60,7 @@ func atomicJSON(path string, value any) error {
 	if err = f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), path)
+	return atomicfile.Replace(f.Name(), path)
 }
 
 // LoadConfig initializes a persistent, unpredictable path once. Existing invalid

@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 const html = await readFile(new URL('../pkg/webpanel/index.html', import.meta.url), 'utf8');
-const hash = tag => "'sha256-" + createHash('sha256').update(html.split(`<${tag}>`)[1].split(`</${tag}>`)[0]).digest('base64') + "'";
+const hash = tag => "'sha256-" + createHash('sha256').update(html.split(`<${tag}>`)[1].split(`</${tag}>`)[0].replace(/\r\n?/g, '\n')).digest('base64') + "'";
 const fixtureCode = 'local-browser-fixture';
 let state;
 function reset() { state = { path: '/panel-browser-test', tunnels: [], createCalls: 0, deployCalls: 0, restartCalls: 0, failStart: false, lastCreate: null }; }

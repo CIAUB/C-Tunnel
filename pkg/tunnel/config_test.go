@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +40,56 @@ func TestOneIranManyKharejGetDistinctSubnetsAndPorts(t *testing.T) {
 	}
 	if all[2].Port != 0 || all[2].GREKey != 0 {
 		t.Fatalf("plain GRE must be keyless and without FOU for MikroTik compatibility: %+v", all[2])
+	}
+}
+
+func TestFOUPortCollisionRejected(t *testing.T) {
+	first := iranTunnel("gre", "203.0.113.1")
+	first.Port = 5555
+	if err := Normalize(&first, nil); err != nil {
+		t.Fatal(err)
+	}
+	second := iranTunnel("gre", "203.0.113.2")
+	second.Index, second.Port = 2, 5555
+	if err := Normalize(&second, []catalog.TunnelConfig{first}); err == nil {
+		t.Fatal("two GRE FOU tunnels on the same UDP port were accepted")
+	}
+}
+
+func TestVXLANCanShareDefaultPort(t *testing.T) {
+	first := iranTunnel("vxlan", "203.0.113.1")
+	if err := Normalize(&first, nil); err != nil {
+		t.Fatal(err)
+	}
+	second := iranTunnel("vxlan", "203.0.113.2")
+	second.Index = 2
+	if err := Normalize(&second, []catalog.TunnelConfig{first}); err != nil {
+		t.Fatalf("VXLAN tunnels must share 4789 by VNI: %v", err)
+	}
+	if first.Port != 4789 || second.Port != 4789 {
+		t.Fatalf("unexpected VXLAN ports: %d %d", first.Port, second.Port)
+	}
+}
+
+func TestDuplicateForwardPortRejected(t *testing.T) {
+	tc := iranTunnel("gre", "203.0.113.1")
+	tc.Ports = []string{"443", "443=8443"}
+	if err := Normalize(&tc, nil); err == nil {
+		t.Fatal("duplicate listen port accepted")
+	}
+}
+
+func TestNormalizeTrimsAddresses(t *testing.T) {
+	tc := iranTunnel("gre", " 203.0.113.1 ")
+	tc.LocalIP = " 198.51.100.1 "
+	tc.TunLocal4, tc.TunRemote4 = " 10.77.9.1 ", " 10.77.9.2 "
+	if err := Normalize(&tc, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{tc.LocalIP, tc.RemoteIP, tc.TunLocal4, tc.TunRemote4} {
+		if strings.TrimSpace(v) != v {
+			t.Fatalf("address kept whitespace: %q", v)
+		}
 	}
 }
 
@@ -247,8 +298,10 @@ func TestConcurrentWriteEnvHasUniqueTemporaryFiles(t *testing.T) {
 	if err != nil || len(files) != 1 || files[0].Name() != "t1.env" {
 		t.Fatalf("temporary file leak: %v %v", files, err)
 	}
-	info, err := os.Stat(EnvPath(dir, "t1"))
-	if err != nil || info.Mode().Perm() != 0600 {
-		t.Fatalf("env permissions: %v %v", info, err)
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(EnvPath(dir, "t1"))
+		if err != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("env permissions: %v %v", info, err)
+		}
 	}
 }

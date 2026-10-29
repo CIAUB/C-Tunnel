@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"ctunnel/pkg/atomicfile"
 )
 
 type Family string
@@ -269,11 +271,24 @@ func (s *Store) Save() error {
 	if err != nil {
 		return err
 	}
-	tmp := filepath.Join(s.Dir, ".state.json.tmp")
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	f, err := os.CreateTemp(s.Dir, ".state-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(s.Dir, "state.json"))
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	if _, err = f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return atomicfile.Replace(tmp, filepath.Join(s.Dir, "state.json"))
 }
 
 func (s *Store) Find(name string) (TunnelConfig, bool) {

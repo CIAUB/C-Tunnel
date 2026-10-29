@@ -79,7 +79,7 @@ func Create(st *catalog.Store, tc *catalog.TunnelConfig) error {
 // tunnel with the same name is replaced only if it points at the same server.
 func Import(st *catalog.Store, tc *catalog.TunnelConfig) error {
 	tc.Name = SanitizeName(tc.Name)
-	if tc.LocalIP == "" || tc.LocalIP == "0.0.0.0" || tc.LocalIP == "::" {
+	if strings.TrimSpace(tc.LocalIP) == "" || tc.LocalIP == "0.0.0.0" || tc.LocalIP == "::" {
 		if ip := detectLocalIP(tc.Method); ip != "" {
 			tc.LocalIP = ip
 		}

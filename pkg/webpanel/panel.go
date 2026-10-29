@@ -203,7 +203,12 @@ func inlineHash(tag string) string {
 	if start < 0 || end < start {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(text[start+len(open) : end]))
+	// The HTML parser normalizes CRLF and CR to LF before the browser hashes
+	// inline content. Hash the same bytes so a CRLF checkout is not blocked.
+	content := text[start+len(open) : end]
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	sum := sha256.Sum256([]byte(content))
 	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 }
 
@@ -328,6 +333,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.authGeneration.Add(1)
 	http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, s.config().BasePath), Path: s.config().BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -384,7 +390,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid tunnel payload"})
 		return
 	}
-	if tc.LocalIP == "" {
+	if strings.TrimSpace(tc.LocalIP) == "" {
 		tc.LocalIP = detectHostIP()
 	}
 	if tc.Role == "kharej" && strings.TrimSpace(tc.Token) == "" {
@@ -517,12 +523,36 @@ func writeError(w http.ResponseWriter, status int, err error) {
 }
 
 func detectHostIP() string {
-	conn, err := net.DialTimeout("udp4", "8.8.8.8:80", 600*time.Millisecond)
+	if conn, err := net.DialTimeout("udp4", "8.8.8.8:80", 600*time.Millisecond); err == nil {
+		defer conn.Close()
+		if a, ok := conn.LocalAddr().(*net.UDPAddr); ok && a.IP.To4() != nil {
+			return a.IP.String()
+		}
+	}
+	// No default IPv4 route: use the first routable interface address instead of
+	// failing every create with an empty local_ip.
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
-	defer conn.Close()
-	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+	for _, ifc := range ifaces {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				ip4 := ipnet.IP.To4()
+				if ip4 != nil && !ip4.IsLoopback() && !ip4.IsLinkLocalUnicast() {
+					return ip4.String()
+				}
+			}
+		}
+	}
+	return ""
 }
 
 type failure struct {

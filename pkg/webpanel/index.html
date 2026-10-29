@@ -153,7 +153,7 @@
   <form id="import-form" novalidate>
     <h3>Add from link</h3>
     <div id="import-error" class="form-error" role="alert" tabindex="-1" hidden></div>
-    <div><label for="i-link">Link printed on the other server</label><textarea id="i-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
+    <div><label for="i-import-link">Link printed on the other server</label><textarea id="i-import-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
     <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="9"></div>
     <div class="foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
   </form>
@@ -303,8 +303,10 @@ function stateClass(s) {
 
 function kv(parent, key, value) {
   const d = el("div");
-  d.append(el("div", "k", key), el("div", "num", value));
+  const v = el("div", "num", value);
+  d.append(el("div", "k", key), v);
   parent.appendChild(d);
+  return v;
 }
 
 function button(label, cls, onClick) {
@@ -324,41 +326,80 @@ function icon(id) {
   return svg;
 }
 
+const cards = new Map();
+
+function tunnelCard(t) {
+  const card = el("article", "card tun");
+  const top = el("div", "tun-top");
+  const ic = el("div", "icon-sq");
+  ic.appendChild(icon("i-link"));
+  const title = el("div");
+  const name = el("div", "name", t.name);
+  const meth = el("div", "meth");
+  title.append(name, meth);
+  const state = el("span", "state");
+  top.append(ic, title, state);
+  const info = el("div", "kv");
+  const c = {
+    card, name, meth, state, t,
+    peer: kv(info, "Peer"),
+    tunnelIP: kv(info, "Tunnel IP"),
+    forwards: kv(info, "Forwards"),
+    io: kv(info, "RX / TX")
+  };
+  const row = el("div", "row");
+  row.append(
+    button("Setup link", "", () => showLink(c.t.name, c.t.setup_link, c.t.mikrotik, c.t.token)),
+    button("Restart", "", e => run(e.target, () => api("/api/tunnels/" + encodeURIComponent(c.t.name) + "/restart", { method: "POST" }), "Restarted " + c.t.name)),
+    button("Delete", "danger", e => {
+      if (confirm("Delete tunnel " + c.t.name + "? Its interface and port forwards are removed.")) {
+        run(e.target, () => api("/api/tunnels/" + encodeURIComponent(c.t.name), { method: "DELETE" }), "Deleted " + c.t.name);
+      }
+    })
+  );
+  card.append(top, info, row);
+  return c;
+}
+
+function updateTunnel(c, t) {
+  c.t = t;
+  c.name.textContent = t.name;
+  c.meth.textContent = t.method + " · " + t.role + (t.reverse ? " · reverse" : "");
+  c.state.className = "state " + stateClass(t.state);
+  c.state.textContent = t.state;
+  c.state.title = t.state;
+  c.peer.textContent = t.remote_ip + (t.port ? " : " + t.port : "");
+  c.tunnelIP.textContent = t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
+  c.forwards.textContent = (t.ports || []).join(", ") || "—";
+  c.io.textContent = bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes);
+}
+
 function renderTunnels(list) {
   const box = $("tunnels");
-  box.textContent = "";
   $("t-count").textContent = list.length;
+  box.querySelector(".empty")?.remove();
   if (!list.length) {
+    box.textContent = "";
+    cards.clear();
     box.appendChild(el("div", "empty", "No tunnels yet. Create one with New tunnel, or add one from the other server's link."));
     return;
   }
+  const seen = new Set();
   for (const t of list) {
-    const card = el("article", "card tun");
-    const top = el("div", "tun-top");
-    const ic = el("div", "icon-sq");
-    ic.appendChild(icon("i-link"));
-    const title = el("div");
-    title.append(el("div", "name", t.name), el("div", "meth", t.method + " · " + t.role + (t.reverse ? " · reverse" : "")));
-    const st = el("span", "state " + stateClass(t.state), t.state);
-    st.title = t.state;
-    top.append(ic, title, st);
-    const info = el("div", "kv");
-    kv(info, "Peer", t.remote_ip + (t.port ? " : " + t.port : ""));
-    kv(info, "Tunnel IP", t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—");
-    kv(info, "Forwards", (t.ports || []).join(", ") || "—");
-    kv(info, "RX / TX", bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes));
-    const row = el("div", "row");
-    row.append(
-      button("Setup link", "", () => showLink(t.name, t.setup_link, t.mikrotik, t.token)),
-      button("Restart", "", e => run(e.target, () => api("/api/tunnels/" + encodeURIComponent(t.name) + "/restart", { method: "POST" }), "Restarted " + t.name)),
-      button("Delete", "danger", e => {
-        if (confirm("Delete tunnel " + t.name + "? Its interface and port forwards are removed.")) {
-          run(e.target, () => api("/api/tunnels/" + encodeURIComponent(t.name), { method: "DELETE" }), "Deleted " + t.name);
-        }
-      })
-    );
-    card.append(top, info, row);
-    box.appendChild(card);
+    seen.add(t.name);
+    let c = cards.get(t.name);
+    if (!c) {
+      c = tunnelCard(t);
+      cards.set(t.name, c);
+      box.appendChild(c.card);
+    }
+    updateTunnel(c, t);
+  }
+  for (const [name, c] of cards) {
+    if (!seen.has(name)) {
+      c.card.remove();
+      cards.delete(name);
+    }
   }
 }
 
@@ -555,7 +596,7 @@ $("create-form").addEventListener("submit", async e => {
 });
 $("import-form").addEventListener("submit", async e => {
  e.preventDefault();
- await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
+ await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
 });
 
 $("t-role").onchange = () => { $("t-secret").required = $("t-role").value === "kharej"; };

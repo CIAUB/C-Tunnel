@@ -7,9 +7,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
+	"ctunnel/pkg/atomicfile"
 	"ctunnel/pkg/catalog"
 )
+
+// envMu keeps same-process readers from opening a file mid-replace on Windows.
+var envMu sync.RWMutex
 
 func EnvDir(storeDir string) string { return filepath.Join(storeDir, "tunnels") }
 
@@ -66,6 +71,8 @@ func Env(tc catalog.TunnelConfig) string {
 }
 
 func WriteEnv(storeDir string, tc catalog.TunnelConfig) error {
+	envMu.Lock()
+	defer envMu.Unlock()
 	if err := os.MkdirAll(EnvDir(storeDir), 0o700); err != nil {
 		return err
 	}
@@ -87,11 +94,13 @@ func WriteEnv(storeDir string, tc catalog.TunnelConfig) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, EnvPath(storeDir, tc.Name))
+	return atomicfile.Replace(tmp, EnvPath(storeDir, tc.Name))
 }
 
 // ParseEnv reads a file written by Env.
 func ParseEnv(path string) (map[string]string, error) {
+	envMu.RLock()
+	defer envMu.RUnlock()
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
