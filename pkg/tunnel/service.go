@@ -50,15 +50,28 @@ func systemctl(args ...string) error {
 }
 
 // Save normalizes tc against the store, then persists it to state.json and its env file.
+// An existing instance is stopped before its env file is replaced.
 func Save(st *catalog.Store, tc *catalog.TunnelConfig) error {
+	name := SanitizeName(tc.Name)
 	var others []catalog.TunnelConfig
 	for _, t := range st.Tunnels {
-		if t.Name != tc.Name {
+		if t.Name != name {
 			others = append(others, t)
 		}
 	}
 	if err := Normalize(tc, others); err != nil {
 		return err
+	}
+	// Stop the old service before replacing its env file. systemd reads that file
+	// from ExecStop/ExecStopPost, so a rewrite first would tear down the new config
+	// and leave old xfrm, L2TP or FOU state behind.
+	if old, exists := st.Find(tc.Name); exists {
+		if err := Stop(old); err != nil {
+			return fmt.Errorf("stop existing tunnel: %w", err)
+		}
+		if err := kernelDown(old.Name); err != nil {
+			return err
+		}
 	}
 	if err := WriteEnv(st.Dir, *tc); err != nil {
 		return err
@@ -108,18 +121,30 @@ func detectLocalIP(method string) string {
 
 // Apply (re)starts the tunnel and enables it at boot.
 func Apply(tc catalog.TunnelConfig) error {
-	_ = systemctl("disable", "--now", otherUnit(tc))
+	other := otherUnit(tc)
+	if err := systemctl("disable", "--now", other); err != nil && unitActive(other) {
+		return fmt.Errorf("cannot stop old unit %s: %w", other, err)
+	}
 	if err := systemctl("enable", Unit(tc)); err != nil {
 		return err
 	}
 	return systemctl("restart", Unit(tc))
 }
 
+func unitActive(unit string) bool {
+	_, err := Run("systemctl", "is-active", "--quiet", unit)
+	return err == nil
+}
+
 // Remove stops the tunnel, tears down its interfaces and deletes its config.
 // Stop stops a tunnel and keeps it stopped across reboots; Apply starts it again.
 func Stop(tc catalog.TunnelConfig) error {
 	_ = systemctl("disable", "--now", otherUnit(tc))
-	return systemctl("disable", "--now", Unit(tc))
+	_ = systemctl("disable", "--now", Unit(tc))
+	if unitActive(Unit(tc)) || unitActive(otherUnit(tc)) {
+		return errors.New("tunnel service is still active")
+	}
+	return nil
 }
 
 // Logs returns the last n journal lines of the tunnel's service.
@@ -139,13 +164,37 @@ func Remove(st *catalog.Store, name string) error {
 	if !ok {
 		return fmt.Errorf("tunnel %q not found", name)
 	}
-	_ = systemctl("disable", "--now", Unit(tc))
-	_ = systemctl("disable", "--now", otherUnit(tc))
-	if _, err := os.Stat(KernelHelper); err == nil {
-		_, _ = Run(KernelHelper, "down", name)
+	if err := Stop(tc); err != nil {
+		return fmt.Errorf("stop %s: %w", name, err)
+	}
+	// systemctl does not fail when ExecStop fails, so verify the helper directly.
+	// Keep state and env if teardown fails: deleting them would leave untraceable
+	// interfaces, routes and firewall rules behind.
+	if err := kernelDown(name); err != nil {
+		return err
+	}
+	if err := st.Delete(name); err != nil {
+		return err
 	}
 	_ = os.Remove(EnvPath(st.Dir, name))
-	return st.Delete(name)
+	return nil
+}
+
+func kernelDown(name string) error {
+	if _, err := os.Stat(KernelHelper); err != nil {
+		if _, ifErr := net.InterfaceByName(Dev(name)); ifErr == nil {
+			return fmt.Errorf("kernel helper is missing; cannot tear down %s", Dev(name))
+		}
+		return nil
+	}
+	out, err := Run(KernelHelper, "down", name)
+	if err == nil {
+		return nil
+	}
+	if out == "" {
+		out = err.Error()
+	}
+	return fmt.Errorf("tear down %s: %s", name, out)
 }
 
 type Status struct {

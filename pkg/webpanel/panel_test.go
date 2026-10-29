@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,6 +55,9 @@ func setup(t *testing.T) (*client, *catalog.Store, *[]string) {
 	orig := tunnel.Run
 	tunnel.Run = func(name string, args ...string) (string, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
+		if name == "systemctl" && len(args) > 0 && args[0] == "is-active" {
+			return "inactive", errors.New("inactive")
+		}
 		return "active", nil
 	}
 	t.Cleanup(func() { tunnel.Run = orig })

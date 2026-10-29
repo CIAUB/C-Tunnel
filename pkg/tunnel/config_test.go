@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,6 +91,97 @@ func TestNormalizeTrimsAddresses(t *testing.T) {
 		if strings.TrimSpace(v) != v {
 			t.Fatalf("address kept whitespace: %q", v)
 		}
+	}
+}
+
+func TestSaveStopsExistingBeforeEnvRewrite(t *testing.T) {
+	dir := t.TempDir()
+	st, err := catalog.LoadStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := Run
+	var calls []string
+	Run = func(name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if name == "systemctl" && len(args) > 0 && args[0] == "is-active" {
+			return "inactive", errors.New("inactive")
+		}
+		return "active", nil
+	}
+	t.Cleanup(func() { Run = orig })
+
+	tc := iranTunnel("gre", "203.0.113.1")
+	tc.Name = "t1"
+	if err := Create(st, &tc); err != nil {
+		t.Fatal(err)
+	}
+	tc.Method, tc.Port = "ipip", 0
+	if err := Save(st, &tc); err != nil {
+		t.Fatal(err)
+	}
+	want := "systemctl disable --now ctunnel@t1.service"
+	found := false
+	for _, call := range calls {
+		if call == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("old service was not stopped before env rewrite: %v", calls)
+	}
+	env, err := ParseEnv(EnvPath(dir, "t1"))
+	if err != nil || env["KIND"] != "ipip" {
+		t.Fatalf("env was not rewritten: %v %v", env, err)
+	}
+}
+
+func TestRemoveRefusesActiveService(t *testing.T) {
+	dir := t.TempDir()
+	st, err := catalog.LoadStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := iranTunnel("gre", "203.0.113.1")
+	tc.Name = "t1"
+	if err := Create(st, &tc); err != nil {
+		t.Fatal(err)
+	}
+	orig := Run
+	Run = func(name string, args ...string) (string, error) {
+		if name == "systemctl" && len(args) > 0 && args[0] == "is-active" {
+			return "", nil
+		}
+		return "active", nil
+	}
+	t.Cleanup(func() { Run = orig })
+
+	if err := Remove(st, "t1"); err == nil {
+		t.Fatal("remove deleted a tunnel whose service was still active")
+	}
+	st2, err := catalog.LoadStore(dir)
+	if err != nil || len(st2.Tunnels) != 1 {
+		t.Fatalf("state was deleted after a failed teardown: %v %v", st2, err)
+	}
+}
+
+func TestApplyRefusesActiveOldUnit(t *testing.T) {
+	orig := Run
+	Run = func(name string, args ...string) (string, error) {
+		if name == "systemctl" && len(args) > 0 {
+			switch args[0] {
+			case "disable":
+				return "busy", errors.New("busy")
+			case "is-active":
+				return "", nil
+			}
+		}
+		return "active", nil
+	}
+	t.Cleanup(func() { Run = orig })
+	tc := catalog.TunnelConfig{Name: "t1", Method: "gre", Reverse: true}
+	if err := Apply(tc); err == nil {
+		t.Fatal("Apply started the new unit while the old one was still active")
 	}
 }
 

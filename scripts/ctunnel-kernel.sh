@@ -54,11 +54,18 @@ fou_args() {
     fi
 }
 
+uses_fou() {
+    case "${KIND}" in
+        6to4|6to4-gre|sit|ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|gue-ipip) return 0 ;;
+    esac
+    return 1
+}
+
 fw_comment() { echo "ctunnel:${NAME}"; }
 
 # Remove every iptables rule tagged with this tunnel's comment.
 fw_clear() {
-    local table rule tag
+    local table rule tag failed=0
     tag="$(fw_comment)"
     type -P iptables >/dev/null 2>&1 || return 0
     for table in raw filter nat mangle; do
@@ -66,13 +73,18 @@ fw_clear() {
             [[ -n "${rule}" ]] || continue
             rule="${rule//\"/}" # newer iptables quotes comments; ours contain no spaces
             # shellcheck disable=SC2086
-            iptables -t "${table}" ${rule/#-A /-D } 2>/dev/null || true
+            iptables -t "${table}" ${rule/#-A /-D } 2>/dev/null || failed=1
         done < <(iptables -t "${table}" -S 2>/dev/null | grep -E -- "--comment \"?${tag}\"?( |$)" || true)
     done
+    [[ "${failed}" -eq 0 ]] || die "failed to remove firewall rules for ${NAME}"
 }
 
 fw_apply() {
-    type -P iptables >/dev/null 2>&1 || { log "iptables not found: skipping MSS clamp and port forwards"; return 0; }
+    type -P iptables >/dev/null 2>&1 || {
+        [[ -z "${FORWARDS}" ]] || die "iptables is required to apply port forwards"
+        log "iptables not found: skipping MSS clamp"
+        return 0
+    }
     local tag d entry src dst p
     tag="$(fw_comment)"
     if [[ "${LOCAL_IP}" != *:* && "${REMOTE_IP}" != *:* && "${REMOTE_IP}" != "0.0.0.0" ]]; then
@@ -157,6 +169,9 @@ links_down() {
     ip link del "${DEV}-r" 2>/dev/null || true
     for ((i = 1; i < 8; i++)); do ip link del "${DEV}.${i}" 2>/dev/null || true; done
     ip link del "${DEV}-6" 2>/dev/null || true
+    if [[ "${PORT:-0}" -gt 0 ]] && uses_fou; then
+        ip fou del port "${PORT}" 2>/dev/null || true
+    fi
     ip route del "${TUN_REMOTE4:-0.0.0.0}/32" proto 77 2>/dev/null || true
     if [[ "${KIND}" == "l2tpv3" ]]; then
         ip l2tp del session tunnel_id "${TUNNEL_ID}" session_id "${TUNNEL_ID}" 2>/dev/null || true

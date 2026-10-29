@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.5] - 2026-10-30
+
+### Fixed
+- Stop an existing tunnel before replacing its env file, so old xfrm, L2TP, FOU and route state is torn down with the old config.
+- Keep tunnel state and env when teardown fails; deletion no longer loses the only record of leftover interfaces and iptables rules.
+- Fail `ctunnel-kernel down` when an iptables rule cannot be removed, and delete FOU/GUE receive ports during teardown.
+- Fail tunnel startup when port forwards are configured but iptables is unavailable.
+- Verify old systemd units are inactive before starting, restarting or deleting a tunnel.
+
+[0.2.5]: https://github.com/CIAUB/C-Tunnel/compare/v0.2.4...v0.2.5
+
 ## [0.2.4] - 2026-10-30
 
 ### Fixed
