@@ -270,6 +270,20 @@ func TestUpdateTunnel(t *testing.T) {
 	}
 }
 
+func TestVersionEndpoint(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	original := fetchLatestRelease
+	defer func() { fetchLatestRelease = original }()
+	fetchLatestRelease = func() (releaseResponse, error) {
+		return releaseResponse{TagName: "v0.2.8", HTMLURL: "https://github.com/CIAUB/C-Tunnel/releases/tag/v0.2.8"}, nil
+	}
+	res, out := c.do("GET", "/api/version", nil)
+	if res.StatusCode != http.StatusOK || out["update_available"] != true || out["latest"] != "v0.2.8" {
+		t.Fatalf("version endpoint: %d %v", res.StatusCode, out)
+	}
+}
+
 func TestLinkTestJobStoresDirectAndReverse(t *testing.T) {
 	c, st, _ := setup(t)
 	c.login(st.PanelCode)

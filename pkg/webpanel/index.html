@@ -6,9 +6,14 @@
 <meta name="color-scheme" content="dark">
 <title>C-Tunnel</title>
 <style>
-:root{color-scheme:dark;--bg:#0a0a0b;--s1:#111113;--s2:#19191c;--s3:#232326;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.16);--tx:#f1f1f3;--tx2:#c9c9ce;--mu:#a2a2aa;--dim:#92929a;--ac:#e4e4e7;--ac-soft:rgba(255,255,255,.05);--ac-line:rgba(255,255,255,.18);--ok:#7bc49d;--wr:#e2ba74;--er:#f19191;--field:#0d0d0f;--r-lg:12px;--r:8px;--r-sm:6px;--sans:Inter,Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:"Geist Mono","SFMono-Regular",Consolas,monospace}
+:root{color-scheme:dark;--bg:#090a0f;--s1:#0d0f17;--s2:#121620;--s3:#1a1f2b;--ln:rgba(255,255,255,.07);--ln2:rgba(255,255,255,.14);--tx:#f4f5f8;--tx2:#c7cad4;--mu:#9499a7;--dim:#6f7482;--ac:#e6e8ef;--ac-soft:rgba(255,255,255,.055);--ac-line:rgba(255,255,255,.16);--ok:#7bc49d;--wr:#e2ba74;--er:#f19191;--field:#080a10;--r-lg:12px;--r:8px;--r-sm:6px;--ease:cubic-bezier(.22,1,.36,1);--sans:Inter,Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:"Geist Mono","SFMono-Regular",Consolas,monospace}
 *{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit;color:inherit}button,a,input,select,textarea{touch-action:manipulation}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}code,.mono,.num,.kv div div:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums}code{font-size:.92em}.card{background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg)}.k{color:var(--mu);font-size:12px;font-weight:500}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 14px;border-radius:var(--r-sm);border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:550;cursor:pointer;transition:background-color 150ms,border-color 150ms}.btn:hover{background:var(--s3);border-color:#55555d}.btn:active{background:#303034}.btn:disabled{opacity:.45;cursor:not-allowed}.btn[aria-busy=true]{cursor:progress}.btn svg{width:17px;height:17px;flex-shrink:0}.btn.primary{background:#e7e7eb;color:#111113;border-color:#e7e7eb}.btn.primary:hover{background:#fff}.btn.ghost{background:transparent}.btn.danger{color:var(--er)}.btn.sm{min-height:40px;padding:0 11px;font-size:12px}.btn.square{width:44px;padding:0;flex-shrink:0}.btn.square svg{width:19px;height:19px}a.btn{text-decoration:none;color:inherit}:focus-visible{outline:2px solid #d4d4db;outline-offset:3px}label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--tx2)}input,select,textarea{width:100%;min-height:44px;padding:10px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:var(--r-sm)}input:focus,select:focus,textarea:focus{outline:2px solid #878790;outline-offset:1px}input[aria-invalid=true]{border-color:var(--er)}input[type=checkbox]{width:18px;min-height:18px}textarea{resize:vertical}.hint{font-size:12px;color:var(--mu);margin-top:6px;line-height:1.6}.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.stack{display:grid;gap:16px}.gate{min-height:100dvh;display:grid;place-items:center;padding:24px}.gate form{width:100%;max-width:400px;padding:32px;display:grid;gap:24px}.gate p{color:var(--mu)}.shell{max-width:1440px;margin:auto;padding:24px 28px 64px;display:grid;gap:24px;isolation:isolate;overflow:visible}.brand{display:flex;align-items:center;gap:12px;min-width:0}.logo{flex:none;width:40px;height:40px;border:1px solid var(--ln2);border-radius:9px;display:grid;place-items:center;background:var(--s2);color:var(--tx)}.logo svg{width:23px;height:23px}.brand b{display:block;font-size:17px;letter-spacing:-.04em;font-weight:650}.brand span{display:block;font-size:12px;color:var(--mu)}header.card{position:relative;z-index:40;overflow:visible;display:flex;align-items:center;gap:24px;padding:20px}.facts{display:flex;flex-wrap:wrap;gap:12px 24px;flex:1;min-width:0}.fact{min-width:0}.fact div:last-child{font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hdr-acts{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;overflow:visible}.menu-wrap{position:relative;z-index:50;overflow:visible}.menu{position:absolute;z-index:60;right:0;top:calc(100% + 8px);width:min(260px,calc(100vw - 48px));padding:6px;background:#19191c;border:1px solid var(--ln2);border-radius:var(--r);box-shadow:0 12px 40px #0008;display:grid;gap:2px}.menu button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;background:none;border:0;border-radius:5px;text-align:left;cursor:pointer;font-size:13px}.menu button:hover,.menu button:focus-visible{background:var(--s3)}.menu svg,.tg-link svg{width:17px;height:17px}.tg-link{display:inline-flex;align-items:center;gap:8px;color:var(--mu);font-size:12px;text-decoration:none}.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.gauge{padding:20px;display:grid;gap:14px}.gauge .k{display:flex;align-items:center;gap:8px}.gauge .k svg{width:16px;height:16px}.gauge .reading{display:flex;align-items:baseline;gap:4px}.gauge .reading b{font-size:30px;line-height:1;font-weight:550;letter-spacing:-.05em}.gauge .reading small{font-size:13px;color:var(--mu)}.gauge progress{width:100%;height:4px;border:0;appearance:none;background:var(--s3);border-radius:2px;overflow:hidden}.gauge progress::-webkit-progress-bar{background:var(--s3)}.gauge progress::-webkit-progress-value{background:#a1a1aa}.gauge progress::-moz-progress-bar{background:#a1a1aa}.gauge .sub{color:var(--mu);font-size:12px}.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat{display:flex;align-items:center;gap:12px;padding:16px;min-width:0}.stat>div:last-child{min-width:0}.stat .v{font-size:15px;font-weight:500;overflow-wrap:anywhere}.icon-sq{width:32px;height:32px;flex:none;display:grid;place-items:center;color:var(--mu);border:1px solid var(--ln);border-radius:6px;background:var(--s2)}.icon-sq svg{width:16px;height:16px}.section-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:12px}.section-head h2{font-size:16px;letter-spacing:-.02em;font-weight:600}.pill{border:1px solid var(--ln2);border-radius:5px;padding:2px 7px;font-size:12px;color:var(--mu)}.section-head .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:16px}.empty{grid-column:1/-1;padding:64px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r)}.tun{padding:20px;display:grid;gap:16px}.tun-top{display:flex;align-items:center;gap:12px}.tun-top>div:nth-child(2){flex:1;min-width:0}.name{font-size:15px;font-weight:600}.meth{font-size:12px;color:var(--mu);overflow-wrap:anywhere}.state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:3px 7px;flex-shrink:0;border:1px solid var(--ln);border-radius:5px;font-size:12px;color:var(--mu)}.state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.state.up{color:var(--ok)}.state.warn{color:var(--wr)}.state.bad{color:var(--er)}.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;border-top:1px solid var(--ln);border-bottom:1px solid var(--ln);padding:16px 0}.kv div div:last-child{font-size:12px;overflow-wrap:anywhere}.tun .row{display:flex;flex-wrap:wrap;gap:8px}.tun .row .danger{margin-left:auto}dialog{margin:auto;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;background:var(--s1);color:var(--tx);border:1px solid var(--ln2);border-radius:12px;padding:0;box-shadow:0 24px 80px #0009}dialog.wide{width:min(760px,calc(100vw - 32px))}dialog::backdrop{background:#000b}dialog form,dialog>div{padding:24px;display:grid;gap:20px}dialog h3{font-size:18px;font-weight:600;letter-spacing:-.025em}dialog form{padding-bottom:0}dialog .foot{position:sticky;bottom:0;z-index:2;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 -24px;padding:16px 24px 24px;background:var(--s1);border-top:1px solid var(--ln)}dialog>div .foot{margin-bottom:-24px}details summary{cursor:pointer;color:var(--mu);font-size:13px;min-height:36px}details[open] summary{margin-bottom:16px}pre.out{background:var(--field);border:1px solid var(--ln);padding:16px;border-radius:6px;color:var(--tx2);font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}.toast{position:fixed;z-index:100;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:14px 18px;border:1px solid #805252;border-radius:8px;background:#202023;color:var(--tx);box-shadow:0 8px 30px #0008;font-size:13px}.toast.ok{border-color:#3e6751}.form-error{padding:12px 14px;border:1px solid #805252;border-radius:6px;color:#f3b5b5;font-size:13px;white-space:pre-wrap}.form-error a{color:inherit}.field-error{display:block;min-height:18px;color:var(--er);font-size:12px;margin-top:4px}.test-choice{padding:16px;background:var(--s2);border:1px solid var(--ln2);border-radius:8px;display:grid;gap:10px}.test-choice h4{font-size:14px}.test-choice p{font-size:12px;color:var(--mu)}.test-shell{display:grid;gap:20px}.test-shell form{padding:0;gap:16px}.test-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.test-head h3{font-size:18px}.test-head .hint{max-width:54ch}.seg{display:inline-flex;padding:3px;border:1px solid var(--ln2);border-radius:7px;background:var(--field);flex-shrink:0}.seg-btn{min-height:36px;padding:0 12px;border:0;border-radius:5px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}.seg-btn[aria-selected=true]{background:var(--s3);color:var(--tx)}.test-actions{display:flex;gap:8px;flex-wrap:wrap}.test-status{display:grid;gap:14px;padding:16px;border:1px solid var(--ln);border-radius:8px;background:var(--s2)}.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.status-grid .k{margin-bottom:4px}.status-grid .v{font:12px/1.5 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.copy-row{display:flex;gap:8px;align-items:stretch}.copy-row input{flex:1;min-width:0}.table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:8px;background:var(--field);max-height:46vh}.table-wrap table{width:100%;border-collapse:collapse;font-size:12px;min-width:720px}.table-wrap th,.table-wrap td{padding:9px 10px;border-bottom:1px solid var(--ln);text-align:left;white-space:nowrap}.table-wrap th{position:sticky;top:0;z-index:1;background:var(--s2);color:var(--mu);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}.table-wrap tr:last-child td{border-bottom:0}.table-wrap td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}.badge{display:inline-flex;align-items:center;padding:2px 6px;border:1px solid var(--ln2);border-radius:4px;font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums}.badge.ok{color:var(--ok);border-color:#3e6751}.badge.warn{color:var(--wr);border-color:#6e5934}.badge.bad{color:var(--er);border-color:#805252}.badge.idle{color:var(--mu)}.muted{color:var(--mu)}
+body{background:radial-gradient(1100px 520px at 78% -12%,rgba(255,255,255,.035),transparent 68%),var(--bg)}
+.card{background:linear-gradient(180deg,rgba(18,22,32,.78),rgba(13,15,23,.72));border:1px solid var(--ln);box-shadow:inset 0 1px 0 rgba(255,255,255,.045);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%)}
+.workspace-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.workspace-nav .nav-seg .seg-btn{min-height:38px}.workspace-nav .btn{min-height:38px}.workspace-nav #sync-status{margin-left:auto;white-space:nowrap}.view{display:grid;gap:24px}.telemetry-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.telemetry-stat{padding:14px 16px;min-width:0}.telemetry-stat .v{font-size:17px;font-weight:560;letter-spacing:-.03em;margin:6px 0 2px;overflow-wrap:anywhere}.telemetry-stat .sub{font-size:11px;color:var(--dim)}.master-card{padding:20px;display:grid;gap:14px}.chart-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.chart-head h2{font-size:15px;font-weight:600}.chart{width:100%;height:140px;display:block;overflow:visible}.chart-line{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke}.chart-line.rx{stroke:var(--ok)}.chart-line.tx{stroke:var(--wr)}#master-rx-area,#master-tx-area,.spark .area{stroke:none}.chart,.spark{stroke:none}.legend{display:flex;gap:12px;font:11px var(--mono);color:var(--mu)}.legend-rx::before,.legend-tx::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}.legend-rx::before{background:var(--ok)}.legend-tx::before{background:var(--wr)}.tunnel-filters{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.filter-pills{display:flex;gap:6px;flex-wrap:wrap}.chip{min-height:36px;padding:0 11px;border:1px solid var(--ln2);background:transparent;color:var(--mu);border-radius:6px;font-size:12px;cursor:pointer;transition:background-color 180ms var(--ease),color 180ms var(--ease),border-color 180ms var(--ease)}.chip:hover{color:var(--tx);border-color:#414755}.chip.active{color:var(--tx);background:var(--s3);border-color:var(--ln2)}#t-search{max-width:280px;min-height:38px;margin-left:auto}.spark{width:100%;height:44px;display:block;margin-top:2px}.spark .chart-line{stroke-width:1.4}.update-pill{min-height:34px;padding:0 10px;border:1px solid rgba(226,186,116,.32);background:rgba(226,186,116,.06);color:var(--wr);border-radius:6px;font-size:12px;cursor:pointer;transition:background-color 180ms var(--ease)}.update-pill:hover{background:rgba(226,186,116,.11)}.update-pill b{font-weight:600}
 #sync-status{font-size:12px;color:var(--mu)}#boot{padding:40px;color:var(--mu)}
+@media(max-width:1180px){.telemetry-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.telemetry-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.tunnel-filters{align-items:stretch}#t-search{max-width:none;margin-left:0;flex-basis:100%}.workspace-nav #sync-status{flex-basis:100%;order:5}.chart{height:110px}}
 @media(max-width:1180px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.facts{gap:8px 16px}}@media(max-width:900px){header.card{flex-wrap:wrap;gap:16px}.facts{order:3;flex-basis:100%}.gauges{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.shell{padding:16px 16px 40px;gap:16px}header.card{padding:16px}.btn.tg{width:44px;padding:0}.btn.tg span{display:none}.grid2{grid-template-columns:minmax(0,1fr)}.gauges{gap:12px}.gauge{padding:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stat{padding:12px;gap:8px}.section-head .acts{margin-left:0;width:100%}.section-head .acts .btn{flex:1}dialog form,dialog>div{padding:20px}dialog form{padding-bottom:0}dialog .foot{margin:0 -20px;padding:16px 20px 20px}.tun{padding:16px}.fact div:last-child{max-width:140px}.brand b{font-size:16px}}
 @media(max-width:700px){.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.test-head{display:grid}.seg{width:100%}.seg-btn{flex:1}.test-shell{padding:20px}.test-shell form{padding:0}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
@@ -62,6 +67,7 @@
       <div class="fact"><div class="k">Version</div><div id="h-ver" class="num">—</div></div>
     </div>
     <div class="hdr-acts">
+    <button id="update-pill" class="update-pill" type="button" hidden>Update available: <b id="update-version"></b></button>
     <a class="btn tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg><span>Telegram</span></a>
     <div class="menu-wrap">
       <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
@@ -76,30 +82,73 @@
     </div>
   </header>
 
-  <section class="gauges" aria-label="Resource usage">
-    <article class="card gauge" data-g="cpu"><div class="k"><svg aria-hidden="true"><use href="#i-cpu"/></svg>CPU</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="CPU usage"></progress><div class="sub num"></div></article>
-    <article class="card gauge" data-g="mem"><div class="k"><svg aria-hidden="true"><use href="#i-mem"/></svg>Memory</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Memory usage"></progress><div class="sub num"></div></article>
-    <article class="card gauge" data-g="disk"><div class="k"><svg aria-hidden="true"><use href="#i-disk"/></svg>Storage</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Storage usage"></progress><div class="sub num"></div></article>
-    <article class="card gauge" data-g="swap"><div class="k"><svg aria-hidden="true"><use href="#i-swap"/></svg>Swap</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Swap usage"></progress><div class="sub num"></div></article>
-  </section>
-
-  <section class="stats">
-    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-down"/></svg></div><div><div class="k">Download</div><div id="s-rx" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-up"/></svg></div><div><div class="k">Upload</div><div id="s-tx" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-in"/></svg></div><div><div class="k">Total in</div><div id="s-rxt" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-out"/></svg></div><div><div class="k">Total out</div><div id="s-txt" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-load"/></svg></div><div><div class="k">Load</div><div id="s-load" class="v num">—</div></div></div>
-    <div class="card stat"><div class="icon-sq"><svg aria-hidden="true"><use href="#i-link"/></svg></div><div><div class="k">Tunnels</div><div id="s-tun" class="v num">—</div></div></div>
-  </section>
-
-  <div class="section-head">
-    <h2>Tunnels</h2><span id="t-count" class="pill">0</span><span id="sync-status" role="status">Connecting…</span>
-    <div class="acts">
-      <button id="btn-import" class="btn" type="button"><svg aria-hidden="true"><use href="#i-link"/></svg>Add from link</button>
-      <button id="btn-new" class="btn primary" type="button"><svg aria-hidden="true"><use href="#i-plus"/></svg>New tunnel</button>
+  <nav class="workspace-nav" aria-label="Workspace">
+    <div class="seg nav-seg" role="tablist" aria-label="Workspace views">
+      <button id="nav-overview" class="seg-btn" type="button" role="tab" aria-selected="true" aria-controls="view-overview">Overview</button>
+      <button id="nav-tunnels" class="seg-btn" type="button" role="tab" aria-selected="false" aria-controls="view-tunnels">Tunnels</button>
     </div>
+    <button id="nav-test" class="btn ghost" type="button"><svg aria-hidden="true"><use href="#i-gauge"/></svg>Connection Test</button>
+    <button id="nav-settings" class="btn ghost" type="button"><svg aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
+    <span id="sync-status" role="status">Connecting…</span>
+  </nav>
+
+  <div id="view-overview" class="view" role="tabpanel" aria-labelledby="nav-overview">
+    <section class="telemetry-strip" aria-label="Network telemetry">
+      <article class="card telemetry-stat"><div class="k">Active tunnels</div><div id="m-active" class="v num">0 / 0</div><div class="sub">up / total</div></article>
+      <article class="card telemetry-stat"><div class="k">Download</div><div id="agg-rx" class="v num">0 Mbps</div><div class="sub">aggregate RX/s</div></article>
+      <article class="card telemetry-stat"><div class="k">Upload</div><div id="agg-tx" class="v num">0 Mbps</div><div class="sub">aggregate TX/s</div></article>
+      <article class="card telemetry-stat"><div class="k">Total data</div><div id="agg-total" class="v num">0 B</div><div class="sub">RX + TX</div></article>
+      <article class="card telemetry-stat"><div class="k">Host IP</div><div id="agg-host" class="v num">—</div><div class="sub">public / local</div></article>
+      <article class="card telemetry-stat"><div class="k">Load</div><div id="s-load" class="v num">—</div><div class="sub">1m / 5m / 15m</div></article>
+    </section>
+
+    <section class="gauges" aria-label="Resource usage">
+      <article class="card gauge" data-g="cpu"><div class="k"><svg aria-hidden="true"><use href="#i-cpu"/></svg>CPU</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="CPU usage"></progress><div class="sub num"></div></article>
+      <article class="card gauge" data-g="mem"><div class="k"><svg aria-hidden="true"><use href="#i-mem"/></svg>Memory</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Memory usage"></progress><div class="sub num"></div></article>
+      <article class="card gauge" data-g="disk"><div class="k"><svg aria-hidden="true"><use href="#i-disk"/></svg>Storage</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Storage usage"></progress><div class="sub num"></div></article>
+      <article class="card gauge" data-g="swap"><div class="k"><svg aria-hidden="true"><use href="#i-swap"/></svg>Swap</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Swap usage"></progress><div class="sub num"></div></article>
+    </section>
+
+    <article class="card master-card">
+      <div class="chart-head">
+        <div><h2>Aggregate bandwidth</h2><p class="hint">Rolling 60 samples · real tunnel counters only</p></div>
+        <div class="legend"><span class="legend-rx">RX</span><span class="legend-tx">TX</span></div>
+      </div>
+      <svg id="master-chart" class="chart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Aggregate receive and transmit bandwidth">
+        <defs>
+          <linearGradient id="master-rx-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7bc49d" stop-opacity=".28"/><stop offset="1" stop-color="#7bc49d" stop-opacity="0"/></linearGradient>
+          <linearGradient id="master-tx-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2ba74" stop-opacity=".22"/><stop offset="1" stop-color="#e2ba74" stop-opacity="0"/></linearGradient>
+        </defs>
+        <path id="master-rx-area" fill="url(#master-rx-fill)" stroke="none"></path>
+        <path id="master-tx-area" fill="url(#master-tx-fill)" stroke="none"></path>
+        <path id="master-rx-line" class="chart-line rx"></path>
+        <path id="master-tx-line" class="chart-line tx"></path>
+      </svg>
+    </article>
   </div>
-  <section id="tunnels" class="tunnels"></section>
+
+  <div id="view-tunnels" class="view" role="tabpanel" aria-labelledby="nav-tunnels" hidden>
+    <div class="section-head">
+      <h2>Tunnels</h2><span id="t-count" class="pill">0</span>
+      <div class="acts">
+        <button id="btn-import" class="btn" type="button"><svg aria-hidden="true"><use href="#i-link"/></svg>Add from link</button>
+        <button id="btn-new" class="btn primary" type="button"><svg aria-hidden="true"><use href="#i-plus"/></svg>New tunnel</button>
+      </div>
+    </div>
+    <div class="tunnel-filters">
+      <div class="filter-pills" role="group" aria-label="Filter tunnels">
+        <button class="chip active" type="button" data-filter="all" aria-pressed="true">All</button>
+        <button class="chip" type="button" data-filter="iran" aria-pressed="false">Iran</button>
+        <button class="chip" type="button" data-filter="kharej" aria-pressed="false">Kharej</button>
+        <button class="chip" type="button" data-filter="direct" aria-pressed="false">Direct</button>
+        <button class="chip" type="button" data-filter="reverse" aria-pressed="false">Reverse</button>
+        <button class="chip" type="button" data-filter="up" aria-pressed="false">Up</button>
+        <button class="chip" type="button" data-filter="down" aria-pressed="false">Down</button>
+      </div>
+      <input id="t-search" type="search" placeholder="Search name, IP, port" aria-label="Search tunnels" autocomplete="off">
+    </div>
+    <section id="tunnels" class="tunnels"></section>
+  </div>
 </div>
 
 <dialog id="dlg-new" class="wide">
@@ -253,12 +302,25 @@
   </div>
 </dialog>
 
+<dialog id="dlg-update">
+  <div>
+    <h3>Update available</h3>
+    <p class="hint">This panel is running <code id="u-current">—</code>. The latest stable release is <code id="u-latest">—</code>.</p>
+    <div>
+      <label for="u-command">Run on the server</label>
+      <div class="copy-row"><input id="u-command" class="mono" readonly value="sudo bash -c &quot;$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)&quot;"><button id="u-copy" class="btn" type="button">Copy</button></div>
+    </div>
+    <p class="hint">The installer verifies the release checksum and restarts the panel. Review the release notes before updating.</p>
+    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><a id="u-link" class="btn primary" target="_blank" rel="noopener noreferrer" hidden>Open release</a></div>
+  </div>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" };
+let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" }, telemetry = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false;
 const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
 
 function toast(msg, ok) {
@@ -323,7 +385,7 @@ function gauge(name, pct, sub) {
   g.querySelector(".sub").textContent = sub;
 }
 
-function renderSystem(s, version, tunnels) {
+function renderSystem(s, version) {
   $("h-host").textContent = s.hostname || "";
   $("h-os").textContent = s.os || "—";
   $("h-up").textContent = uptime(s.uptime_sec || 0);
@@ -334,12 +396,7 @@ function renderSystem(s, version, tunnels) {
   gauge("mem", s.mem_total ? 100 * s.mem_used / s.mem_total : 0, bytes(s.mem_used) + " / " + bytes(s.mem_total));
   gauge("disk", s.disk_total ? 100 * s.disk_used / s.disk_total : 0, bytes(s.disk_used) + " / " + bytes(s.disk_total));
   gauge("swap", s.swap_total ? 100 * s.swap_used / s.swap_total : 0, bytes(s.swap_used) + " / " + bytes(s.swap_total));
-  $("s-rx").textContent = bytes(s.rx_rate) + "/s";
-  $("s-tx").textContent = bytes(s.tx_rate) + "/s";
-  $("s-rxt").textContent = bytes(s.rx_total);
-  $("s-txt").textContent = bytes(s.tx_total);
   $("s-load").textContent = (s.load || []).map(v => Number(v).toFixed(2)).join(", ");
-  $("s-tun").textContent = tunnels.filter(t => t.state === "up").length + " / " + tunnels.length;
 }
 
 function stateClass(s) {
@@ -347,6 +404,91 @@ function stateClass(s) {
   if (s === "no link" || s === "activating") return "warn";
   return "bad";
 }
+function rate(mbps) {
+  if (!mbps || mbps <= 0) return "0 Mbps";
+  if (mbps >= 1) return Number(mbps).toFixed(2) + " Mbps";
+  return Math.round(mbps * 1000) + " Kbps";
+}
+const chartNS = "http://www.w3.org/2000/svg";
+function chartPath(values, max, width, height) {
+  const pad = 2, innerW = width - pad * 2, innerH = height - pad * 2;
+  const n = values.length;
+  return values.map((v, i) => {
+    const x = pad + (n > 1 ? innerW * i / (n - 1) : 0);
+    const y = height - pad - innerH * Math.min(1, Math.max(0, v / max));
+    return (i ? "L" : "M") + x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+}
+function areaPath(values, max, width, height) {
+  return chartPath(values, max, width, height) + " L" + (width - 2) + "," + (height - 2) + " L2," + (height - 2) + " Z";
+}
+function updateChart(prefix, series, width, height) {
+  const flat = Array.from({ length: 60 }, () => 0);
+  const rx = (series && series.rx_history && series.rx_history.length) ? series.rx_history : flat;
+  const tx = (series && series.tx_history && series.tx_history.length) ? series.tx_history : flat;
+  const max = Math.max(1, ...rx, ...tx);
+  const set = (id, attr, value) => { const e = document.getElementById(id); if (e) e.setAttribute(attr, value); };
+  set(prefix + "-rx-line", "d", chartPath(rx, max, width, height));
+  set(prefix + "-tx-line", "d", chartPath(tx, max, width, height));
+  set(prefix + "-rx-area", "d", areaPath(rx, max, width, height));
+  set(prefix + "-tx-area", "d", areaPath(tx, max, width, height));
+}
+function sparkline(name) {
+  const svg = document.createElementNS(chartNS, "svg");
+  svg.setAttribute("class", "spark");
+  svg.setAttribute("viewBox", "0 0 140 44");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("aria-hidden", "true");
+  const defs = document.createElementNS(chartNS, "defs");
+  for (const [key, color] of [["rx", "#7bc49d"], ["tx", "#e2ba74"]]) {
+    const grad = document.createElementNS(chartNS, "linearGradient");
+    grad.setAttribute("id", "spark-" + name + "-" + key);
+    grad.setAttribute("x1", "0"); grad.setAttribute("y1", "0"); grad.setAttribute("x2", "0"); grad.setAttribute("y2", "1");
+    const a = document.createElementNS(chartNS, "stop"); a.setAttribute("offset", "0"); a.setAttribute("stop-color", color); a.setAttribute("stop-opacity", ".26");
+    const b = document.createElementNS(chartNS, "stop"); b.setAttribute("offset", "1"); b.setAttribute("stop-color", color); b.setAttribute("stop-opacity", "0");
+    grad.append(a, b); defs.appendChild(grad);
+  }
+  svg.appendChild(defs);
+  const paths = {};
+  for (const key of ["rx", "tx"]) {
+    const area = document.createElementNS(chartNS, "path");
+    area.setAttribute("class", "area");
+    area.setAttribute("stroke", "none");
+    area.setAttribute("fill", "url(#spark-" + name + "-" + key + ")");
+    const line = document.createElementNS(chartNS, "path");
+    line.setAttribute("class", "chart-line " + key);
+    svg.append(area, line);
+    paths[key] = { area, line };
+  }
+  return { svg, paths };
+}
+function updateSpark(spark, series) {
+  if (!spark) return;
+  const flat = Array.from({ length: 60 }, () => 0);
+  const rx = (series && series.rx_history && series.rx_history.length) ? series.rx_history : flat;
+  const tx = (series && series.tx_history && series.tx_history.length) ? series.tx_history : flat;
+  const max = Math.max(1, ...rx, ...tx);
+  for (const key of ["rx", "tx"]) {
+    const values = key === "rx" ? rx : tx;
+    spark.paths[key].line.setAttribute("d", chartPath(values, max, 140, 44));
+    spark.paths[key].area.setAttribute("d", areaPath(values, max, 140, 44));
+  }
+}
+function renderTelemetry(t, system, tunnels) {
+  const up = tunnels.filter(x => x.state === "up").length;
+  $("m-active").textContent = up + " / " + tunnels.length;
+  $("agg-host").textContent = (system && system.ipv4) || "—";
+  if (!t || !t.aggregate) {
+    $("agg-rx").textContent = "0 Mbps"; $("agg-tx").textContent = "0 Mbps"; $("agg-total").textContent = "0 B";
+    updateChart("master", null, 600, 120);
+    return;
+  }
+  $("agg-rx").textContent = rate(t.aggregate.rx_mbps);
+  $("agg-tx").textContent = rate(t.aggregate.tx_mbps);
+  $("agg-total").textContent = bytes((t.aggregate.rx_total || 0) + (t.aggregate.tx_total || 0));
+  updateChart("master", t.aggregate, 600, 120);
+}
+
 
 function kv(parent, key, value) {
   const d = el("div");
@@ -392,8 +534,12 @@ function tunnelCard(t) {
     peer: kv(info, "Peer"),
     tunnelIP: kv(info, "Tunnel IP"),
     forwards: kv(info, "Forwards"),
-    io: kv(info, "RX / TX")
+    io: kv(info, "RX / TX"),
+    liveRX: kv(info, "Live RX"),
+    liveTX: kv(info, "Live TX")
   };
+  const spark = sparkline(t.name);
+  c.spark = spark;
   const row = el("div", "row");
   row.append(
     button("Setup link", "", () => showLink(c.t.name, c.t.setup_link, c.t.mikrotik, c.t.token)),
@@ -409,7 +555,7 @@ function tunnelCard(t) {
       }
     })
   );
-  card.append(top, info, row);
+  card.append(top, info, spark.svg, row);
   return c;
 }
 
@@ -424,6 +570,10 @@ function updateTunnel(c, t) {
   c.tunnelIP.textContent = t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   c.forwards.textContent = (t.ports || []).join(", ") || "—";
   c.io.textContent = bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes);
+  const series = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
+  c.liveRX.textContent = rate(series && series.rx_mbps);
+  c.liveTX.textContent = rate(series && series.tx_mbps);
+  updateSpark(c.spark, series);
 }
 
 function editTunnel(t) {
@@ -452,6 +602,39 @@ function editTunnel(t) {
   $("dlg-new").showModal();
 }
 
+function filteredTunnels() {
+  const q = tunnelQuery.trim().toLowerCase();
+  return allTunnels.filter(t => {
+    if (tunnelFilter === "iran" && t.role !== "iran") return false;
+    if (tunnelFilter === "kharej" && t.role !== "kharej") return false;
+    if (tunnelFilter === "direct" && t.reverse) return false;
+    if (tunnelFilter === "reverse" && !t.reverse) return false;
+    if (tunnelFilter === "up" && t.state !== "up") return false;
+    if (tunnelFilter === "down" && t.state === "up") return false;
+    if (!q) return true;
+    return [t.name, t.remote_ip, t.local_ip, t.tun_local4, t.tun_remote4, t.method, t.family, t.role, String(t.port || ""), (t.ports || []).join(" ")]
+      .join(" ").toLowerCase().includes(q);
+  });
+}
+function setTunnelFilter(filter) {
+  tunnelFilter = filter;
+  document.querySelectorAll("[data-filter]").forEach(b => {
+    const on = b.dataset.filter === filter;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+  renderTunnels(filteredTunnels());
+}
+function setView(view) {
+  currentView = view;
+  const overview = view === "overview";
+  $("view-overview").hidden = !overview;
+  $("view-tunnels").hidden = overview;
+  $("nav-overview").setAttribute("aria-selected", String(overview));
+  $("nav-tunnels").setAttribute("aria-selected", String(!overview));
+  if (!overview) renderTunnels(filteredTunnels());
+}
+
 function renderTunnels(list) {
   const box = $("tunnels");
   $("t-count").textContent = list.length;
@@ -459,7 +642,7 @@ function renderTunnels(list) {
   if (!list.length) {
     box.textContent = "";
     cards.clear();
-    box.appendChild(el("div", "empty", "No tunnels yet. Create one with New tunnel, or add one from the other server's link."));
+    box.appendChild(el("div", "empty", allTunnels.length ? "No tunnels match this filter." : "No tunnels yet. Create one with New tunnel, or add one from the other server's link."));
     return;
   }
   const seen = new Set();
@@ -510,14 +693,18 @@ async function refresh({ force = false, reportErrors = false } = {}) {
     const data = await api("/api/overview");
     csrf = data.csrf_token;
     panel = data.panel || {};
+    telemetry = data.telemetry || null;
+    allTunnels = data.tunnels || [];
     $("boot").hidden = true;
     $("gate").hidden = true;
     $("app").hidden = false;
     if (!methods.length) fillMethods(data.methods);
-    renderSystem(data.system, data.version, data.tunnels);
-    renderTunnels(data.tunnels);
+    renderSystem(data.system, data.version);
+    renderTelemetry(data.telemetry, data.system, allTunnels);
+    renderTunnels(filteredTunnels());
     $("sync-status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (!timer) timer = setInterval(refresh, 4000);
+    if (!versionRequested) { versionRequested = true; ensureVersionCheck(); }
   })();
   refreshTask = task;
   try { await task; }
@@ -595,6 +782,17 @@ $("d-copy").onclick = async () => {
   try { await navigator.clipboard.writeText($("d-link").textContent); toast("Copied", true); }
   catch (_) { toast("Copy failed: select the link and copy it by hand"); }
 };
+$("update-pill").onclick = openUpdateDialog;
+$("u-copy").onclick = async () => {
+  try { await navigator.clipboard.writeText($("u-command").value); toast("Update command copied", true); }
+  catch (_) { $("u-command").select(); toast("Select the command and copy it by hand"); }
+};
+$("nav-overview").onclick = () => setView("overview");
+$("nav-tunnels").onclick = () => setView("tunnels");
+$("nav-test").onclick = () => openTestDialog();
+$("nav-settings").onclick = () => $("m-settings").click();
+document.querySelectorAll("[data-filter]").forEach(b => { b.onclick = () => setTunnelFilter(b.dataset.filter); });
+$("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").value; renderTunnels(filteredTunnels()); });
 
 function setMenu(open) {
   $("menu").hidden = !open;
@@ -682,6 +880,24 @@ $("import-form").addEventListener("submit", async e => {
  e.preventDefault();
  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
 });
+
+async function ensureVersionCheck() {
+  try {
+    const r = await api("/api/version");
+    versionInfo = r;
+    $("update-pill").hidden = !r.update_available;
+    if (r.update_available) {
+      $("update-version").textContent = r.latest;
+      $("u-current").textContent = r.current;
+      $("u-latest").textContent = r.latest;
+      if (r.url && r.url.startsWith("https://github.com/")) { $("u-link").href = r.url; $("u-link").hidden = false; }
+    }
+  } catch (_) { /* isolated networks stay quiet */ }
+}
+function openUpdateDialog() {
+  if (!versionInfo || !versionInfo.update_available) return;
+  $("dlg-update").showModal();
+}
 
 function testBadge(r) {
   if (r.skipped) return ["SKIP", "warn", r.skipped];

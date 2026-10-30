@@ -60,6 +60,11 @@ type Server struct {
 	responder      *testResponder
 	jobMu          sync.Mutex
 	jobs           map[string]*linkTestJob
+	telemetryMu    sync.Mutex
+	telemetry      *telemetryState
+	versionMu      sync.Mutex
+	versionCached  versionStatus
+	versionChecked time.Time
 }
 
 func NewServer(storeDir, listenAddr string) *Server {
@@ -74,6 +79,7 @@ func NewServer(storeDir, listenAddr string) *Server {
 	s.testSlot = make(chan struct{}, 1)
 	s.tests = make(map[string]*testDeployment)
 	s.jobs = make(map[string]*linkTestJob)
+	s.telemetry = newTelemetryState()
 	return s
 }
 
@@ -83,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.auth(s.handleLogout))
 	mux.HandleFunc("GET /api/overview", s.auth(s.handleOverview))
+	mux.HandleFunc("GET /api/version", s.auth(s.handleVersion))
 	mux.HandleFunc("POST /api/tunnels", s.auth(s.handleCreate))
 	mux.HandleFunc("PUT /api/tunnels/{name}", s.auth(s.handleUpdate))
 	mux.HandleFunc("DELETE /api/tunnels/{name}", s.auth(s.handleDelete))
@@ -397,6 +404,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"methods":    catalog.Methods,
 		"tunnels":    views,
 		"panel":      s.config(),
+		"telemetry":  s.observeTelemetry(views, time.Now()),
 	})
 }
 

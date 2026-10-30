@@ -2,7 +2,7 @@
 // -ldflags "-X ctunnel/pkg/version.Version=0.1.1".
 package version
 
-var Version = "0.2.6"
+var Version = "0.2.7"
 
 // Telegram is the project channel shown in the CLI and the web panel.
 const Telegram = "https://t.me/CiAUB_CH"

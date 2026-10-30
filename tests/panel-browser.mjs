@@ -12,10 +12,15 @@ let state;
 function reset() { state = { path: '/panel-browser-test', tunnels: [], createCalls: 0, deployCalls: 0, restartCalls: 0, updateCalls: 0, failStart: false, lastCreate: null, lastUpdate: null, listener: false, jobStarted: false }; }
 reset();
 const config = () => ({ base_path: state.path, domain: '', cert_file: '', key_file: '' });
-const overview = () => ({ csrf_token: 'fixture-csrf', version: '0.2.5', panel: config(), methods: [
+const series = (rx, tx) => ({ rx_mbps: rx, tx_mbps: tx, rx_total: 1048576, tx_total: 524288, rx_history: Array.from({ length: 60 }, (_, i) => rx * (0.4 + 0.6 * i / 59)), tx_history: Array.from({ length: 60 }, (_, i) => tx * (0.4 + 0.6 * i / 59)) });
+const telemetry = () => ({
+ aggregate: series(12.5, 3.2),
+ tunnels: Object.fromEntries(state.tunnels.map((t, i) => [t.name, series(2 + i, 1 + i)]))
+});
+const overview = () => ({ csrf_token: 'fixture-csrf', version: '0.2.7', panel: config(), methods: [
  { Name: 'gre', Title: 'Kernel GRE', Family: 'L3-Direct', IPv6Underlay: false },
  { Name: 'dtls-1.3', Title: 'Encrypted UDP', Family: 'UDP-Crypt', IPv6Underlay: false }
-], system: { hostname: 'edge-01', os: 'Ubuntu 24.04 LTS', ipv4: '198.51.100.10', ipv6: '', uptime_sec: 281520, cores: 8, cpu_pct: 18, mem_total: 8589934592, mem_used: 2147483648, disk_total: 85899345920, disk_used: 12884901888, swap_total: 0, swap_used: 0, rx_rate: 7864320, tx_rate: 4194304, rx_total: 120259084288, tx_total: 75161927680, load: [0.4, 0.5, 0.3] }, tunnels: state.tunnels });
+], system: { hostname: 'edge-01', os: 'Ubuntu 24.04 LTS', ipv4: '198.51.100.10', ipv6: '', uptime_sec: 281520, cores: 8, cpu_pct: 18, mem_total: 8589934592, mem_used: 2147483648, disk_total: 85899345920, disk_used: 12884901888, swap_total: 0, swap_used: 0, rx_rate: 7864320, tx_rate: 4194304, rx_total: 120259084288, tx_total: 75161927680, load: [0.4, 0.5, 0.3] }, tunnels: state.tunnels, telemetry: telemetry() });
 const makeTunnel = payload => ({ ...payload, name: 't' + (state.tunnels.length + 1), method: payload.method || 'gre', role: payload.role || 'iran', remote_ip: payload.remote_ip || '203.0.113.8', tun_local4: '10.77.1.1', tun_remote4: '10.77.1.2', token: 'fixture-token', setup_link: 'ctunnel://fixture', ports: payload.ports || [], state: 'up', status: { rx_bytes: 1048576, tx_bytes: 524288 }, mikrotik: '' });
 const directResult = { method: 'gre', family: 'L3-Direct', mode: 'DIRECT', sent: 10, received: 10, rtt_ms: 4, jitter_ms: 1.2, down_mbps: 200, up_mbps: 180 };
 const reverseResult = { method: 'rev+dtls-1.3', family: 'UDP-Crypt', mode: 'REVERSE', sent: 10, received: 10, rtt_ms: 6, jitter_ms: 2, down_mbps: 120, up_mbps: 110 };
@@ -42,6 +47,9 @@ const server = createServer(async (req, res) => {
   if (!req.headers.cookie?.split('; ').includes(sessionName(req.headers.host) + '=fixture')) { send(401, { error: 'unauthorized' }); return; }
   if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'fixture-csrf') { send(403, { error: 'invalid CSRF token' }); return; }
   if (route === '/api/overview') { send(200, overview()); return; }
+  if (route === '/api/version' && req.method === 'GET') {
+   send(200, { current: '0.2.7', latest: 'v0.2.8', update_available: true, url: 'https://github.com/CIAUB/C-Tunnel/releases/tag/v0.2.8', checked_at: new Date().toISOString() }); return;
+  }
   if (route === '/api/tunnels') {
    state.createCalls++; state.lastCreate = body;
    const tunnel = makeTunnel(body); state.tunnels.push(tunnel);
@@ -98,7 +106,7 @@ async function login(page, race = false) {
   await Promise.race([held, new Promise((_, reject) => setTimeout(() => reject(new Error('overview was not held')), 5000))]);
  }
  await page.getByRole('button', { name: 'Log in', exact: true }).click();
- await page.getByRole('button', { name: 'New tunnel', exact: true }).waitFor();
+ await page.getByRole('tab', { name: 'Tunnels', exact: true }).waitFor();
 }
 const errors = [];
 try {
@@ -115,11 +123,21 @@ try {
  state.legacyCookie = false;
  // Login must succeed with that cookie still present and a stale overview in flight.
  await login(page, true);
- await page.getByRole('button', { name: 'Settings', exact: true }).click();
+ await page.locator('#update-pill').waitFor({ state: 'visible' });
+ assert.match(await page.locator('#update-pill').textContent(), /v0\.2\.8/);
+ await page.locator('#update-pill').click();
+ await page.locator('#dlg-update').waitFor({ state: 'visible' });
+ assert.equal(await page.locator('#u-current').textContent(), '0.2.7');
+ assert.match(await page.locator('#u-command').inputValue(), /install\.sh/);
+ await page.locator('#dlg-update [data-close]').click();
+ assert.ok((await page.locator('#master-rx-line').getAttribute('d'))?.length > 0);
+ await page.screenshot({ path: 'test-results/panel-overview.png', fullPage: true });
+ await page.locator('#menu-btn').click();
  const menu = page.locator('#menu'); await menu.waitFor({ state: 'visible' });
  assert.equal(await menu.evaluate(e => { const r = e.getBoundingClientRect(); return e.contains(document.elementFromPoint(r.left + 20, r.top + 20)); }), true);
  await page.screenshot({ path: 'test-results/panel-settings.png', fullPage: true });
  await page.keyboard.press('Escape');
+ await page.getByRole('tab', { name: 'Tunnels', exact: true }).click();
  await page.getByRole('button', { name: 'New tunnel', exact: true }).click();
  await page.getByLabel('Remote server IP', { exact: true }).fill('203.0.113.8');
  await page.locator('#dlg-new summary').click();
@@ -137,10 +155,20 @@ try {
  await page.locator('#dlg-link').waitFor({ state: 'visible' });
  assert.equal(state.updateCalls, 1); assert.equal(state.lastUpdate.mtu, 1300);
  await page.locator('#dlg-link [data-close]').click();
+ await page.locator('[data-filter="up"]').click();
+ assert.equal(await page.locator('#tunnels .tun').count(), 1);
+ await page.locator('[data-filter="reverse"]').click();
+ assert.equal(await page.locator('#tunnels .tun').count(), 0);
+ await page.locator('[data-filter="all"]').click();
+ await page.locator('#t-search').fill('t1');
+ assert.equal(await page.locator('#tunnels .tun').count(), 1);
+ await page.locator('#t-search').fill('no-such-tunnel');
+ assert.equal(await page.locator('#tunnels .tun').count(), 0);
+ await page.locator('#t-search').fill('');
  await page.screenshot({ path: 'test-results/panel-desktop.png', fullPage: true });
  await page.setViewportSize({ width: 375, height: 812 });
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
- await page.getByRole('button', { name: 'Settings', exact: true }).click();
+ await page.locator('#menu-btn').click();
  await page.getByRole('button', { name: 'Link test', exact: true }).click();
  await page.getByRole('button', { name: 'Start listener', exact: true }).click();
  await page.locator('#t-iran-link').waitFor({ state: 'visible' });
@@ -149,7 +177,7 @@ try {
  await page.getByRole('button', { name: 'Stop listener', exact: true }).click();
  await page.locator('#t-iran-status').waitFor({ state: 'hidden' });
  await page.locator('#dlg-test .test-head [data-close]').click();
- await page.getByRole('button', { name: 'Settings', exact: true }).click();
+ await page.locator('#menu-btn').click();
  await page.getByRole('button', { name: 'Link test', exact: true }).click();
  await page.getByRole('tab', { name: /Kharej/ }).click();
  await page.locator('#t-link').fill('ctunnel-test://fixture');
@@ -160,7 +188,7 @@ try {
  await page.locator('#dlg-link').waitFor({ state: 'visible' }); assert.equal(state.deployCalls, 1); assert.equal(state.jobStarted, true);
  await page.locator('#dlg-link [data-close]').click();
  await page.screenshot({ path: 'test-results/panel-mobile.png', fullPage: true });
- await page.getByRole('button', { name: 'Settings', exact: true }).click();
+ await page.locator('#menu-btn').click();
  await page.getByRole('button', { name: 'Panel settings', exact: true }).click();
  await page.getByLabel('Base path', { exact: true }).fill('/panel-changed');
  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
@@ -169,6 +197,7 @@ try {
  await page.close();
  reset(); state.failStart = true;
  const retryPage = await browser.newPage(); await login(retryPage);
+ await retryPage.getByRole('tab', { name: 'Tunnels', exact: true }).click();
  await retryPage.getByRole('button', { name: 'New tunnel', exact: true }).click();
  await retryPage.getByLabel('Remote server IP', { exact: true }).fill('203.0.113.8');
  await retryPage.locator('#create-form [type=submit]').click();
@@ -177,5 +206,5 @@ try {
  await retryPage.locator('#dlg-link').waitFor({ state: 'visible' });
  assert.equal(state.createCalls, 1); assert.equal(state.restartCalls, 1);
  assert.deepEqual(errors, []);
- console.log('PASS: legacy Secure cookie recovery, login/overview race, settings layering, validation, Create, Edit, failed-start retry, Iran listener, Kharej live job, direct deployment, routing, desktop/mobile overflow');
+ console.log('PASS: legacy Secure cookie recovery, login/overview race, update banner, telemetry chart, filters, settings layering, validation, Create, Edit, failed-start retry, Iran listener, Kharej live job, direct deployment, routing, desktop/mobile overflow');
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
