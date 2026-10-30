@@ -151,12 +151,19 @@ func validatePanelConfig(c PanelConfig) error {
 }
 
 func readPEM(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 64<<10 {
+		return nil, errors.New("certificate files must be regular files smaller than 64 KiB")
+	}
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil {
 		return nil, err
 	}
@@ -329,6 +336,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	s.panelConfig = c
 	if c != previous {
 		s.authGeneration.Add(1)
+		s.stopAllTests()
 		http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, previous.BasePath), Path: previous.BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	}
 	host, port, err := net.SplitHostPort(r.Host)

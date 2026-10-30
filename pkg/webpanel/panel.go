@@ -56,6 +56,10 @@ type Server struct {
 	reload         chan struct{}
 	testSlot       chan struct{}
 	tests          map[string]*testDeployment
+	testMu         sync.Mutex
+	responder      *testResponder
+	jobMu          sync.Mutex
+	jobs           map[string]*linkTestJob
 }
 
 func NewServer(storeDir, listenAddr string) *Server {
@@ -69,6 +73,7 @@ func NewServer(storeDir, listenAddr string) *Server {
 	s.reload = make(chan struct{}, 1)
 	s.testSlot = make(chan struct{}, 1)
 	s.tests = make(map[string]*testDeployment)
+	s.jobs = make(map[string]*linkTestJob)
 	return s
 }
 
@@ -79,10 +84,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.auth(s.handleLogout))
 	mux.HandleFunc("GET /api/overview", s.auth(s.handleOverview))
 	mux.HandleFunc("POST /api/tunnels", s.auth(s.handleCreate))
+	mux.HandleFunc("PUT /api/tunnels/{name}", s.auth(s.handleUpdate))
 	mux.HandleFunc("DELETE /api/tunnels/{name}", s.auth(s.handleDelete))
 	mux.HandleFunc("POST /api/tunnels/{name}/restart", s.auth(s.handleRestart))
 	mux.HandleFunc("POST /api/import", s.auth(s.handleImport))
 	mux.HandleFunc("POST /api/linktest", s.auth(s.handleLinkTest))
+	mux.HandleFunc("POST /api/linktest/server/start", s.auth(s.handleTestServerStart))
+	mux.HandleFunc("GET /api/linktest/server", s.auth(s.handleTestServerStatus))
+	mux.HandleFunc("POST /api/linktest/server/stop", s.auth(s.handleTestServerStop))
+	mux.HandleFunc("POST /api/linktest/jobs", s.auth(s.handleLinkTestStart))
+	mux.HandleFunc("GET /api/linktest/jobs/{id}", s.auth(s.handleLinkTestJob))
+	mux.HandleFunc("POST /api/linktest/jobs/{id}/stop", s.auth(s.handleLinkTestStop))
 	mux.HandleFunc("POST /api/optimize", s.auth(s.handleOptimize))
 	mux.HandleFunc("GET /api/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("POST /api/settings", s.auth(s.handleSettings))
@@ -219,6 +231,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
+		if r.TLS != nil {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
 		next.ServeHTTP(w, r)
 	})
@@ -333,6 +348,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.stopAllTests()
 	s.authGeneration.Add(1)
 	http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, s.config().BasePath), Path: s.config().BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -405,6 +421,32 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := tunnel.Create(st, &tc); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	s.applyAndRespond(w, tc)
+}
+
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var tc catalog.TunnelConfig
+	if err := decodeJSON(r, &tc); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid tunnel payload"})
+		return
+	}
+	tc.Name = name
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.store()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if _, ok := st.Find(name); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
+		return
+	}
+	if err := tunnel.Save(st, &tc); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -580,8 +622,11 @@ func (l *loginLimiter) fail(ip string) {
 	defer l.mu.Unlock()
 	f, ok := l.fails[ip]
 	if !ok {
-		if len(l.fails) > 10000 {
-			l.fails = map[string]*failure{}
+		if len(l.fails) >= 10000 {
+			for key := range l.fails {
+				delete(l.fails, key)
+				break
+			}
 		}
 		f = &failure{}
 		l.fails[ip] = f

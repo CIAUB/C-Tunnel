@@ -40,9 +40,16 @@ type methodTestRequest struct {
 // chooseBest uses only successful measured rows, penalizing latency and jitter.
 // A TCP baseline or a family-level suggestion is never turned into a GRE result.
 func chooseBest(rows []conntest.Result) (conntest.Result, bool) {
+	return chooseBestMode(rows, "")
+}
+
+func chooseBestMode(rows []conntest.Result, mode string) (conntest.Result, bool) {
 	var best conntest.Result
 	bestScore := -1.0
 	for _, r := range rows {
+		if mode != "" && r.Mode != mode {
+			continue
+		}
 		if r.Status() != "ok" || r.Sent < conntest.Probes || r.Received != r.Sent || r.DownMbps <= 0 || r.UpMbps <= 0 {
 			continue
 		}
@@ -111,10 +118,6 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, errors.New("invalid local IP"))
 		return
 	}
-	if req.Role == "kharej" && strings.TrimSpace(req.Token) == "" {
-		writeError(w, 400, errors.New("kharej deployment requires the matching Iran tunnel secret"))
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 	rows, err := runMethodTest(ctx, link, nil)
@@ -155,6 +158,7 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeployBest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TestID string `json:"test_id"`
+		Token  string `json:"token"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, 400, err)
@@ -178,6 +182,13 @@ func (s *Server) handleDeployBest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tc := test.Config
+	if strings.TrimSpace(req.Token) != "" {
+		tc.Token = strings.TrimSpace(req.Token)
+	}
+	if tc.Role == "kharej" && strings.TrimSpace(tc.Token) == "" {
+		writeError(w, 400, errors.New("enter the Iran tunnel secret before deploying on Kharej"))
+		return
+	}
 	if strings.TrimSpace(tc.LocalIP) == "" {
 		tc.LocalIP = detectHostIP()
 	}

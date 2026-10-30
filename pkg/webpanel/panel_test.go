@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -157,6 +158,39 @@ func TestLogoutInvalidatesSession(t *testing.T) {
 	c.cookie = old
 	if res, _ := c.do("GET", "/api/overview", nil); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("logged-out cookie still accepted: %d", res.StatusCode)
+	}
+}
+
+func TestLoginLimiterMapBounded(t *testing.T) {
+	l := loginLimiter{fails: map[string]*failure{}}
+	for i := 0; i < 10050; i++ {
+		l.fail(strconv.Itoa(i))
+	}
+	if len(l.fails) > 10000 {
+		t.Fatalf("login limiter map grew to %d", len(l.fails))
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	c, _, _ := setup(t)
+	res, _ := c.do("GET", "/", nil)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("index: %d", res.StatusCode)
+	}
+	headers := res.Header
+	for name, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "no-referrer",
+		"Cache-Control":          "no-store",
+	} {
+		if got := headers.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	csp := headers.Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "script-src 'self' 'sha256-") || strings.Contains(csp, "unsafe-inline") {
+		t.Fatalf("weak CSP: %q", csp)
 	}
 }
 

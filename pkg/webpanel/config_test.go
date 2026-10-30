@@ -253,6 +253,143 @@ func TestMethodTestSurvivesPanelPathChange(t *testing.T) {
 	}
 }
 
+func TestUpdateTunnel(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	res, out := c.do("POST", "/api/tunnels", map[string]any{"role": "iran", "method": "gre", "remote_ip": "203.0.113.5", "local_ip": "198.51.100.1", "mtu": 1400})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("create: %d %v", res.StatusCode, out)
+	}
+	res, out = c.do("PUT", "/api/tunnels/t1", map[string]any{"role": "iran", "method": "gre", "remote_ip": "203.0.113.5", "local_ip": "198.51.100.1", "mtu": 1300})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("update: %d %v", res.StatusCode, out)
+	}
+	saved, err := catalog.LoadStore(st.Dir)
+	if err != nil || len(saved.Tunnels) != 1 || saved.Tunnels[0].MTU != 1300 {
+		t.Fatalf("updated state: %+v %v", saved, err)
+	}
+}
+
+func TestLinkTestJobStoresDirectAndReverse(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	originalRun := runMethodTest
+	originalMTU := runPathMTU
+	defer func() { runMethodTest, runPathMTU = originalRun, originalMTU }()
+	runMethodTest = func(context.Context, conntest.Link, conntest.Progress) ([]conntest.Result, error) {
+		return []conntest.Result{
+			{Method: "gre", Mode: "DIRECT", Family: "L3-Direct", Sent: 10, Received: 10, RTTms: 4, DownMbps: 200, UpMbps: 180},
+			{Method: "rev+dtls-1.3", Mode: "REVERSE", Family: "UDP-Crypt", Sent: 10, Received: 10, RTTms: 6, DownMbps: 120, UpMbps: 110},
+		}, nil
+	}
+	runPathMTU = func(context.Context, conntest.Link) int { return 1500 }
+	link := conntest.EncodeLink(conntest.Link{Host: "203.0.113.8", UDPPort: 7712, TCPPort: 7711, TokenHex: conntest.NewToken()})
+	res, out := c.do("POST", "/api/linktest/jobs", map[string]any{"link": link, "role": "iran", "local_ip": "198.51.100.2"})
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("start job: %d %v", res.StatusCode, out)
+	}
+	id, _ := out["test_id"].(string)
+	if id == "" {
+		t.Fatalf("missing job id: %v", out)
+	}
+	var job map[string]any
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_, job = c.do("GET", "/api/linktest/jobs/"+id, nil)
+		if job["status"] == "done" {
+			break
+		}
+		if job["status"] == "error" {
+			t.Fatalf("job failed: %v", job)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not finish: %v", job)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	deps, _ := job["deployments"].(map[string]any)
+	if deps["direct"] == nil || deps["reverse"] == nil {
+		t.Fatalf("missing direct/reverse deployments: %v", job)
+	}
+	settings, _ := job["best_settings"].(map[string]any)
+	if settings["path_mtu"].(float64) != 1500 {
+		t.Fatalf("path MTU missing from summary: %v", job)
+	}
+	direct := deps["direct"].(map[string]any)
+	res, deployed := c.do("POST", "/api/deploy-best", map[string]any{"test_id": direct["test_id"]})
+	if res.StatusCode != http.StatusOK || deployed["ok"] != true {
+		t.Fatalf("deploy direct: %d %v", res.StatusCode, deployed)
+	}
+}
+
+func TestLinkTestJobWithoutDeploymentToken(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	originalRun := runMethodTest
+	originalMTU := runPathMTU
+	defer func() { runMethodTest, runPathMTU = originalRun, originalMTU }()
+	runMethodTest = func(context.Context, conntest.Link, conntest.Progress) ([]conntest.Result, error) {
+		return []conntest.Result{
+			{Method: "gre", Mode: "DIRECT", Family: "L3-Direct", Sent: 10, Received: 10, RTTms: 5, DownMbps: 100, UpMbps: 90},
+			{Method: "rev+quic-v1", Mode: "REVERSE", Family: "UDP-Crypt", Sent: 10, Received: 10, RTTms: 7, DownMbps: 80, UpMbps: 70},
+		}, nil
+	}
+	runPathMTU = func(context.Context, conntest.Link) int { return 0 }
+	link := conntest.EncodeLink(conntest.Link{Host: "203.0.113.8", UDPPort: 7712, TCPPort: 7711, TokenHex: conntest.NewToken()})
+	res, out := c.do("POST", "/api/linktest/jobs", map[string]any{"link": link, "role": "kharej", "local_ip": "198.51.100.2"})
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("start job without token: %d %v", res.StatusCode, out)
+	}
+	id := out["test_id"].(string)
+	var job map[string]any
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_, job = c.do("GET", "/api/linktest/jobs/"+id, nil)
+		if job["status"] == "done" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("job did not finish: %v", job)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	deps := job["deployments"].(map[string]any)
+	direct := deps["direct"].(map[string]any)
+	res, _ = c.do("POST", "/api/deploy-best", map[string]any{"test_id": direct["test_id"]})
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("deployment without a Kharej token: %d", res.StatusCode)
+	}
+	res, deployed := c.do("POST", "/api/deploy-best", map[string]any{"test_id": direct["test_id"], "token": "correct horse battery"})
+	if res.StatusCode != http.StatusOK || deployed["ok"] != true {
+		t.Fatalf("deployment with token: %d %v", res.StatusCode, deployed)
+	}
+}
+
+func TestTestServerStartStatusStop(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	res, out := c.do("POST", "/api/linktest/server/start", map[string]any{"host": "127.0.0.1"})
+	if res.StatusCode != http.StatusOK || out["active"] != true {
+		t.Fatalf("start listener: %d %v", res.StatusCode, out)
+	}
+	link, _ := out["link"].(string)
+	if !strings.HasPrefix(link, "ctunnel-test://") || out["udp_port"].(float64) <= 0 || out["tcp_port"].(float64) <= 0 {
+		t.Fatalf("invalid listener view: %v", out)
+	}
+	_, status := c.do("GET", "/api/linktest/server", nil)
+	if status["active"] != true {
+		t.Fatalf("listener status lost: %v", status)
+	}
+	res, stopped := c.do("POST", "/api/linktest/server/stop", nil)
+	if res.StatusCode != http.StatusOK || stopped["ok"] != true {
+		t.Fatalf("stop listener: %d %v", res.StatusCode, stopped)
+	}
+	_, status = c.do("GET", "/api/linktest/server", nil)
+	if status["active"] != false {
+		t.Fatalf("listener still active: %v", status)
+	}
+}
+
 func TestResultInjectionCannotChooseDeployment(t *testing.T) {
 	c, st, _ := setup(t)
 	c.login(st.PanelCode)

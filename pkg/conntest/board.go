@@ -208,21 +208,21 @@ func Verdict(title string, rows []Result) string {
 // Best summarizes the recommended settings for the measured path: the best
 // DIRECT method and the best REVERSE one.
 type Best struct {
-	Method    string
-	Mode      string
-	Reason    string
-	DownMbps  float64 // iran → kharej
-	UpMbps    float64 // kharej → iran
-	RTTms     float64
-	JitterMs  float64
-	LossPct   float64
-	PathMTU   int
-	TunnelMTU int
-	Reverse   string // fastest REVERSE method that passed every probe
-	RevDown   float64
-	RevUp     float64
-	RevRTTms  float64
-	RevMTU    int
+	Method    string  `json:"method"`
+	Mode      string  `json:"mode"`
+	Reason    string  `json:"reason"`
+	DownMbps  float64 `json:"down_mbps"`
+	UpMbps    float64 `json:"up_mbps"`
+	RTTms     float64 `json:"rtt_ms"`
+	JitterMs  float64 `json:"jitter_ms"`
+	LossPct   float64 `json:"loss_pct"`
+	PathMTU   int     `json:"path_mtu"`
+	TunnelMTU int     `json:"tunnel_mtu"`
+	Reverse   string  `json:"reverse"`
+	RevDown   float64 `json:"rev_down_mbps"`
+	RevUp     float64 `json:"rev_up_mbps"`
+	RevRTTms  float64 `json:"rev_rtt_ms"`
+	RevMTU    int     `json:"rev_tunnel_mtu"`
 }
 
 func tunnelMTU(method string, pathMTU int) int {

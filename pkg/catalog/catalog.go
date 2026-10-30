@@ -159,6 +159,9 @@ func EncodeSetupLink(tc TunnelConfig) (string, error) {
 
 func DecodeSetupLink(link string) (TunnelConfig, error) {
 	s := strings.Trim(strings.TrimSpace(link), "'\"")
+	if len(s) > 8192 {
+		return TunnelConfig{}, errors.New("setup link is too large")
+	}
 	if !strings.HasPrefix(s, "ctunnel://") {
 		return TunnelConfig{}, errors.New("invalid link: must start with ctunnel://")
 	}

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.6] - 2026-10-30
+
+### Added
+- Two-mode Connection Test: Iran listener with a generated `ctunnel-test://` link, live status, one-click copy, open UDP/TCP ports and a 15-minute self-closing lifecycle; Kharej async live tester with method table, Path MTU, and Best Direct / Best Reverse deployment.
+- Tunnel Edit modal backed by `PUT /api/tunnels/{name}`, plus a quick Copy Setup Link action on every tunnel card.
+- Operations-grade dark panel: tabular-nums telemetry, role/family badges, status badges, responsive benchmark tables, and clear loading/error states.
+
+### Security
+- Bounded login-limiter eviction, an 8 KiB setup-link cap, HSTS on HTTPS, and ownership/TTL bounds for test listeners and async test jobs.
+
+[0.2.6]: https://github.com/CIAUB/C-Tunnel/compare/v0.2.5...v0.2.6
+
 ## [0.2.5] - 2026-10-30
 
 ### Fixed

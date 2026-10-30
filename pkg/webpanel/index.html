@@ -7,8 +7,10 @@
 <title>C-Tunnel</title>
 <style>
 :root{color-scheme:dark;--bg:#0a0a0b;--s1:#111113;--s2:#19191c;--s3:#232326;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.16);--tx:#f1f1f3;--tx2:#c9c9ce;--mu:#a2a2aa;--dim:#92929a;--ac:#e4e4e7;--ac-soft:rgba(255,255,255,.05);--ac-line:rgba(255,255,255,.18);--ok:#7bc49d;--wr:#e2ba74;--er:#f19191;--field:#0d0d0f;--r-lg:12px;--r:8px;--r-sm:6px;--sans:Inter,Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:"Geist Mono","SFMono-Regular",Consolas,monospace}
-*{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit;color:inherit}button,a,input,select,textarea{touch-action:manipulation}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}code,.mono,.num,.kv div div:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums}code{font-size:.92em}.card{background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg)}.k{color:var(--mu);font-size:12px;font-weight:500}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 14px;border-radius:var(--r-sm);border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:550;cursor:pointer;transition:background-color 150ms,border-color 150ms}.btn:hover{background:var(--s3);border-color:#55555d}.btn:active{background:#303034}.btn:disabled{opacity:.45;cursor:not-allowed}.btn[aria-busy=true]{cursor:progress}.btn svg{width:17px;height:17px;flex-shrink:0}.btn.primary{background:#e7e7eb;color:#111113;border-color:#e7e7eb}.btn.primary:hover{background:#fff}.btn.ghost{background:transparent}.btn.danger{color:var(--er)}.btn.sm{min-height:40px;padding:0 11px;font-size:12px}.btn.square{width:44px;padding:0;flex-shrink:0}.btn.square svg{width:19px;height:19px}a.btn{text-decoration:none;color:inherit}:focus-visible{outline:2px solid #d4d4db;outline-offset:3px}label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--tx2)}input,select,textarea{width:100%;min-height:44px;padding:10px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:var(--r-sm)}input:focus,select:focus,textarea:focus{outline:2px solid #878790;outline-offset:1px}input[aria-invalid=true]{border-color:var(--er)}input[type=checkbox]{width:18px;min-height:18px}textarea{resize:vertical}.hint{font-size:12px;color:var(--mu);margin-top:6px;line-height:1.6}.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.stack{display:grid;gap:16px}.gate{min-height:100dvh;display:grid;place-items:center;padding:24px}.gate form{width:100%;max-width:400px;padding:32px;display:grid;gap:24px}.gate p{color:var(--mu)}.shell{max-width:1440px;margin:auto;padding:24px 28px 64px;display:grid;gap:24px;isolation:isolate;overflow:visible}.brand{display:flex;align-items:center;gap:12px;min-width:0}.logo{flex:none;width:40px;height:40px;border:1px solid var(--ln2);border-radius:9px;display:grid;place-items:center;background:var(--s2);color:var(--tx)}.logo svg{width:23px;height:23px}.brand b{display:block;font-size:17px;letter-spacing:-.04em;font-weight:650}.brand span{display:block;font-size:12px;color:var(--mu)}header.card{position:relative;z-index:40;overflow:visible;display:flex;align-items:center;gap:24px;padding:20px}.facts{display:flex;flex-wrap:wrap;gap:12px 24px;flex:1;min-width:0}.fact{min-width:0}.fact div:last-child{font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hdr-acts{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;overflow:visible}.menu-wrap{position:relative;z-index:50;overflow:visible}.menu{position:absolute;z-index:60;right:0;top:calc(100% + 8px);width:min(260px,calc(100vw - 48px));padding:6px;background:#19191c;border:1px solid var(--ln2);border-radius:var(--r);box-shadow:0 12px 40px #0008;display:grid;gap:2px}.menu button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;background:none;border:0;border-radius:5px;text-align:left;cursor:pointer;font-size:13px}.menu button:hover,.menu button:focus-visible{background:var(--s3)}.menu svg,.tg-link svg{width:17px;height:17px}.tg-link{display:inline-flex;align-items:center;gap:8px;color:var(--mu);font-size:12px;text-decoration:none}.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.gauge{padding:20px;display:grid;gap:14px}.gauge .k{display:flex;align-items:center;gap:8px}.gauge .k svg{width:16px;height:16px}.gauge .reading{display:flex;align-items:baseline;gap:4px}.gauge .reading b{font-size:30px;line-height:1;font-weight:550;letter-spacing:-.05em}.gauge .reading small{font-size:13px;color:var(--mu)}.gauge progress{width:100%;height:4px;border:0;appearance:none;background:var(--s3);border-radius:2px;overflow:hidden}.gauge progress::-webkit-progress-bar{background:var(--s3)}.gauge progress::-webkit-progress-value{background:#a1a1aa}.gauge progress::-moz-progress-bar{background:#a1a1aa}.gauge .sub{color:var(--mu);font-size:12px}.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat{display:flex;align-items:center;gap:12px;padding:16px;min-width:0}.stat>div:last-child{min-width:0}.stat .v{font-size:15px;font-weight:500;overflow-wrap:anywhere}.icon-sq{width:32px;height:32px;flex:none;display:grid;place-items:center;color:var(--mu);border:1px solid var(--ln);border-radius:6px;background:var(--s2)}.icon-sq svg{width:16px;height:16px}.section-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:12px}.section-head h2{font-size:16px;letter-spacing:-.02em;font-weight:600}.pill{border:1px solid var(--ln2);border-radius:5px;padding:2px 7px;font-size:12px;color:var(--mu)}.section-head .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:16px}.empty{grid-column:1/-1;padding:64px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r)}.tun{padding:20px;display:grid;gap:16px}.tun-top{display:flex;align-items:center;gap:12px}.tun-top>div:nth-child(2){flex:1;min-width:0}.name{font-size:15px;font-weight:600}.meth{font-size:12px;color:var(--mu);overflow-wrap:anywhere}.state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:3px 7px;flex-shrink:0;border:1px solid var(--ln);border-radius:5px;font-size:12px;color:var(--mu)}.state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.state.up{color:var(--ok)}.state.warn{color:var(--wr)}.state.bad{color:var(--er)}.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;border-top:1px solid var(--ln);border-bottom:1px solid var(--ln);padding:16px 0}.kv div div:last-child{font-size:12px;overflow-wrap:anywhere}.tun .row{display:flex;flex-wrap:wrap;gap:8px}.tun .row .danger{margin-left:auto}dialog{margin:auto;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;background:var(--s1);color:var(--tx);border:1px solid var(--ln2);border-radius:12px;padding:0;box-shadow:0 24px 80px #0009}dialog.wide{width:min(760px,calc(100vw - 32px))}dialog::backdrop{background:#000b}dialog form,dialog>div{padding:24px;display:grid;gap:20px}dialog h3{font-size:18px;font-weight:600;letter-spacing:-.025em}dialog form{padding-bottom:0}dialog .foot{position:sticky;bottom:0;z-index:2;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 -24px;padding:16px 24px 24px;background:var(--s1);border-top:1px solid var(--ln)}dialog>div .foot{margin-bottom:-24px}details summary{cursor:pointer;color:var(--mu);font-size:13px;min-height:36px}details[open] summary{margin-bottom:16px}pre.out{background:var(--field);border:1px solid var(--ln);padding:16px;border-radius:6px;color:var(--tx2);font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}.toast{position:fixed;z-index:100;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:14px 18px;border:1px solid #805252;border-radius:8px;background:#202023;color:var(--tx);box-shadow:0 8px 30px #0008;font-size:13px}.toast.ok{border-color:#3e6751}.form-error{padding:12px 14px;border:1px solid #805252;border-radius:6px;color:#f3b5b5;font-size:13px;white-space:pre-wrap}.form-error a{color:inherit}.field-error{display:block;min-height:18px;color:var(--er);font-size:12px;margin-top:4px}.test-choice{padding:16px;background:var(--s2);border:1px solid var(--ln2);border-radius:8px;display:grid;gap:10px}.test-choice h4{font-size:14px}.test-choice p{font-size:12px;color:var(--mu)}#sync-status{font-size:12px;color:var(--mu)}#boot{padding:40px;color:var(--mu)}
+*{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit;color:inherit}button,a,input,select,textarea{touch-action:manipulation}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}code,.mono,.num,.kv div div:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums}code{font-size:.92em}.card{background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg)}.k{color:var(--mu);font-size:12px;font-weight:500}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 14px;border-radius:var(--r-sm);border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:550;cursor:pointer;transition:background-color 150ms,border-color 150ms}.btn:hover{background:var(--s3);border-color:#55555d}.btn:active{background:#303034}.btn:disabled{opacity:.45;cursor:not-allowed}.btn[aria-busy=true]{cursor:progress}.btn svg{width:17px;height:17px;flex-shrink:0}.btn.primary{background:#e7e7eb;color:#111113;border-color:#e7e7eb}.btn.primary:hover{background:#fff}.btn.ghost{background:transparent}.btn.danger{color:var(--er)}.btn.sm{min-height:40px;padding:0 11px;font-size:12px}.btn.square{width:44px;padding:0;flex-shrink:0}.btn.square svg{width:19px;height:19px}a.btn{text-decoration:none;color:inherit}:focus-visible{outline:2px solid #d4d4db;outline-offset:3px}label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--tx2)}input,select,textarea{width:100%;min-height:44px;padding:10px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:var(--r-sm)}input:focus,select:focus,textarea:focus{outline:2px solid #878790;outline-offset:1px}input[aria-invalid=true]{border-color:var(--er)}input[type=checkbox]{width:18px;min-height:18px}textarea{resize:vertical}.hint{font-size:12px;color:var(--mu);margin-top:6px;line-height:1.6}.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.stack{display:grid;gap:16px}.gate{min-height:100dvh;display:grid;place-items:center;padding:24px}.gate form{width:100%;max-width:400px;padding:32px;display:grid;gap:24px}.gate p{color:var(--mu)}.shell{max-width:1440px;margin:auto;padding:24px 28px 64px;display:grid;gap:24px;isolation:isolate;overflow:visible}.brand{display:flex;align-items:center;gap:12px;min-width:0}.logo{flex:none;width:40px;height:40px;border:1px solid var(--ln2);border-radius:9px;display:grid;place-items:center;background:var(--s2);color:var(--tx)}.logo svg{width:23px;height:23px}.brand b{display:block;font-size:17px;letter-spacing:-.04em;font-weight:650}.brand span{display:block;font-size:12px;color:var(--mu)}header.card{position:relative;z-index:40;overflow:visible;display:flex;align-items:center;gap:24px;padding:20px}.facts{display:flex;flex-wrap:wrap;gap:12px 24px;flex:1;min-width:0}.fact{min-width:0}.fact div:last-child{font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hdr-acts{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;overflow:visible}.menu-wrap{position:relative;z-index:50;overflow:visible}.menu{position:absolute;z-index:60;right:0;top:calc(100% + 8px);width:min(260px,calc(100vw - 48px));padding:6px;background:#19191c;border:1px solid var(--ln2);border-radius:var(--r);box-shadow:0 12px 40px #0008;display:grid;gap:2px}.menu button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;background:none;border:0;border-radius:5px;text-align:left;cursor:pointer;font-size:13px}.menu button:hover,.menu button:focus-visible{background:var(--s3)}.menu svg,.tg-link svg{width:17px;height:17px}.tg-link{display:inline-flex;align-items:center;gap:8px;color:var(--mu);font-size:12px;text-decoration:none}.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.gauge{padding:20px;display:grid;gap:14px}.gauge .k{display:flex;align-items:center;gap:8px}.gauge .k svg{width:16px;height:16px}.gauge .reading{display:flex;align-items:baseline;gap:4px}.gauge .reading b{font-size:30px;line-height:1;font-weight:550;letter-spacing:-.05em}.gauge .reading small{font-size:13px;color:var(--mu)}.gauge progress{width:100%;height:4px;border:0;appearance:none;background:var(--s3);border-radius:2px;overflow:hidden}.gauge progress::-webkit-progress-bar{background:var(--s3)}.gauge progress::-webkit-progress-value{background:#a1a1aa}.gauge progress::-moz-progress-bar{background:#a1a1aa}.gauge .sub{color:var(--mu);font-size:12px}.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat{display:flex;align-items:center;gap:12px;padding:16px;min-width:0}.stat>div:last-child{min-width:0}.stat .v{font-size:15px;font-weight:500;overflow-wrap:anywhere}.icon-sq{width:32px;height:32px;flex:none;display:grid;place-items:center;color:var(--mu);border:1px solid var(--ln);border-radius:6px;background:var(--s2)}.icon-sq svg{width:16px;height:16px}.section-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:12px}.section-head h2{font-size:16px;letter-spacing:-.02em;font-weight:600}.pill{border:1px solid var(--ln2);border-radius:5px;padding:2px 7px;font-size:12px;color:var(--mu)}.section-head .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:16px}.empty{grid-column:1/-1;padding:64px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r)}.tun{padding:20px;display:grid;gap:16px}.tun-top{display:flex;align-items:center;gap:12px}.tun-top>div:nth-child(2){flex:1;min-width:0}.name{font-size:15px;font-weight:600}.meth{font-size:12px;color:var(--mu);overflow-wrap:anywhere}.state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:3px 7px;flex-shrink:0;border:1px solid var(--ln);border-radius:5px;font-size:12px;color:var(--mu)}.state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.state.up{color:var(--ok)}.state.warn{color:var(--wr)}.state.bad{color:var(--er)}.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;border-top:1px solid var(--ln);border-bottom:1px solid var(--ln);padding:16px 0}.kv div div:last-child{font-size:12px;overflow-wrap:anywhere}.tun .row{display:flex;flex-wrap:wrap;gap:8px}.tun .row .danger{margin-left:auto}dialog{margin:auto;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;background:var(--s1);color:var(--tx);border:1px solid var(--ln2);border-radius:12px;padding:0;box-shadow:0 24px 80px #0009}dialog.wide{width:min(760px,calc(100vw - 32px))}dialog::backdrop{background:#000b}dialog form,dialog>div{padding:24px;display:grid;gap:20px}dialog h3{font-size:18px;font-weight:600;letter-spacing:-.025em}dialog form{padding-bottom:0}dialog .foot{position:sticky;bottom:0;z-index:2;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 -24px;padding:16px 24px 24px;background:var(--s1);border-top:1px solid var(--ln)}dialog>div .foot{margin-bottom:-24px}details summary{cursor:pointer;color:var(--mu);font-size:13px;min-height:36px}details[open] summary{margin-bottom:16px}pre.out{background:var(--field);border:1px solid var(--ln);padding:16px;border-radius:6px;color:var(--tx2);font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}.toast{position:fixed;z-index:100;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:14px 18px;border:1px solid #805252;border-radius:8px;background:#202023;color:var(--tx);box-shadow:0 8px 30px #0008;font-size:13px}.toast.ok{border-color:#3e6751}.form-error{padding:12px 14px;border:1px solid #805252;border-radius:6px;color:#f3b5b5;font-size:13px;white-space:pre-wrap}.form-error a{color:inherit}.field-error{display:block;min-height:18px;color:var(--er);font-size:12px;margin-top:4px}.test-choice{padding:16px;background:var(--s2);border:1px solid var(--ln2);border-radius:8px;display:grid;gap:10px}.test-choice h4{font-size:14px}.test-choice p{font-size:12px;color:var(--mu)}.test-shell{display:grid;gap:20px}.test-shell form{padding:0;gap:16px}.test-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.test-head h3{font-size:18px}.test-head .hint{max-width:54ch}.seg{display:inline-flex;padding:3px;border:1px solid var(--ln2);border-radius:7px;background:var(--field);flex-shrink:0}.seg-btn{min-height:36px;padding:0 12px;border:0;border-radius:5px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}.seg-btn[aria-selected=true]{background:var(--s3);color:var(--tx)}.test-actions{display:flex;gap:8px;flex-wrap:wrap}.test-status{display:grid;gap:14px;padding:16px;border:1px solid var(--ln);border-radius:8px;background:var(--s2)}.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.status-grid .k{margin-bottom:4px}.status-grid .v{font:12px/1.5 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.copy-row{display:flex;gap:8px;align-items:stretch}.copy-row input{flex:1;min-width:0}.table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:8px;background:var(--field);max-height:46vh}.table-wrap table{width:100%;border-collapse:collapse;font-size:12px;min-width:720px}.table-wrap th,.table-wrap td{padding:9px 10px;border-bottom:1px solid var(--ln);text-align:left;white-space:nowrap}.table-wrap th{position:sticky;top:0;z-index:1;background:var(--s2);color:var(--mu);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}.table-wrap tr:last-child td{border-bottom:0}.table-wrap td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}.badge{display:inline-flex;align-items:center;padding:2px 6px;border:1px solid var(--ln2);border-radius:4px;font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums}.badge.ok{color:var(--ok);border-color:#3e6751}.badge.warn{color:var(--wr);border-color:#6e5934}.badge.bad{color:var(--er);border-color:#805252}.badge.idle{color:var(--mu)}.muted{color:var(--mu)}
+#sync-status{font-size:12px;color:var(--mu)}#boot{padding:40px;color:var(--mu)}
 @media(max-width:1180px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.facts{gap:8px 16px}}@media(max-width:900px){header.card{flex-wrap:wrap;gap:16px}.facts{order:3;flex-basis:100%}.gauges{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.shell{padding:16px 16px 40px;gap:16px}header.card{padding:16px}.btn.tg{width:44px;padding:0}.btn.tg span{display:none}.grid2{grid-template-columns:minmax(0,1fr)}.gauges{gap:12px}.gauge{padding:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stat{padding:12px;gap:8px}.section-head .acts{margin-left:0;width:100%}.section-head .acts .btn{flex:1}dialog form,dialog>div{padding:20px}dialog form{padding-bottom:0}dialog .foot{margin:0 -20px;padding:16px 20px 20px}.tun{padding:16px}.fact div:last-child{max-width:140px}.brand b{font-size:16px}}
+@media(max-width:700px){.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.test-head{display:grid}.seg{width:100%}.seg-btn{flex:1}.test-shell{padding:20px}.test-shell form{padding:0}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 </style>
 </head>
@@ -160,22 +162,67 @@
 </dialog>
 
 <dialog id="dlg-test" class="wide">
-  <form id="test-form" novalidate>
-    <h3>Connection test</h3>
-    <p class="hint">Start Connection Test on the peer server, then paste its test link. Each supported method is measured separately.</p>
-    <div id="test-error" class="form-error" role="alert" tabindex="-1" hidden></div>
-    <div><label for="t-link">Peer test link</label><input id="t-link" class="mono" required autocomplete="off" placeholder="ctunnel-test://…"></div>
-    <div class="grid2">
-      <div><label for="t-role">Deploy on this server as</label><select id="t-role"><option value="iran">Iran — create first endpoint</option><option value="kharej">Kharej — use matching Iran configuration</option></select></div>
-      <div><label for="t-local">This server IPv4</label><input id="t-local" class="mono" placeholder="Auto-detect"></div>
+  <div class="test-shell">
+    <div class="test-head">
+      <div>
+        <h3>Connection test</h3>
+        <p class="hint">Iran starts a temporary responder and gives the link. Kharej pastes that link and runs the live multi-method test.</p>
+      </div>
+      <div class="seg" role="tablist" aria-label="Connection test role">
+        <button type="button" id="t-mode-iran" class="seg-btn" role="tab" aria-selected="true" aria-controls="t-iran-panel">Iran · listener</button>
+        <button type="button" id="t-mode-kharej" class="seg-btn" role="tab" aria-selected="false" aria-controls="test-form">Kharej · tester</button>
+      </div>
+      <button class="btn ghost" type="button" data-close>Close</button>
     </div>
-    <div><label for="t-secret">Tunnel secret</label><input id="t-secret" type="password" autocomplete="new-password" placeholder="Generate for Iran; required for Kharej"></div>
-    <div><label for="t-forwards">Forward ports on Iran</label><input id="t-forwards" class="mono" placeholder="443, 2053=8443"></div>
-    <p class="hint">The peer test link is not a tunnel setup link. Deployment creates this endpoint; apply the returned setup link on the peer. Carrier shape tests do not verify kernel setup.</p>
-    <pre id="t-out" class="out" hidden></pre>
-    <section id="t-best" class="test-choice" hidden aria-live="polite"><h4 id="t-best-title"></h4><p id="t-best-stats"></p><button id="t-deploy" class="btn primary" type="button">Deploy Best Tunnel</button></section>
-    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="t-btn" class="btn primary" type="submit">Run method test</button></div>
-  </form>
+    <div id="test-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+
+    <section id="t-iran-panel" role="tabpanel" aria-labelledby="t-mode-iran">
+      <p class="hint">Start the responder on this Iran server. The link is valid for 15 minutes; the listener closes itself so nothing stays open.</p>
+      <div><label for="t-host">This server public IPv4 (optional)</label><input id="t-host" class="mono" placeholder="Auto-detect"></div>
+      <div class="test-actions">
+        <button id="t-start" class="btn primary" type="button">Start listener</button>
+        <button id="t-stop" class="btn ghost" type="button" disabled>Stop listener</button>
+      </div>
+      <div id="t-iran-status" class="test-status" hidden>
+        <div class="status-grid">
+          <div><div class="k">Listener</div><div id="t-listen-state" class="v">—</div></div>
+          <div><div class="k">UDP</div><div id="t-udp" class="v">—</div></div>
+          <div><div class="k">TCP</div><div id="t-tcp" class="v">—</div></div>
+          <div><div class="k">Expires</div><div id="t-expires" class="v">—</div></div>
+        </div>
+        <div>
+          <label for="t-iran-link">Test link for Kharej</label>
+          <div class="copy-row"><input id="t-iran-link" class="mono" readonly autocomplete="off"><button id="t-copy" class="btn" type="button">Copy link</button></div>
+        </div>
+        <p id="t-iran-meta" class="hint"></p>
+      </div>
+      <div id="t-iran-progress" class="table-wrap" hidden></div>
+      <pre id="t-iran-report" class="out" hidden></pre>
+    </section>
+
+    <form id="test-form" role="tabpanel" aria-labelledby="t-mode-kharej" novalidate hidden>
+      <p class="hint">Paste the <code>ctunnel-test://</code> link generated on Iran. Each supported method is measured independently, then the best DIRECT and REVERSE candidates are stored for deployment.</p>
+      <div><label for="t-link">Iran test link</label><input id="t-link" class="mono" required autocomplete="off" placeholder="ctunnel-test://..."></div>
+      <div class="grid2">
+        <div><label for="t-role">Create endpoint as</label><select id="t-role"><option value="kharej">Kharej — use matching Iran configuration</option><option value="iran">Iran — create first endpoint</option></select></div>
+        <div><label for="t-local">This server IPv4</label><input id="t-local" class="mono" placeholder="Auto-detect"></div>
+      </div>
+      <div><label for="t-secret">Tunnel secret</label><input id="t-secret" type="password" autocomplete="new-password" placeholder="Required only to deploy on Kharej"></div>
+      <div><label for="t-forwards">Forward ports on Iran</label><input id="t-forwards" class="mono" placeholder="443, 2053=8443"></div>
+      <p class="hint">The test link is not a tunnel setup link. Deployment returns a separate <code>ctunnel://</code> link for the peer.</p>
+      <pre id="t-out" class="out" hidden></pre>
+      <div id="t-job-progress" class="table-wrap" hidden></div>
+      <section id="t-best" class="test-choice" hidden aria-live="polite">
+        <h4 id="t-best-title"></h4>
+        <p id="t-best-stats"></p>
+        <div class="test-actions">
+          <button id="t-deploy-direct" class="btn primary" type="button" disabled>Deploy Best Direct</button>
+          <button id="t-deploy-reverse" class="btn" type="button" disabled>Deploy Best Reverse</button>
+        </div>
+      </section>
+      <div class="foot"><button id="t-btn" class="btn primary" type="submit">Run test</button></div>
+    </form>
+  </div>
 </dialog>
 
 <dialog id="dlg-settings" class="wide">
@@ -211,7 +258,7 @@
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, testedID = "";
+let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" };
 const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
 
 function toast(msg, ok) {
@@ -350,6 +397,11 @@ function tunnelCard(t) {
   const row = el("div", "row");
   row.append(
     button("Setup link", "", () => showLink(c.t.name, c.t.setup_link, c.t.mikrotik, c.t.token)),
+    button("Copy link", "", async () => {
+      try { await navigator.clipboard.writeText(c.t.setup_link); toast("Setup link copied", true); }
+      catch (_) { showLink(c.t.name, c.t.setup_link, c.t.mikrotik, c.t.token); }
+    }),
+    button("Edit", "", () => editTunnel(c.t)),
     button("Restart", "", e => run(e.target, () => api("/api/tunnels/" + encodeURIComponent(c.t.name) + "/restart", { method: "POST" }), "Restarted " + c.t.name)),
     button("Delete", "danger", e => {
       if (confirm("Delete tunnel " + c.t.name + "? Its interface and port forwards are removed.")) {
@@ -364,7 +416,7 @@ function tunnelCard(t) {
 function updateTunnel(c, t) {
   c.t = t;
   c.name.textContent = t.name;
-  c.meth.textContent = t.method + " · " + t.role + (t.reverse ? " · reverse" : "");
+  c.meth.textContent = t.method + " · " + (t.family || "") + " · " + t.role + (t.reverse ? " · reverse" : "");
   c.state.className = "state " + stateClass(t.state);
   c.state.textContent = t.state;
   c.state.title = t.state;
@@ -372,6 +424,32 @@ function updateTunnel(c, t) {
   c.tunnelIP.textContent = t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   c.forwards.textContent = (t.ports || []).join(", ") || "—";
   c.io.textContent = bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes);
+}
+
+function editTunnel(t) {
+  const form = $("create-form");
+  form.reset(); form.saved = null; form.edit = t.name;
+  $("f-role").value = t.role;
+  $("f-reverse").value = t.reverse ? "1" : "0";
+  $("f-method").value = t.method;
+  $("f-remote").value = t.remote_ip || "";
+  $("f-local").value = t.local_ip || "";
+  $("f-name").value = t.name;
+  $("f-name").disabled = true;
+  $("f-index").value = t.index || "";
+  $("f-port").value = t.port || "";
+  $("f-token").value = t.token || "";
+  $("f-mtu").value = t.mtu || "";
+  $("f-rate").value = t.rate_mbps || "";
+  $("f-lanes").value = t.lanes || "";
+  $("f-tid").value = t.tunnel_id || "";
+  $("f-ports").value = (t.ports || []).join(", ");
+  $("f-tun-iran").value = t.role === "iran" ? (t.tun_local4 || "") : (t.tun_remote4 || "");
+  $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
+  form.querySelector('[type="submit"]').textContent = "Save and restart";
+  $("create-error").hidden = true;
+  syncForm();
+  $("dlg-new").showModal();
 }
 
 function renderTunnels(list) {
@@ -502,7 +580,9 @@ function showLink(name, link, mikrotik, token) {
 
 document.querySelectorAll("[data-close]").forEach(b => { b.onclick = () => b.closest("dialog").close(); });
 $("btn-new").onclick = () => {
-  $("create-form").reset(); $("create-form").saved = null;
+  const form = $("create-form");
+  form.reset(); form.saved = null; form.edit = null;
+  $("f-name").disabled = false;
   $("create-form").querySelector('[type="submit"]').textContent = "Create and start";
   $("create-error").hidden = true; syncForm(); $("dlg-new").showModal();
 };
@@ -524,7 +604,7 @@ function setMenu(open) {
 $("menu-btn").onclick = e => { e.stopPropagation(); setMenu($("menu").hidden); };
 document.addEventListener("click", e => { if (!(e.target instanceof Element) || !e.target.closest(".menu-wrap")) setMenu(false); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("menu").hidden) { setMenu(false); $("menu-btn").focus(); } });
-$("m-test").onclick = () => { setMenu(false); $("dlg-test").showModal(); };
+$("m-test").onclick = () => { setMenu(false); openTestDialog(); };
 $("m-restart").onclick = () => { setMenu(false); run(null, () => api("/api/tunnels/all/restart", { method: "POST" }), "All tunnels restarted"); };
 $("m-optimize").onclick = () => { setMenu(false); run(null, () => api("/api/optimize", { method: "POST" }), "Kernel tuning applied"); };
 $("m-logout").onclick = async () => { setMenu(false); await api("/api/logout", { method: "POST" }).catch(() => {}); csrf = ""; showGate(); };
@@ -556,22 +636,24 @@ $("f-reverse").onchange = syncForm;
 
 async function saveTunnel(form, submitter, body, endpoint, dialog, errorID) {
   if (form.busy || !validateForm(form, errorID)) return;
+  const editing = !!form.edit;
   form.busy = true;
   const label = submitter.textContent;
-  submitter.disabled = true; submitter.textContent = form.saved ? "Starting…" : "Creating…"; submitter.setAttribute("aria-busy", "true");
+  submitter.disabled = true; submitter.textContent = form.saved ? "Starting…" : (editing ? "Saving…" : "Creating…"); submitter.setAttribute("aria-busy", "true");
   try {
     let result;
     if (form.saved) {
       await api("/api/tunnels/" + encodeURIComponent(form.saved.name) + "/restart", { method: "POST", timeout: 120000 });
       result = { ...form.saved, ok: true };
     } else {
-      result = await api(endpoint, { method: "POST", timeout: 120000, body: JSON.stringify(body) });
+      result = await api(endpoint, { method: editing ? "PUT" : "POST", timeout: 120000, body: JSON.stringify(body) });
       if (result.name) form.saved = result;
       if (result.ok === false) throw new Error(result.error);
     }
     await refresh();
-    $(dialog).close(); form.reset(); form.saved = null;
-    syncForm(); toast("Tunnel created and started", true);
+    $(dialog).close(); form.reset(); form.saved = null; form.edit = null;
+    $("f-name").disabled = false;
+    syncForm(); toast(editing ? "Tunnel saved and restarted" : "Tunnel created and started", true);
     if (result.setup_link) showLink(result.name, result.setup_link, result.mikrotik, result.token);
   } catch (err) { formError(errorID, err.message); toast(err.message); await refresh(); }
   finally {
@@ -592,35 +674,183 @@ $("create-form").addEventListener("submit", async e => {
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
   };
   if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or import its setup link."); $("f-token").closest("details").open = true; return; }
-  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), body, "/api/tunnels", "dlg-new", "create-error");
+  const form = e.currentTarget;
+  const endpoint = form.edit ? "/api/tunnels/" + encodeURIComponent(form.edit) : "/api/tunnels";
+  await saveTunnel(form, e.submitter || form.querySelector('[type="submit"]'), body, endpoint, "dlg-new", "create-error");
 });
 $("import-form").addEventListener("submit", async e => {
  e.preventDefault();
  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
 });
 
-$("t-role").onchange = () => { $("t-secret").required = $("t-role").value === "kharej"; };
-$("test-form").addEventListener("submit", async e => {
- e.preventDefault(); if (!validateForm(e.currentTarget, "test-error") || $("t-btn").disabled) return;
- testedID = ""; $("t-best").hidden = true; $("t-out").hidden = false;
- $("t-out").textContent = "Testing each method independently. This may take several minutes…";
- const r = await run($("t-btn"), () => api("/api/linktest", { method: "POST", timeout: 330000, body: JSON.stringify({ link: $("t-link").value.trim(), role: $("t-role").value, local_ip: $("t-local").value.trim(), token: $("t-secret").value.trim(), ports: $("t-forwards").value.split(/[\s,]+/).filter(Boolean) }) }));
- $("t-out").textContent = r ? r.text : "Test failed. Check the peer responder and try again.";
- if (r && r.deployment_available && r.best) {
-  testedID = r.test_id;
-  $("t-best-title").textContent = r.best.method + " · " + r.best.mode;
-  $("t-best-stats").textContent = `${r.best.rtt_ms.toFixed(1)} ms · ↓ ${r.best.down_mbps.toFixed(1)} Mbps · ↑ ${r.best.up_mbps.toFixed(1)} Mbps. Ranked by throughput with latency and jitter penalties.`;
-  $("t-deploy").disabled = false; $("t-deploy").textContent = "Deploy Best Tunnel"; $("t-best").hidden = false;
- }
-});
-$("t-deploy").onclick = async () => {
- if (!testedID) return;
- const r = await run($("t-deploy"), () => api("/api/deploy-best", { method: "POST", body: JSON.stringify({ test_id: testedID }) }));
- if (r && r.name) {
-  $("t-deploy").disabled = true; $("t-deploy").textContent = r.ok ? "Deployed" : "Saved · restart from tunnel card";
-  if (r.ok) { $("dlg-test").close(); showLink(r.name, r.setup_link, r.mikrotik, r.token); }
- }
+function testBadge(r) {
+  if (r.skipped) return ["SKIP", "warn", r.skipped];
+  if (r.error) return ["ERROR", "bad", r.error];
+  if (!r.sent) return ["WAIT", "idle", ""];
+  if (!r.received) return ["BLOCKED", "bad", "no echo came back"];
+  if (r.received < r.sent) return ["UNSTABLE", "warn", `${r.sent - r.received} probes lost`];
+  return ["OK", "ok", ""];
+}
+function mbps(v) { return v > 0 ? Number(v).toFixed(1) + " Mbps" : "—"; }
+function renderTestRows(box, rows) {
+  box.replaceChildren();
+  if (!rows || !rows.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const table = el("table");
+  const head = el("tr");
+  for (const h of ["Mode", "Method", "Family", "Status", "Echo", "Latency", "Down", "Up"]) head.appendChild(el("th", "", h));
+  const thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
+  const body = el("tbody");
+  for (const r of rows) {
+    const [label, cls, title] = testBadge(r);
+    const tr = el("tr");
+    tr.append(el("td", "", r.mode || "—"), el("td", "mono", r.method || "—"), el("td", "", r.family || "—"));
+    const st = el("span", "badge " + cls, label); if (title) st.title = title;
+    const stCell = el("td"); stCell.appendChild(st); tr.appendChild(stCell);
+    tr.append(el("td", "num", `${r.received || 0}/${r.sent || 0}`),
+      el("td", "num", r.rtt_ms > 0 ? Number(r.rtt_ms).toFixed(1) + " ms" : "—"),
+      el("td", "num", mbps(r.down_mbps)), el("td", "num", mbps(r.up_mbps)));
+    body.appendChild(tr);
+  }
+  table.appendChild(body); box.appendChild(table);
+}
+function renderTestServer(r) {
+  const active = !!r.active;
+  $("t-start").disabled = active;
+  $("t-stop").disabled = !active;
+  $("t-iran-status").hidden = !active;
+  if (!active) {
+    $("t-iran-progress").hidden = true; $("t-iran-progress").replaceChildren();
+    $("t-iran-report").hidden = true; $("t-iran-report").textContent = "";
+    return;
+  }
+  $("t-iran-link").value = r.link || "";
+  $("t-listen-state").textContent = "LISTENING";
+  $("t-udp").textContent = r.udp_port ? ":" + r.udp_port : "—";
+  $("t-tcp").textContent = r.tcp_port ? ":" + r.tcp_port : "—";
+  $("t-expires").textContent = r.expires_at ? new Date(r.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
+  const raw = (r.raw_open || []).length ? r.raw_open.join(", ") : (r.raw_error || "none — UDP-only methods still work");
+  $("t-iran-meta").textContent = "Raw IP protocols: " + raw;
+  renderTestRows($("t-iran-progress"), r.rows);
+  $("t-iran-report").hidden = !r.report_text;
+  $("t-iran-report").textContent = r.report_text || "";
+}
+async function refreshTestServer() {
+  try {
+    const r = await api("/api/linktest/server");
+    renderTestServer(r);
+    if (!r.active) stopTestPoll();
+  } catch (_) { /* the dialog will report the next explicit action */ }
+}
+function stopTestPoll() { if (testPoll) { clearInterval(testPoll); testPoll = 0; } }
+function startTestPoll() { stopTestPoll(); testPoll = setInterval(refreshTestServer, 2000); refreshTestServer(); }
+function setTestMode(mode) {
+  testMode = mode;
+  const iran = mode === "iran";
+  $("t-iran-panel").hidden = !iran;
+  $("test-form").hidden = iran;
+  $("t-mode-iran").setAttribute("aria-selected", String(iran));
+  $("t-mode-kharej").setAttribute("aria-selected", String(!iran));
+  testDeploy = { direct: "", reverse: "" };
+  $("t-best").hidden = true;
+  stopTestPoll();
+  if (iran) startTestPoll();
+  else if (testJobID) startJobPoll();
+}
+function openTestDialog() {
+  $("test-error").hidden = true;
+  $("dlg-test").showModal();
+  setTestMode(testMode);
+}
+function renderTestBest(r) {
+  const direct = r.deployments && r.deployments.direct;
+  const reverse = r.deployments && r.deployments.reverse;
+  testDeploy = { direct: direct ? direct.test_id : "", reverse: reverse ? reverse.test_id : "" };
+  $("t-best").hidden = !direct && !reverse;
+  if (!direct && !reverse) return;
+  const parts = [];
+  if (direct) parts.push("DIRECT " + direct.best.method);
+  if (reverse) parts.push("REVERSE " + reverse.best.method);
+  $("t-best-title").textContent = parts.join(" · ");
+  const bs = r.best_settings || {};
+  const stats = [];
+  if (bs.path_mtu > 0) stats.push(`Path MTU ${bs.path_mtu}`);
+  if (bs.tunnel_mtu > 0) stats.push(`Tunnel MTU ${bs.tunnel_mtu}`);
+  if (bs.rtt_ms > 0) stats.push(`${Number(bs.rtt_ms).toFixed(1)} ms`);
+  $("t-best-stats").textContent = stats.length ? stats.join(" · ") : "Measured on this path. Review the table before deploying.";
+  $("t-deploy-direct").disabled = !direct;
+  $("t-deploy-direct").textContent = direct ? "Deploy Best Direct" : "No Direct result";
+  $("t-deploy-reverse").disabled = !reverse;
+  $("t-deploy-reverse").textContent = reverse ? "Deploy Best Reverse" : "No Reverse result";
+}
+async function refreshTestJob() {
+  if (!testJobID) return;
+  try {
+    const r = await api("/api/linktest/jobs/" + encodeURIComponent(testJobID));
+    renderTestRows($("t-job-progress"), r.rows);
+    if (r.text) { $("t-out").hidden = false; $("t-out").textContent = r.text; }
+    else if (r.status === "running") { $("t-out").hidden = false; $("t-out").textContent = "Running live method tests…"; }
+    if (r.status === "done") {
+      stopTestPoll(); $("t-btn").disabled = false; $("t-btn").textContent = "Run test";
+      renderTestBest(r);
+      if (r.error) formError("test-error", r.error);
+    } else if (r.status === "error" || r.status === "stopped") {
+      stopTestPoll(); $("t-btn").disabled = false; $("t-btn").textContent = "Run test";
+      formError("test-error", r.error || "Test stopped");
+    }
+  } catch (err) {
+    stopTestPoll(); $("t-btn").disabled = false; $("t-btn").textContent = "Run test";
+    formError("test-error", err.message);
+  }
+}
+function startJobPoll() { stopTestPoll(); testPoll = setInterval(refreshTestJob, 1000); refreshTestJob(); }
+async function deployBest(mode) {
+  const id = testDeploy[mode];
+  const btn = $("t-deploy-" + mode);
+  if (!id || !btn) return;
+  if ($("t-role").value === "kharej" && !$("t-secret").value.trim()) {
+    formError("test-error", "Enter the Iran tunnel secret to deploy on Kharej.");
+    return;
+  }
+  const r = await run(btn, () => api("/api/deploy-best", { method: "POST", body: JSON.stringify({ test_id: id, token: $("t-secret").value.trim() }) }), "Tunnel deployed");
+  if (r && r.name) {
+    btn.textContent = r.ok ? "Deployed" : "Saved — restart from tunnel card";
+    if (r.ok) { $("dlg-test").close(); showLink(r.name, r.setup_link, r.mikrotik, r.token); }
+  }
+}
+
+$("t-mode-iran").onclick = () => setTestMode("iran");
+$("t-mode-kharej").onclick = () => setTestMode("kharej");
+$("t-start").onclick = async () => {
+  const r = await run($("t-start"), () => api("/api/linktest/server/start", { method: "POST", body: JSON.stringify({ host: $("t-host").value.trim() }) }), "Test listener ready");
+  if (r && r.active) { renderTestServer(r); startTestPoll(); }
 };
+$("t-stop").onclick = async () => {
+  const r = await run($("t-stop"), () => api("/api/linktest/server/stop", { method: "POST" }), "Test listener stopped");
+  if (r) { stopTestPoll(); renderTestServer({ active: false }); }
+};
+$("t-copy").onclick = async () => {
+  const link = $("t-iran-link").value;
+  if (!link) return;
+  try { await navigator.clipboard.writeText(link); toast("Test link copied", true); }
+  catch (_) { $("t-iran-link").select(); toast("Select the link and copy it by hand"); }
+};
+$("dlg-test").addEventListener("close", stopTestPoll);
+$("test-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!validateForm(e.currentTarget, "test-error") || $("t-btn").disabled) return;
+  testJobID = ""; testDeploy = { direct: "", reverse: "" };
+  $("t-best").hidden = true; $("t-job-progress").hidden = true; $("t-job-progress").replaceChildren();
+  $("t-out").hidden = false; $("t-out").textContent = "Starting the live test…";
+  const r = await run($("t-btn"), () => api("/api/linktest/jobs", { method: "POST", body: JSON.stringify({ link: $("t-link").value.trim(), role: $("t-role").value, local_ip: $("t-local").value.trim(), token: $("t-secret").value.trim(), ports: $("t-forwards").value.split(/[\s,]+/).filter(Boolean) }) }), "Test started");
+  if (r && r.test_id) {
+    testJobID = r.test_id;
+    $("t-btn").disabled = true; $("t-btn").textContent = "Testing…";
+    startJobPoll();
+  }
+});
+$("t-deploy-direct").onclick = () => deployBest("direct");
+$("t-deploy-reverse").onclick = () => deployBest("reverse");
 
 $("p-mode").onchange = () => { $("p-tls").hidden = $("p-mode").value !== "https"; };
 $("m-settings").onclick = async () => {
