@@ -19,6 +19,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/conntest"
+	"ctunnel/pkg/version"
 )
 
 func TestPanelPathPersistsAndRootIsHidden(t *testing.T) {
@@ -273,8 +274,9 @@ func TestUpdateTunnel(t *testing.T) {
 func TestVersionEndpoint(t *testing.T) {
 	c, st, _ := setup(t)
 	c.login(st.PanelCode)
-	original := fetchLatestRelease
-	defer func() { fetchLatestRelease = original }()
+	original, current := fetchLatestRelease, version.Version
+	defer func() { fetchLatestRelease, version.Version = original, current }()
+	version.Version = "0.2.7"
 	fetchLatestRelease = func() (releaseResponse, error) {
 		return releaseResponse{TagName: "v0.2.8", HTMLURL: "https://github.com/CIAUB/C-Tunnel/releases/tag/v0.2.8"}, nil
 	}

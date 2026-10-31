@@ -1,12 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2026-11-01
 
 ### Fixed
 - Reverse carrier: each TCP stream now has its own keys and replay window, derived from a random stream ID in the handshake. With one shared window, a stream stalled by a TCP retransmit fell behind the other streams and its whole backlog was dropped as replays once traffic passed about 8,000 packets in the stall, which collapsed throughput on lossy links. A recorded connection is still refused, because its handshake is checked against the carrier-wide window.
 
 ### Upgrade note
 - Update the Iran server before the Kharej servers. A new Iran server still accepts old Kharej servers; an old Iran server cannot read traffic from a new Kharej server.
+
+[0.3.0]: https://github.com/CIAUB/C-Tunnel/compare/v0.2.7...v0.3.0
 
 ## [0.2.7] - 2026-10-30
 
