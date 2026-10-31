@@ -115,7 +115,7 @@ func TestCarrierWriteFailureReported(t *testing.T) {
 	a, b := net.Pipe()
 	defer b.Close()
 	done := make(chan struct{})
-	go func() { r.serveConn(a, false); close(done) }()
+	go func() { r.serveConn(a, r.tx, r.rx); close(done) }()
 	_ = b.SetWriteDeadline(time.Now().Add(time.Second))
 	if err := writeFrame(b, peer.tx.Seal(nil, []byte("packet"), 0), make([]byte, 512)); err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func TestClosedStreamRejectsEnqueueAndDrainsQueue(t *testing.T) {
 	r := testCarrier(t)
 	a, b := net.Pipe()
 	defer b.Close()
-	st := &revStream{c: a, q: make(chan *[]byte, 8), done: make(chan struct{})}
+	st := &revStream{c: a, tx: r.tx, q: make(chan *[]byte, 8), done: make(chan struct{})}
 	for i := 0; i < 8; i++ {
 		bp := revPktPool.Get().(*[]byte)
 		*bp = (*bp)[:0]

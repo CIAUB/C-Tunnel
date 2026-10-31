@@ -134,7 +134,7 @@ func TestReverseCarrierTLSRecordHandshakeAndFraming(t *testing.T) {
 	defer cKharej.Close()
 
 	// Iran serves the connection requiring first-frame auth from Kharej.
-	go iranR.serveConn(cIran, true)
+	go iranR.serveConn(cIran, nil, nil)
 
 	// Kharej sends the encrypted handshake frame first.
 	if err := writeFrame(cKharej, kharejR.tx.Seal(nil, nil, 16), make([]byte, 512)); err != nil {

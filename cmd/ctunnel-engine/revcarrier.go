@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
+	crand "crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +26,7 @@ const (
 	revDialRetry   = 2 * time.Second  //
 	revHeartbeat   = 10 * time.Second // empty frame on an idle stream
 	revIdleTimeout = 35 * time.Second // no frame at all for this long = dead stream
+	revStreamIDLen = 16               // random stream ID carried in the handshake
 )
 
 // revCarrier implements an FRP-style reverse TCP carrier for kernel L2/L3 tunnels:
@@ -51,6 +54,7 @@ type revCarrier struct {
 
 type revStream struct {
 	c       net.Conn
+	tx      *crypto.FastAEAD
 	q       chan *[]byte
 	done    chan struct{}
 	once    sync.Once
@@ -147,8 +151,42 @@ func tuneTCP(c net.Conn) {
 	}
 }
 
-func (r *revCarrier) addConn(c net.Conn) *revStream {
-	st := &revStream{c: c, q: make(chan *[]byte, revQueueLen), done: make(chan struct{})}
+// streamCiphers returns the keys for one stream. Each stream needs its own replay
+// window: TCP keeps a stream in order, but streams run at different speeds, and a
+// stream stalled by a retransmit would fall behind a shared window and lose its whole
+// backlog. A replayed connection is still refused, because its handshake is checked
+// against the carrier-wide window. An empty ID is an older peer: shared keys.
+func (r *revCarrier) streamCiphers(id []byte) (tx, rx *crypto.FastAEAD, err error) {
+	if len(id) == 0 {
+		return r.tx, r.rx, nil
+	}
+	peerRole := catalog.PeerRole(r.cfg.role)
+	label := "rev-stream|" + hex.EncodeToString(id) + "|"
+	if tx, err = crypto.NewFastAEAD(r.cfg.secret, label+r.cfg.role+">"+peerRole); err != nil {
+		return nil, nil, err
+	}
+	if rx, err = crypto.NewFastAEAD(r.cfg.secret, label+peerRole+">"+r.cfg.role); err != nil {
+		return nil, nil, err
+	}
+	return tx, rx, nil
+}
+
+// openStream sends the dialer's handshake on c and returns the stream's keys.
+func (r *revCarrier) openStream(c net.Conn) (tx, rx *crypto.FastAEAD, err error) {
+	id := make([]byte, revStreamIDLen)
+	if _, err = crand.Read(id); err != nil {
+		return nil, nil, err
+	}
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err = writeFrame(c, r.tx.Seal(nil, id, r.cfg.padding), make([]byte, 5+revStreamIDLen+512)); err != nil {
+		return nil, nil, err
+	}
+	_ = c.SetWriteDeadline(time.Time{})
+	return r.streamCiphers(id)
+}
+
+func (r *revCarrier) addConn(c net.Conn, tx *crypto.FastAEAD) *revStream {
+	st := &revStream{c: c, tx: tx, q: make(chan *[]byte, revQueueLen), done: make(chan struct{})}
 	r.mu.Lock()
 	if len(r.conns) >= revMaxConns { // drop the oldest stream, it is the most likely stale one
 		r.conns[0].close()
@@ -228,7 +266,7 @@ func (r *revCarrier) writer(st *revStream) {
 	defer hb.Stop()
 	sent := false
 	send := func(p []byte) bool {
-		ct := r.tx.Seal(sealBuf[:0], p, r.cfg.padding)
+		ct := st.tx.Seal(sealBuf[:0], p, r.cfg.padding)
 		_ = st.c.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		return writeFrame(bw, ct, wireBuf) == nil
 	}
@@ -320,7 +358,9 @@ func (r *revCarrier) deviceToStreams() error {
 	}
 }
 
-func (r *revCarrier) serveConn(c net.Conn, requireAuthFirst bool) {
+// serveConn carries one stream. A nil tx/rx means c was accepted by iran and must
+// open with the dialer's handshake, which sets the stream's keys.
+func (r *revCarrier) serveConn(c net.Conn, tx, rx *crypto.FastAEAD) {
 	stopClose := context.AfterFunc(r.ctx, func() { _ = c.Close() })
 	defer stopClose()
 	tuneTCP(c)
@@ -329,19 +369,24 @@ func (r *revCarrier) serveConn(c net.Conn, requireAuthFirst bool) {
 	body := make([]byte, maxPacket+256)
 	plainBuf := make([]byte, maxPacket)
 
-	if requireAuthFirst {
+	if tx == nil || rx == nil {
 		_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
 		ct, err := readFrame(br, hdr, body)
 		if err != nil {
 			_ = c.Close()
 			return
 		}
-		if _, err := r.rx.Open(plainBuf[:0], ct); err != nil {
+		id, err := r.rx.Open(plainBuf[:0], ct)
+		if err != nil || (len(id) != 0 && len(id) != revStreamIDLen) {
 			_ = c.Close() // not our peer: drop silently, like a closed port
 			return
 		}
+		if tx, rx, err = r.streamCiphers(id); err != nil {
+			_ = c.Close()
+			return
+		}
 	}
-	st := r.addConn(c)
+	st := r.addConn(c, tx)
 	defer r.removeConn(st)
 
 	for {
@@ -350,7 +395,7 @@ func (r *revCarrier) serveConn(c net.Conn, requireAuthFirst bool) {
 		if err != nil {
 			return
 		}
-		plain, err := r.rx.Open(plainBuf[:0], ct)
+		plain, err := rx.Open(plainBuf[:0], ct)
 		if err != nil || len(plain) == 0 { // replay / heartbeat
 			continue
 		}
@@ -401,7 +446,7 @@ func (r *revCarrier) serveListener(ln net.Listener, limit int) error {
 		case slots <- struct{}{}:
 			go func() {
 				defer func() { <-slots }()
-				r.serveConn(c, true)
+				r.serveConn(c, nil, nil)
 			}()
 		default:
 			_ = c.Close()
@@ -436,7 +481,6 @@ func (r *revCarrier) dialKharej() error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			wireBuf := make([]byte, 5+512)
 			attempt := 0
 			dialer := net.Dialer{Timeout: 5 * time.Second}
 			for r.ctx.Err() == nil {
@@ -448,10 +492,9 @@ func (r *revCarrier) dialKharej() error {
 					attempt++
 					continue
 				}
-				// Authenticate immediately with an encrypted handshake frame (empty payload).
-				hs := r.tx.Seal(nil, nil, r.cfg.padding)
-				_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := writeFrame(c, hs, wireBuf); err != nil {
+				// Authenticate immediately with an encrypted handshake carrying the stream ID.
+				tx, rx, err := r.openStream(c)
+				if err != nil {
 					_ = c.Close()
 					if !waitRetry(r.ctx, attempt) {
 						return
@@ -459,9 +502,8 @@ func (r *revCarrier) dialKharej() error {
 					attempt++
 					continue
 				}
-				_ = c.SetWriteDeadline(time.Time{})
 				attempt = 0
-				r.serveConn(c, false)
+				r.serveConn(c, tx, rx)
 				log.Printf("reverse stream to %s closed, redialing", target)
 				if !waitRetry(r.ctx, attempt) {
 					return
