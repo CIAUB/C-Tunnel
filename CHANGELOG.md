@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0]
 
 ### Added
 - Web panel rebuilt after BackPack's current panel: server strip with processor, memory, disk, swap, download and upload meters and their recent history; a dock with Overview, Connection test, Tunnels and Manage; light, dark and automatic appearance.
@@ -23,6 +23,11 @@
 - Delete used the browser's native confirm box; Stop, Delete, Restart all and Restore now ask in the panel.
 - The tunnel form offered GRE lanes and tunnel ID for every method; they now show only for methods that use them.
 - The header could push the page wider than a phone screen when an update was available.
+
+### Upgrade note
+- Traffic totals start counting from this version; what tunnels carried before the update is not in them.
+
+[0.4.0]: https://github.com/CIAUB/C-Tunnel/compare/v0.3.0...v0.4.0
 
 ## [0.3.0] - 2026-11-01
 
