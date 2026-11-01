@@ -1,168 +1,517 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <title>C-Tunnel</title>
 <style>
-:root{color-scheme:dark;--bg:#090a0f;--s1:#0d0f17;--s2:#121620;--s3:#1a1f2b;--ln:rgba(255,255,255,.07);--ln2:rgba(255,255,255,.14);--tx:#f4f5f8;--tx2:#c7cad4;--mu:#9499a7;--dim:#6f7482;--ac:#e6e8ef;--ac-soft:rgba(255,255,255,.055);--ac-line:rgba(255,255,255,.16);--ok:#7bc49d;--wr:#e2ba74;--er:#f19191;--field:#080a10;--r-lg:12px;--r:8px;--r-sm:6px;--ease:cubic-bezier(.22,1,.36,1);--sans:Inter,Geist,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:"Geist Mono","SFMono-Regular",Consolas,monospace}
-*{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit;color:inherit}button,a,input,select,textarea{touch-action:manipulation}svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}code,.mono,.num,.kv div div:last-child{font-family:var(--mono);font-variant-numeric:tabular-nums}code{font-size:.92em}.card{background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg)}.k{color:var(--mu);font-size:12px;font-weight:500}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 14px;border-radius:var(--r-sm);border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:550;cursor:pointer;transition:background-color 150ms,border-color 150ms}.btn:hover{background:var(--s3);border-color:#55555d}.btn:active{background:#303034}.btn:disabled{opacity:.45;cursor:not-allowed}.btn[aria-busy=true]{cursor:progress}.btn svg{width:17px;height:17px;flex-shrink:0}.btn.primary{background:#e7e7eb;color:#111113;border-color:#e7e7eb}.btn.primary:hover{background:#fff}.btn.ghost{background:transparent}.btn.danger{color:var(--er)}.btn.sm{min-height:40px;padding:0 11px;font-size:12px}.btn.square{width:44px;padding:0;flex-shrink:0}.btn.square svg{width:19px;height:19px}a.btn{text-decoration:none;color:inherit}:focus-visible{outline:2px solid #d4d4db;outline-offset:3px}label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--tx2)}input,select,textarea{width:100%;min-height:44px;padding:10px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:var(--r-sm)}input:focus,select:focus,textarea:focus{outline:2px solid #878790;outline-offset:1px}input[aria-invalid=true]{border-color:var(--er)}input[type=checkbox]{width:18px;min-height:18px}textarea{resize:vertical}.hint{font-size:12px;color:var(--mu);margin-top:6px;line-height:1.6}.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.stack{display:grid;gap:16px}.gate{min-height:100dvh;display:grid;place-items:center;padding:24px}.gate form{width:100%;max-width:400px;padding:32px;display:grid;gap:24px}.gate p{color:var(--mu)}.shell{max-width:1440px;margin:auto;padding:24px 28px 64px;display:grid;gap:24px;isolation:isolate;overflow:visible}.brand{display:flex;align-items:center;gap:12px;min-width:0}.logo{flex:none;width:40px;height:40px;border:1px solid var(--ln2);border-radius:9px;display:grid;place-items:center;background:var(--s2);color:var(--tx)}.logo svg{width:23px;height:23px}.brand b{display:block;font-size:17px;letter-spacing:-.04em;font-weight:650}.brand span{display:block;font-size:12px;color:var(--mu)}header.card{position:relative;z-index:40;overflow:visible;display:flex;align-items:center;gap:24px;padding:20px}.facts{display:flex;flex-wrap:wrap;gap:12px 24px;flex:1;min-width:0}.fact{min-width:0}.fact div:last-child{font-size:13px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hdr-acts{display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;overflow:visible}.menu-wrap{position:relative;z-index:50;overflow:visible}.menu{position:absolute;z-index:60;right:0;top:calc(100% + 8px);width:min(260px,calc(100vw - 48px));padding:6px;background:#19191c;border:1px solid var(--ln2);border-radius:var(--r);box-shadow:0 12px 40px #0008;display:grid;gap:2px}.menu button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:10px 12px;background:none;border:0;border-radius:5px;text-align:left;cursor:pointer;font-size:13px}.menu button:hover,.menu button:focus-visible{background:var(--s3)}.menu svg,.tg-link svg{width:17px;height:17px}.tg-link{display:inline-flex;align-items:center;gap:8px;color:var(--mu);font-size:12px;text-decoration:none}.gauges{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.gauge{padding:20px;display:grid;gap:14px}.gauge .k{display:flex;align-items:center;gap:8px}.gauge .k svg{width:16px;height:16px}.gauge .reading{display:flex;align-items:baseline;gap:4px}.gauge .reading b{font-size:30px;line-height:1;font-weight:550;letter-spacing:-.05em}.gauge .reading small{font-size:13px;color:var(--mu)}.gauge progress{width:100%;height:4px;border:0;appearance:none;background:var(--s3);border-radius:2px;overflow:hidden}.gauge progress::-webkit-progress-bar{background:var(--s3)}.gauge progress::-webkit-progress-value{background:#a1a1aa}.gauge progress::-moz-progress-bar{background:#a1a1aa}.gauge .sub{color:var(--mu);font-size:12px}.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.stat{display:flex;align-items:center;gap:12px;padding:16px;min-width:0}.stat>div:last-child{min-width:0}.stat .v{font-size:15px;font-weight:500;overflow-wrap:anywhere}.icon-sq{width:32px;height:32px;flex:none;display:grid;place-items:center;color:var(--mu);border:1px solid var(--ln);border-radius:6px;background:var(--s2)}.icon-sq svg{width:16px;height:16px}.section-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:12px}.section-head h2{font-size:16px;letter-spacing:-.02em;font-weight:600}.pill{border:1px solid var(--ln2);border-radius:5px;padding:2px 7px;font-size:12px;color:var(--mu)}.section-head .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,350px),1fr));gap:16px}.empty{grid-column:1/-1;padding:64px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r)}.tun{padding:20px;display:grid;gap:16px}.tun-top{display:flex;align-items:center;gap:12px}.tun-top>div:nth-child(2){flex:1;min-width:0}.name{font-size:15px;font-weight:600}.meth{font-size:12px;color:var(--mu);overflow-wrap:anywhere}.state{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:3px 7px;flex-shrink:0;border:1px solid var(--ln);border-radius:5px;font-size:12px;color:var(--mu)}.state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}.state.up{color:var(--ok)}.state.warn{color:var(--wr)}.state.bad{color:var(--er)}.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px;border-top:1px solid var(--ln);border-bottom:1px solid var(--ln);padding:16px 0}.kv div div:last-child{font-size:12px;overflow-wrap:anywhere}.tun .row{display:flex;flex-wrap:wrap;gap:8px}.tun .row .danger{margin-left:auto}dialog{margin:auto;width:min(560px,calc(100vw - 32px));max-height:calc(100dvh - 40px);overflow:auto;background:var(--s1);color:var(--tx);border:1px solid var(--ln2);border-radius:12px;padding:0;box-shadow:0 24px 80px #0009}dialog.wide{width:min(760px,calc(100vw - 32px))}dialog::backdrop{background:#000b}dialog form,dialog>div{padding:24px;display:grid;gap:20px}dialog h3{font-size:18px;font-weight:600;letter-spacing:-.025em}dialog form{padding-bottom:0}dialog .foot{position:sticky;bottom:0;z-index:2;display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 -24px;padding:16px 24px 24px;background:var(--s1);border-top:1px solid var(--ln)}dialog>div .foot{margin-bottom:-24px}details summary{cursor:pointer;color:var(--mu);font-size:13px;min-height:36px}details[open] summary{margin-bottom:16px}pre.out{background:var(--field);border:1px solid var(--ln);padding:16px;border-radius:6px;color:var(--tx2);font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}.toast{position:fixed;z-index:100;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:14px 18px;border:1px solid #805252;border-radius:8px;background:#202023;color:var(--tx);box-shadow:0 8px 30px #0008;font-size:13px}.toast.ok{border-color:#3e6751}.form-error{padding:12px 14px;border:1px solid #805252;border-radius:6px;color:#f3b5b5;font-size:13px;white-space:pre-wrap}.form-error a{color:inherit}.field-error{display:block;min-height:18px;color:var(--er);font-size:12px;margin-top:4px}.test-choice{padding:16px;background:var(--s2);border:1px solid var(--ln2);border-radius:8px;display:grid;gap:10px}.test-choice h4{font-size:14px}.test-choice p{font-size:12px;color:var(--mu)}.test-shell{display:grid;gap:20px}.test-shell form{padding:0;gap:16px}.test-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.test-head h3{font-size:18px}.test-head .hint{max-width:54ch}.seg{display:inline-flex;padding:3px;border:1px solid var(--ln2);border-radius:7px;background:var(--field);flex-shrink:0}.seg-btn{min-height:36px;padding:0 12px;border:0;border-radius:5px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}.seg-btn[aria-selected=true]{background:var(--s3);color:var(--tx)}.test-actions{display:flex;gap:8px;flex-wrap:wrap}.test-status{display:grid;gap:14px;padding:16px;border:1px solid var(--ln);border-radius:8px;background:var(--s2)}.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.status-grid .k{margin-bottom:4px}.status-grid .v{font:12px/1.5 var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.copy-row{display:flex;gap:8px;align-items:stretch}.copy-row input{flex:1;min-width:0}.table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:8px;background:var(--field);max-height:46vh}.table-wrap table{width:100%;border-collapse:collapse;font-size:12px;min-width:720px}.table-wrap th,.table-wrap td{padding:9px 10px;border-bottom:1px solid var(--ln);text-align:left;white-space:nowrap}.table-wrap th{position:sticky;top:0;z-index:1;background:var(--s2);color:var(--mu);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em}.table-wrap tr:last-child td{border-bottom:0}.table-wrap td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}.badge{display:inline-flex;align-items:center;padding:2px 6px;border:1px solid var(--ln2);border-radius:4px;font:11px/1.5 var(--mono);font-variant-numeric:tabular-nums}.badge.ok{color:var(--ok);border-color:#3e6751}.badge.warn{color:var(--wr);border-color:#6e5934}.badge.bad{color:var(--er);border-color:#805252}.badge.idle{color:var(--mu)}.muted{color:var(--mu)}
-body{background:radial-gradient(1100px 520px at 78% -12%,rgba(255,255,255,.035),transparent 68%),var(--bg)}
-.card{background:linear-gradient(180deg,rgba(18,22,32,.78),rgba(13,15,23,.72));border:1px solid var(--ln);box-shadow:inset 0 1px 0 rgba(255,255,255,.045);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%)}
-.workspace-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.workspace-nav .nav-seg .seg-btn{min-height:38px}.workspace-nav .btn{min-height:38px}.workspace-nav #sync-status{margin-left:auto;white-space:nowrap}.view{display:grid;gap:24px}.telemetry-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.telemetry-stat{padding:14px 16px;min-width:0}.telemetry-stat .v{font-size:17px;font-weight:560;letter-spacing:-.03em;margin:6px 0 2px;overflow-wrap:anywhere}.telemetry-stat .sub{font-size:11px;color:var(--dim)}.master-card{padding:20px;display:grid;gap:14px}.chart-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.chart-head h2{font-size:15px;font-weight:600}.chart{width:100%;height:140px;display:block;overflow:visible}.chart-line{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke}.chart-line.rx{stroke:var(--ok)}.chart-line.tx{stroke:var(--wr)}#master-rx-area,#master-tx-area,.spark .area{stroke:none}.chart,.spark{stroke:none}.legend{display:flex;gap:12px;font:11px var(--mono);color:var(--mu)}.legend-rx::before,.legend-tx::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}.legend-rx::before{background:var(--ok)}.legend-tx::before{background:var(--wr)}.tunnel-filters{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.filter-pills{display:flex;gap:6px;flex-wrap:wrap}.chip{min-height:36px;padding:0 11px;border:1px solid var(--ln2);background:transparent;color:var(--mu);border-radius:6px;font-size:12px;cursor:pointer;transition:background-color 180ms var(--ease),color 180ms var(--ease),border-color 180ms var(--ease)}.chip:hover{color:var(--tx);border-color:#414755}.chip.active{color:var(--tx);background:var(--s3);border-color:var(--ln2)}#t-search{max-width:280px;min-height:38px;margin-left:auto}.spark{width:100%;height:44px;display:block;margin-top:2px}.spark .chart-line{stroke-width:1.4}.update-pill{min-height:34px;padding:0 10px;border:1px solid rgba(226,186,116,.32);background:rgba(226,186,116,.06);color:var(--wr);border-radius:6px;font-size:12px;cursor:pointer;transition:background-color 180ms var(--ease)}.update-pill:hover{background:rgba(226,186,116,.11)}.update-pill b{font-weight:600}
-#sync-status{font-size:12px;color:var(--mu)}#boot{padding:40px;color:var(--mu)}
-@media(max-width:1180px){.telemetry-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:700px){.telemetry-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.tunnel-filters{align-items:stretch}#t-search{max-width:none;margin-left:0;flex-basis:100%}.workspace-nav #sync-status{flex-basis:100%;order:5}.chart{height:110px}}
-@media(max-width:1180px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}.facts{gap:8px 16px}}@media(max-width:900px){header.card{flex-wrap:wrap;gap:16px}.facts{order:3;flex-basis:100%}.gauges{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.shell{padding:16px 16px 40px;gap:16px}header.card{padding:16px}.btn.tg{width:44px;padding:0}.btn.tg span{display:none}.grid2{grid-template-columns:minmax(0,1fr)}.gauges{gap:12px}.gauge{padding:16px}.stats{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.stat{padding:12px;gap:8px}.section-head .acts{margin-left:0;width:100%}.section-head .acts .btn{flex:1}dialog form,dialog>div{padding:20px}dialog form{padding-bottom:0}dialog .foot{margin:0 -20px;padding:16px 20px 20px}.tun{padding:16px}.fact div:last-child{max-width:140px}.brand b{font-size:16px}}
-@media(max-width:700px){.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.test-head{display:grid}.seg{width:100%}.seg-btn{flex:1}.test-shell{padding:20px}.test-shell form{padding:0}}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+/* Layout, meters, dock and tunnel cards follow BackPack's web panel
+   (internal/webui/panel) by Amin Mohammadi (AminMGMT), AGPL-3.0 — see NOTICE. */
+:root{--ok:#22c55e;--wr:#f59e0b;--er:#ef4444;--spring:cubic-bezier(.32,.72,0,1);--r:14px;--r-lg:22px;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
+:root,:root[data-theme=dark]{color-scheme:dark;--bg:#070707;--s1:#111;--s2:#181818;--s3:#1f1f1f;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.15);--ln3:rgba(255,255,255,.3);--tx:#fafafa;--tx2:#dcdcdc;--mu:#8e8e8e;--dim:#5e5e5e;--field:#0c0c0c;--sunk:rgba(255,255,255,.05);--lift:0 22px 50px -24px rgba(0,0,0,.95);--wash:.14}
+:root[data-theme=light]{color-scheme:light;--bg:#f2f2f2;--s1:#fff;--s2:#fafafa;--s3:#f0f0f0;--ln:rgba(0,0,0,.09);--ln2:rgba(0,0,0,.16);--ln3:rgba(0,0,0,.34);--tx:#0a0a0a;--tx2:#2e2e2e;--mu:#666;--dim:#a3a3a3;--field:#fff;--sunk:rgba(0,0,0,.045);--lift:0 22px 46px -26px rgba(0,0,0,.32);--wash:.1}
+@media(prefers-color-scheme:light){:root[data-theme=auto]{color-scheme:light;--bg:#f2f2f2;--s1:#fff;--s2:#fafafa;--s3:#f0f0f0;--ln:rgba(0,0,0,.09);--ln2:rgba(0,0,0,.16);--ln3:rgba(0,0,0,.34);--tx:#0a0a0a;--tx2:#2e2e2e;--mu:#666;--dim:#a3a3a3;--field:#fff;--sunk:rgba(0,0,0,.045);--lift:0 22px 46px -26px rgba(0,0,0,.32);--wash:.1}}
+*{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+a{color:inherit}
+code,.mono{font-family:var(--mono)}
+.num{font-variant-numeric:tabular-nums}
+code{font-size:.92em;padding:1px 5px;border-radius:5px;background:var(--sunk)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--tx);outline-offset:3px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap;transition:background-color .15s,border-color .15s,opacity .15s}
+.btn:hover{background:var(--s3);border-color:var(--ln3)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn svg{width:16px;height:16px;flex:none}
+.btn.primary{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.btn.primary:hover{opacity:.88}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--er)}
+.btn.danger:hover{border-color:color-mix(in srgb,var(--er) 50%,transparent)}
+.btn.icon{width:40px;padding:0}
+.btn.sm{min-height:34px;padding:0 11px;font-size:12px;border-radius:10px}
+.btn.sm.icon{width:34px}
+.btn[aria-busy=true]{cursor:progress;position:relative;color:transparent}
+.btn[aria-busy=true]::after{content:"";position:absolute;width:14px;height:14px;border:2px solid var(--mu);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+label{display:block;margin-bottom:6px;font-size:12px;font-weight:600;color:var(--tx2)}
+input,select,textarea{width:100%;min-height:42px;padding:9px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:11px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--ln3);outline-offset:1px}
+input[aria-invalid=true]{border-color:var(--er)}
+textarea{resize:vertical}
+input[type=file]{padding:8px}
+.hint{font-size:12px;color:var(--mu);line-height:1.6}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.stack{display:grid;gap:14px}
+
+.card{background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg)}
+.rule{display:flex;align-items:center;gap:14px;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
+.rule::after{content:"";flex:1;height:1px;background:var(--ln)}
+.chip{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:0 11px;border:1px solid var(--ln2);border-radius:999px;font-size:12px;font-weight:600;color:var(--tx2);background:var(--s1);white-space:nowrap}
+.chip .dot,.dot{width:7px;height:7px;border-radius:50%;background:var(--mu);flex:none}
+.chip.warn{border-color:color-mix(in srgb,var(--wr) 45%,transparent);background:color-mix(in srgb,var(--wr) 7%,var(--s1))}.chip.warn .dot,.dot.warn{background:var(--wr)}
+.chip.bad{border-color:color-mix(in srgb,var(--er) 45%,transparent);background:color-mix(in srgb,var(--er) 7%,var(--s1))}.chip.bad .dot,.dot.bad{background:var(--er)}
+.chip.ok .dot,.dot.ok{background:var(--ok)}
+button.chip{cursor:pointer}
+
+#boot{padding:48px;color:var(--mu)}
+.gate{min-height:100dvh;display:grid;place-items:center;padding:24px}
+.gate form{width:100%;max-width:380px;padding:30px;display:grid;gap:20px;box-shadow:var(--lift)}
+.gate h1{font-size:20px;letter-spacing:-.02em}
+.gate p{color:var(--mu);font-size:13px}
+
+.shell{max-width:1440px;margin:auto;padding:0 24px 56px;display:grid;gap:22px}
+.shell>*,.brand>div{min-width:0}
+.top{display:flex;align-items:center;gap:12px;min-height:66px;border-bottom:1px solid var(--ln);position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);margin:0 -24px;padding:10px 24px}
+.brand{display:flex;align-items:center;gap:11px;min-width:0;margin-right:auto}
+.logo{width:34px;height:34px;flex:none;border-radius:10px;background:var(--tx);color:var(--bg);display:grid;place-items:center}
+.logo svg{width:20px;height:20px}
+.brand b{display:block;font-size:15px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand span{display:block;font-size:12px;color:var(--mu);line-height:1.2}
+.update-pill{white-space:nowrap;min-height:34px;padding:0 12px;border:1px solid color-mix(in srgb,var(--wr) 45%,transparent);background:color-mix(in srgb,var(--wr) 8%,transparent);color:var(--wr);border-radius:999px;font-size:12px;font-weight:600;cursor:pointer}
+#theme-btn .lbl{font-size:12px}
+
+.meters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));overflow:hidden}
+.meters.net{grid-template-columns:repeat(2,minmax(0,1fr))}
+.meter{padding:16px 18px 14px;display:grid;gap:12px;min-width:0;border-left:1px solid var(--ln)}
+.meter:first-child{border-left:0}
+.m-head{display:flex;align-items:baseline;gap:4px;min-width:0}
+.m-head b{font-size:26px;line-height:1;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.m-head small{font-size:12px;color:var(--mu);font-weight:600}
+.m-head span{font-size:12px;color:var(--mu);margin-left:8px;font-weight:500}
+.bars{display:flex;align-items:flex-end;gap:3px;height:34px;padding-top:8px;border-top:1px dashed var(--ln2)}
+.bars i{flex:1;min-height:2px;height:2px;border-radius:2px;background:var(--dim);opacity:.55;transition:height .4s var(--spring)}
+.bars i:last-child{background:var(--tx);opacity:1}
+.m-sub{font-size:12px;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.dock{justify-self:center;display:flex;gap:4px;padding:4px;border:1px solid var(--ln2);border-radius:16px;background:var(--s1);position:sticky;top:74px;z-index:20;box-shadow:var(--lift)}
+.dock button{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 15px;border:0;border-radius:12px;background:transparent;color:var(--mu);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .2s,color .2s}
+.dock button:hover{color:var(--tx)}
+.dock button[aria-selected=true]{background:var(--tx);color:var(--bg)}
+.dock svg{width:16px;height:16px}
+#sync-status{justify-self:center;font-size:11px;color:var(--mu);margin-top:-12px}
+.view{display:grid;gap:22px;align-content:start}
+.vhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.vhead h2{font-size:20px;letter-spacing:-.02em}
+.vhead .count{min-width:26px;text-align:center;padding:1px 8px;border:1px solid var(--ln2);border-radius:999px;font-size:12px;color:var(--mu)}
+.vhead .acts{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.vhead p{flex-basis:100%;color:var(--mu);font-size:13px;max-width:70ch}
+
+.alerts{display:flex;gap:8px;flex-wrap:wrap}
+.hero{padding:22px 24px;display:grid;gap:16px}
+.hero-top{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.hero-top b{display:block;font-size:40px;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+.hero-top p{color:var(--mu);font-size:13px;margin-top:8px}
+.hero-top .chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.chart{width:100%;height:150px;display:block;stroke:none}
+.chart-line{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke}
+.chart-line.rx{stroke:var(--tx)}.chart-line.tx{stroke:var(--mu)}
+.chart .area.rx{fill:var(--tx);opacity:.08}.chart .area.tx{fill:var(--mu);opacity:.07}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--mu)}
+.legend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:var(--tx)}
+.legend span+span::before{background:var(--mu)}
+.duo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:hidden}
+.tile{display:flex;align-items:center;gap:14px;padding:20px;min-height:84px;background:none;border:0;border-bottom:1px solid var(--ln);text-align:left;cursor:pointer;min-width:0;transition:background-color .15s}
+.tile:nth-child(odd){border-right:1px solid var(--ln)}
+.tile:nth-last-child(-n+2){border-bottom:0}
+.tile:hover{background:var(--sunk)}
+.tile svg{width:18px;height:18px;flex:none;color:var(--tx2)}
+.tile b{display:block;font-size:14px}
+.tile span{display:block;font-size:12px;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile>div{min-width:0}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:hidden}
+.fact{padding:14px 18px;border-bottom:1px solid var(--ln);min-width:0}
+.fact:nth-child(odd){border-right:1px solid var(--ln)}
+.fact:nth-last-child(-n+2){border-bottom:0}
+.fact .k{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mu)}
+.fact .v{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.filters button{min-height:34px;padding:0 12px;border:1px solid var(--ln2);border-radius:999px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}
+.filters button:hover{color:var(--tx)}
+.filters button[aria-pressed=true]{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+#t-search{max-width:280px;min-height:36px;margin-left:auto;border-radius:999px}
+.tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:16px}
+.empty{grid-column:1/-1;padding:56px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r-lg);background:var(--s1)}
+.empty b{display:block;color:var(--tx);font-size:15px;margin-bottom:6px}
+
+.tun{--mc:var(--tx);position:relative;overflow:hidden;display:flex;flex-direction:column;min-height:300px;background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg);transition:border-color .3s var(--spring)}
+.tun:hover{border-color:var(--ln2)}
+.tun.st-up{--mc:var(--ok)}.tun.st-bad{--mc:var(--er)}.tun.st-warn{--mc:var(--wr)}
+.tun.st-bad{border-color:color-mix(in srgb,var(--er) 30%,transparent)}
+.tun.st-off{opacity:.8}
+.tun .field{position:absolute;inset:0 0 0 30%;pointer-events:none}
+.tun .wash{position:absolute;inset:0;background:linear-gradient(to left,color-mix(in srgb,var(--mc) calc(var(--wash)*100%),transparent),transparent 80%)}
+.tun .grid{position:absolute;inset:0;opacity:.12;background-image:radial-gradient(var(--tx) 1px,transparent 1px);background-size:14px 14px;-webkit-mask-image:linear-gradient(to right,transparent,#000 60%);mask-image:linear-gradient(to right,transparent,#000 60%)}
+.tun .spark{position:absolute;left:0;right:0;bottom:0;width:100%;height:58%;stroke:none}
+.tun .spark .line{fill:none;stroke:var(--mc);stroke-width:1.8;vector-effect:non-scaling-stroke}
+.tun .spark .fill{fill:var(--mc);opacity:.12}
+.tun .inner{position:relative;flex:1;display:flex;flex-direction:column;gap:14px;padding:18px 20px 16px}
+.tun-top{display:flex;align-items:flex-start;gap:10px}
+.tun-top>div{min-width:0;flex:1}
+.tun .name{font-size:19px;font-weight:700;letter-spacing:-.02em;overflow-wrap:anywhere}
+.tun .meth{font-size:12px;color:var(--mu);overflow-wrap:anywhere}
+.state{display:inline-flex;align-items:center;gap:6px;flex:none;padding:3px 10px;border:1px solid var(--ln2);border-radius:999px;font-size:12px;font-weight:600;color:var(--tx2);background:var(--s1)}
+.state::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--mc)}
+.rates{display:flex;gap:18px;flex-wrap:wrap}
+.rates div{display:flex;align-items:baseline;gap:4px}
+.rates b{font-size:22px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.rates small{font-size:12px;color:var(--mu)}
+.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;max-width:78%}
+.kv .k{font-size:11px;color:var(--mu);font-weight:600}
+.kv .v{font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.band{position:relative;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--ln);background:color-mix(in srgb,var(--s1) 94%,transparent)}
+.band .end{margin-left:auto}
+.tun{container:tun/inline-size}
+@container tun (max-width:520px){.band .btn.compact .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.band .btn.compact{width:34px;padding:0}}
+@container tun (max-width:330px){.band .btn .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.band .btn{width:34px;padding:0}}
+
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:16px}
+.mcard{padding:20px;display:grid;gap:14px;align-content:start}
+.mcard-head{display:flex;align-items:flex-start;gap:12px}
+.mcard-head .ic{width:38px;height:38px;flex:none;display:grid;place-items:center;border:1px solid var(--ln2);border-radius:12px;color:var(--tx2)}
+.mcard-head .ic svg{width:18px;height:18px}
+.mcard-head b{display:block;font-size:15px}
+.mcard-head span{display:block;font-size:12px;color:var(--mu)}
+.mcard-head>div{flex:1;min-width:0}
+.mcard .acts{display:flex;gap:8px;flex-wrap:wrap}
+
+.testcard{padding:22px;display:grid;gap:18px}
+.seg{display:inline-flex;padding:3px;border:1px solid var(--ln2);border-radius:13px;background:var(--field)}
+.seg button{min-height:34px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}
+.seg button[aria-selected=true]{background:var(--tx);color:var(--bg)}
+.test-actions{display:flex;gap:8px;flex-wrap:wrap}
+.test-status{display:grid;gap:14px;padding:16px;border:1px solid var(--ln);border-radius:var(--r);background:var(--s2)}
+.status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.status-grid .k{font-size:11px;color:var(--mu);font-weight:600}
+.status-grid .v{font:12px/1.5 var(--mono);overflow-wrap:anywhere}
+.copy-row{display:flex;gap:8px}
+.copy-row input{flex:1;min-width:0}
+.test-choice{padding:16px;background:var(--s2);border:1px solid var(--ln2);border-radius:var(--r);display:grid;gap:10px}
+.test-choice p{font-size:12px;color:var(--mu)}
+#test-form{display:grid;gap:16px}
+#t-iran-panel{display:grid;gap:16px}
+.table-wrap{overflow:auto;border:1px solid var(--ln);border-radius:var(--r);background:var(--field);max-height:46vh}
+.table-wrap table{width:100%;border-collapse:collapse;font-size:12px;min-width:720px}
+.table-wrap th,.table-wrap td{padding:9px 10px;border-bottom:1px solid var(--ln);text-align:left;white-space:nowrap}
+.table-wrap th{position:sticky;top:0;background:var(--s2);color:var(--mu);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
+.table-wrap tr:last-child td{border-bottom:0}
+.badge{display:inline-flex;padding:2px 7px;border:1px solid var(--ln2);border-radius:999px;font:11px/1.5 var(--mono)}
+.badge.ok{color:var(--ok)}.badge.warn{color:var(--wr)}.badge.bad{color:var(--er)}.badge.idle{color:var(--mu)}
+pre.out{background:var(--field);border:1px solid var(--ln);padding:14px;border-radius:var(--r);color:var(--tx2);font:12px/1.7 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}
+
+dialog{margin:auto;width:min(580px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;background:var(--s1);color:var(--tx);border:1px solid var(--ln2);border-radius:var(--r-lg);padding:0;box-shadow:var(--lift)}
+dialog.wide{width:min(780px,calc(100vw - 24px))}
+dialog::backdrop{background:rgba(0,0,0,.62);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+dialog[open]{animation:pop .22s var(--spring)}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.985)}}
+.dbody{padding:22px;display:grid;gap:18px}
+.dhead{display:flex;align-items:flex-start;gap:12px}
+.dhead>div{flex:1;min-width:0}
+.dhead>.ic{flex:none;color:var(--tx2);padding-top:2px}
+.dhead h3{font-size:18px;letter-spacing:-.02em}
+.dhead p{font-size:12px;color:var(--mu);overflow-wrap:anywhere}
+.dfoot{position:sticky;bottom:0;display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin:0 -22px -22px;padding:14px 22px;background:var(--s1);border-top:1px solid var(--ln)}
+.dfoot .note{margin-right:auto;font-size:12px;color:var(--mu)}
+details summary{cursor:pointer;color:var(--mu);font-size:13px;font-weight:600;min-height:32px}
+details[open] summary{margin-bottom:12px}
+.form-error{padding:12px 14px;border:1px solid color-mix(in srgb,var(--er) 50%,transparent);border-radius:12px;color:var(--er);font-size:13px;white-space:pre-wrap}
+.form-error a{display:block;color:inherit;margin-top:4px}
+
+.loghead{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.loghead input[type=search]{flex:1;min-width:140px;min-height:36px}
+.loghead select{width:auto;min-height:36px}
+.switch{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--tx2);cursor:pointer}
+.switch input{width:16px;min-height:16px;accent-color:var(--tx)}
+.logs{list-style:none;height:min(58vh,520px);overflow:auto;padding:10px 0;background:var(--field);border:1px solid var(--ln);border-radius:var(--r);font:12px/1.65 var(--mono)}
+.logs li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:1px 14px;border-left:2px solid transparent}
+.logs li .t{color:var(--dim)}
+.logs li .m{color:var(--tx2);white-space:pre-wrap;overflow-wrap:anywhere}
+.logs li.err{border-left-color:var(--er)}.logs li.err .m{color:var(--er)}
+.logs li.wrn{border-left-color:var(--wr)}.logs li.wrn .m{color:var(--wr)}
+.logs .none{display:block;padding:24px;color:var(--mu);text-align:center}
+
+.hgroup{display:grid;gap:8px}
+.hgroup h4{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mu)}
+.hrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;align-items:baseline;padding:12px 14px;border:1px solid var(--ln);border-radius:var(--r);background:var(--s2)}
+.hrow .dot{transform:translateY(-1px)}
+.hrow b{font-size:13px}
+.hrow .d{grid-column:2;font-size:12px;color:var(--mu);overflow-wrap:anywhere}
+.hrow .f{grid-column:2;font-size:12px;color:var(--tx2);border-left:2px solid var(--ln3);padding-left:9px;margin-top:4px}
+
+.toast{position:fixed;z-index:100;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(560px,calc(100vw - 32px));padding:12px 16px;border:1px solid color-mix(in srgb,var(--er) 55%,transparent);border-radius:14px;background:var(--s2);color:var(--tx);box-shadow:var(--lift);font-size:13px}
+.toast.ok{border-color:var(--ln2)}
+.foot-links{display:flex;justify-content:center;gap:10px;align-items:center;color:var(--mu);font-size:12px;flex-wrap:wrap}
+.foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.foot-links a:hover{color:var(--tx)}
+.foot-links svg{width:15px;height:15px}
+
+@media(max-width:1100px){.meters{grid-template-columns:repeat(2,minmax(0,1fr))}.meters .meter:nth-child(3){border-left:0}.meters .meter:nth-child(n+3){border-top:1px solid var(--ln)}.meters.net .meter:nth-child(n){border-top:0}.duo{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:720px){
+.shell{padding:0 14px 40px;gap:18px}.top{margin:0 -14px;padding:8px 14px}
+.dock{top:64px;width:100%;justify-content:space-between}.dock button{flex:1;justify-content:center;padding:0}.dock .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.dock button[aria-selected=true] .lbl{position:static;width:auto;height:auto;clip:auto}
+.dock button[aria-selected=true]{flex:2.2}
+#theme-btn .lbl,.top .tg .lbl{display:none}
+.meter{padding:14px}.m-head b{font-size:22px}.bars{height:28px}
+.hero-top b{font-size:32px}.hero-top .chips{margin-left:0}.chart{height:110px}
+.tiles .tile{padding:16px;min-height:72px}
+.grid2,.grid3{grid-template-columns:minmax(0,1fr)}
+.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+#t-search{max-width:none;margin-left:0;flex-basis:100%}
+.vhead .acts{margin-left:0;width:100%}.vhead .acts .btn{flex:1}
+.kv{max-width:none}.tun .field{left:0}
+.dbody{padding:18px}.dfoot{margin:0 -18px -18px;padding:12px 18px}
+.testcard{padding:18px}.seg{width:100%}.seg button{flex:1}
+}
+@media(max-width:380px){.tiles{grid-template-columns:minmax(0,1fr)}.tile:nth-child(odd){border-right:0}.tile:nth-last-child(2){border-bottom:1px solid var(--ln)}}
+@media(prefers-reduced-motion:reduce){*,*::after{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
-
-<svg width="0" height="0"  aria-hidden="true">
+<svg width="0" height="0" aria-hidden="true">
   <symbol id="i-logo" viewBox="0 0 24 24"><path d="M3 19V12a9 9 0 0 1 18 0v7"/><path d="M7.5 19v-6a4.5 4.5 0 0 1 9 0v6"/><path d="M3 19h18"/></symbol>
-  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
-  <symbol id="i-mem" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M11 11h2M16 11h2"/></symbol>
-  <symbol id="i-disk" viewBox="0 0 24 24"><path d="M3 13l2.5-7A2 2 0 0 1 7.4 4.6h9.2a2 2 0 0 1 1.9 1.4L21 13"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 16.5h.01M11 16.5h.01"/></symbol>
-  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 9h14l-3-3M20 15H6l3 3"/></symbol>
-  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
-  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
-  <symbol id="i-in" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
-  <symbol id="i-out" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
-  <symbol id="i-load" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.5 6.3L3 16M3 21v-5h5"/></symbol>
   <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></symbol>
   <symbol id="i-tg" viewBox="0 0 24 24"><path d="M21.5 4.5L2.8 11.7c-.8.3-.8 1.4 0 1.7l4.6 1.6 1.8 5.6c.2.7 1.1.9 1.6.4l2.6-2.5 4.8 3.5c.6.4 1.4.1 1.6-.6L22.8 5.8c.2-.9-.6-1.6-1.3-1.3z"/><path d="M7.4 15l10.8-7.3-8.6 8.9"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
   <symbol id="i-exit" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-contrast" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
+  <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v13M6 12l6 6 6-6M5 21h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V7M6 12l6-6 6 6M5 3h14"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></symbol>
 </svg>
 
 <div id="boot" role="status">Connecting to C-Tunnel…</div>
+
 <main id="gate" class="gate" hidden>
   <form id="login-form" class="card">
-    <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span>Panel login</span></div></div>
-    <p>Enter the login code shown in <code>sudo ctunnel</code> → Web Panel.</p>
-    <div>
-      <label for="login-code">Login code</label>
-      <input id="login-code" type="password" autocomplete="current-password" required>
-    </div>
+    <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><h1>C-Tunnel</h1></div></div>
+    <p>Enter the login code shown in the CLI under Web Panel.</p>
+    <div><label for="login-code">Login code</label><input id="login-code" type="password" autocomplete="current-password" required></div>
     <button class="btn primary" type="submit">Log in</button>
-    <a class="tg-link" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true"><use href="#i-tg"/></svg>Telegram channel: @CiAUB_CH</a>
   </form>
 </main>
 
 <div id="app" class="shell" hidden>
-  <header class="card">
-    <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b>C-Tunnel</b><span id="h-host"></span></div></div>
-    <div class="facts">
-      <div class="fact"><div class="k">OS</div><div id="h-os">—</div></div>
-      <div class="fact"><div class="k">Uptime</div><div id="h-up" class="num">—</div></div>
-      <div class="fact"><div class="k">IPv4</div><div id="h-v4" class="num">—</div></div>
-      <div class="fact"><div class="k">IPv6</div><div id="h-v6" class="num">—</div></div>
-      <div class="fact"><div class="k">Version</div><div id="h-ver" class="num">—</div></div>
-    </div>
-    <div class="hdr-acts">
-    <button id="update-pill" class="update-pill" type="button" hidden>Update available: <b id="update-version"></b></button>
-    <a class="btn tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg><span>Telegram</span></a>
-    <div class="menu-wrap">
-      <button id="menu-btn" class="btn square" type="button" aria-label="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
-      <div id="menu" class="menu" hidden>
-        <button type="button" id="m-settings"><svg aria-hidden="true"><use href="#i-gear"/></svg>Panel settings</button>
-        <button type="button" id="m-test"><svg aria-hidden="true"><use href="#i-gauge"/></svg>Link test</button>
-        <button type="button" id="m-restart"><svg aria-hidden="true"><use href="#i-refresh"/></svg>Restart all tunnels</button>
-        <button type="button" id="m-optimize"><svg aria-hidden="true"><use href="#i-bolt"/></svg>Apply kernel tuning</button>
-        <button type="button" id="m-logout"><svg aria-hidden="true"><use href="#i-exit"/></svg>Log out</button>
-      </div>
-    </div>
-    </div>
+  <header class="top">
+    <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b id="h-host">C-Tunnel</b><span id="h-ver" class="num">—</span></div></div>
+    <button id="update-pill" class="update-pill" type="button" hidden>Update <b id="update-version"></b></button>
+    <button id="theme-btn" class="btn" type="button" aria-label="Appearance: follow the system"><svg aria-hidden="true"><use href="#i-contrast"/></svg><span class="lbl">Auto</span></button>
+    <a class="btn icon tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg></a>
+    <button id="btn-logout" class="btn icon" type="button" aria-label="Log out"><svg aria-hidden="true"><use href="#i-exit"/></svg></button>
   </header>
 
-  <nav class="workspace-nav" aria-label="Workspace">
-    <div class="seg nav-seg" role="tablist" aria-label="Workspace views">
-      <button id="nav-overview" class="seg-btn" type="button" role="tab" aria-selected="true" aria-controls="view-overview">Overview</button>
-      <button id="nav-tunnels" class="seg-btn" type="button" role="tab" aria-selected="false" aria-controls="view-tunnels">Tunnels</button>
-    </div>
-    <button id="nav-test" class="btn ghost" type="button"><svg aria-hidden="true"><use href="#i-gauge"/></svg>Connection Test</button>
-    <button id="nav-settings" class="btn ghost" type="button"><svg aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
-    <span id="sync-status" role="status">Connecting…</span>
+  <div class="rule">Server</div>
+  <section class="card meters" aria-label="Resource usage">
+    <div class="meter" data-m="cpu"><div class="m-head"><b class="num">0</b><small>%</small><span>Processor</span></div><div class="bars" aria-hidden="true"></div><div class="m-sub"></div></div>
+    <div class="meter" data-m="mem"><div class="m-head"><b class="num">0</b><small>%</small><span>Memory</span></div><div class="bars" aria-hidden="true"></div><div class="m-sub"></div></div>
+    <div class="meter" data-m="disk"><div class="m-head"><b class="num">0</b><small>%</small><span>Disk</span></div><div class="bars" aria-hidden="true"></div><div class="m-sub"></div></div>
+    <div class="meter" data-m="swap"><div class="m-head"><b class="num">0</b><small>%</small><span>Swap</span></div><div class="bars" aria-hidden="true"></div><div class="m-sub"></div></div>
+  </section>
+  <section class="card meters net" aria-label="Network on this server">
+    <div class="meter" data-m="rx"><div class="m-head"><b class="num">0</b><small>b/s</small><span>Download</span></div><div class="bars" aria-hidden="true"></div><div class="m-sub"></div></div>
+    <div class="meter" data-m="tx"><div class="m-head"><b class="num">0</b><small>b/s</small><span>Upload</span></div><div class="bars" aria-hidden="true"></div><div class="m-sub"></div></div>
+  </section>
+
+  <nav class="dock" role="tablist" aria-label="Sections">
+    <button id="nav-overview" type="button" role="tab" aria-selected="true" aria-controls="view-overview" data-go="#/"><svg aria-hidden="true"><use href="#i-grid"/></svg><span class="lbl">Overview</span></button>
+    <button id="nav-test" type="button" role="tab" aria-selected="false" aria-controls="view-test" data-go="#/test"><svg aria-hidden="true"><use href="#i-gauge"/></svg><span class="lbl">Connection test</span></button>
+    <button id="nav-tunnels" type="button" role="tab" aria-selected="false" aria-controls="view-tunnels" data-go="#/tunnels"><svg aria-hidden="true"><use href="#i-pulse"/></svg><span class="lbl">Tunnels</span></button>
+    <button id="nav-manage" type="button" role="tab" aria-selected="false" aria-controls="view-manage" data-go="#/manage"><svg aria-hidden="true"><use href="#i-sliders"/></svg><span class="lbl">Manage</span></button>
   </nav>
+  <span id="sync-status" role="status">Connecting…</span>
 
-  <div id="view-overview" class="view" role="tabpanel" aria-labelledby="nav-overview">
-    <section class="telemetry-strip" aria-label="Network telemetry">
-      <article class="card telemetry-stat"><div class="k">Active tunnels</div><div id="m-active" class="v num">0 / 0</div><div class="sub">up / total</div></article>
-      <article class="card telemetry-stat"><div class="k">Download</div><div id="agg-rx" class="v num">0 Mbps</div><div class="sub">aggregate RX/s</div></article>
-      <article class="card telemetry-stat"><div class="k">Upload</div><div id="agg-tx" class="v num">0 Mbps</div><div class="sub">aggregate TX/s</div></article>
-      <article class="card telemetry-stat"><div class="k">Total data</div><div id="agg-total" class="v num">0 B</div><div class="sub">RX + TX</div></article>
-      <article class="card telemetry-stat"><div class="k">Host IP</div><div id="agg-host" class="v num">—</div><div class="sub">public / local</div></article>
-      <article class="card telemetry-stat"><div class="k">Load</div><div id="s-load" class="v num">—</div><div class="sub">1m / 5m / 15m</div></article>
-    </section>
-
-    <section class="gauges" aria-label="Resource usage">
-      <article class="card gauge" data-g="cpu"><div class="k"><svg aria-hidden="true"><use href="#i-cpu"/></svg>CPU</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="CPU usage"></progress><div class="sub num"></div></article>
-      <article class="card gauge" data-g="mem"><div class="k"><svg aria-hidden="true"><use href="#i-mem"/></svg>Memory</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Memory usage"></progress><div class="sub num"></div></article>
-      <article class="card gauge" data-g="disk"><div class="k"><svg aria-hidden="true"><use href="#i-disk"/></svg>Storage</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Storage usage"></progress><div class="sub num"></div></article>
-      <article class="card gauge" data-g="swap"><div class="k"><svg aria-hidden="true"><use href="#i-swap"/></svg>Swap</div><div class="reading"><b class="num">0</b><small>%</small></div><progress max="100" value="0" aria-label="Swap usage"></progress><div class="sub num"></div></article>
-    </section>
-
-    <article class="card master-card">
-      <div class="chart-head">
-        <div><h2>Aggregate bandwidth</h2><p class="hint">Rolling 60 samples · real tunnel counters only</p></div>
-        <div class="legend"><span class="legend-rx">RX</span><span class="legend-tx">TX</span></div>
+  <section id="view-overview" class="view" role="tabpanel" aria-labelledby="nav-overview">
+    <div id="ov-alerts" class="alerts" aria-live="polite"></div>
+    <div class="rule">This server</div>
+    <article class="card hero">
+      <div class="hero-top">
+        <div><b id="agg-total" class="num">0 B</b><p>carried by the tunnels since their interfaces came up</p></div>
+        <div class="chips">
+          <span class="chip"><span class="dot"></span><span id="agg-rx">0 b/s</span>&nbsp;down</span>
+          <span class="chip"><span class="dot"></span><span id="agg-tx">0 b/s</span>&nbsp;up</span>
+          <span class="chip"><span id="m-active">0/0</span>&nbsp;tunnels up</span>
+        </div>
       </div>
-      <svg id="master-chart" class="chart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Aggregate receive and transmit bandwidth">
-        <defs>
-          <linearGradient id="master-rx-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7bc49d" stop-opacity=".28"/><stop offset="1" stop-color="#7bc49d" stop-opacity="0"/></linearGradient>
-          <linearGradient id="master-tx-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2ba74" stop-opacity=".22"/><stop offset="1" stop-color="#e2ba74" stop-opacity="0"/></linearGradient>
-        </defs>
-        <path id="master-rx-area" fill="url(#master-rx-fill)" stroke="none"></path>
-        <path id="master-tx-area" fill="url(#master-tx-fill)" stroke="none"></path>
-        <path id="master-rx-line" class="chart-line rx"></path>
-        <path id="master-tx-line" class="chart-line tx"></path>
+      <svg id="master-chart" class="chart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Tunnel download and upload over the last four minutes">
+        <path id="master-rx-area" class="area rx"></path><path id="master-tx-area" class="area tx"></path>
+        <path id="master-rx-line" class="chart-line rx"></path><path id="master-tx-line" class="chart-line tx"></path>
       </svg>
+      <div class="legend"><span>Download</span><span>Upload</span></div>
     </article>
-  </div>
-
-  <div id="view-tunnels" class="view" role="tabpanel" aria-labelledby="nav-tunnels" hidden>
-    <div class="section-head">
-      <h2>Tunnels</h2><span id="t-count" class="pill">0</span>
-      <div class="acts">
-        <button id="btn-import" class="btn" type="button"><svg aria-hidden="true"><use href="#i-link"/></svg>Add from link</button>
-        <button id="btn-new" class="btn primary" type="button"><svg aria-hidden="true"><use href="#i-plus"/></svg>New tunnel</button>
+    <div class="duo">
+      <div class="card tiles">
+        <button class="tile" type="button" data-go="#/health"><svg aria-hidden="true"><use href="#i-pulse"/></svg><div><b>Health check</b><span>What this server would trip over</span></div></button>
+        <button class="tile" type="button" data-go="#/settings"><svg aria-hidden="true"><use href="#i-gear"/></svg><div><b>Panel settings</b><span>Address, domain and HTTPS</span></div></button>
+        <button class="tile" type="button" data-go="#/manage"><svg aria-hidden="true"><use href="#i-box"/></svg><div><b>Backup &amp; restore</b><span>Every tunnel in one file</span></div></button>
+        <button class="tile" type="button" data-go="#/add"><svg aria-hidden="true"><use href="#i-plus"/></svg><div><b>Add tunnel</b><span>Build this server's end</span></div></button>
+      </div>
+      <div class="card facts">
+        <div class="fact"><div class="k">Host</div><div id="f-host" class="v">—</div></div>
+        <div class="fact"><div class="k">Version</div><div id="f-ver" class="v num">—</div></div>
+        <div class="fact"><div class="k">OS</div><div id="h-os" class="v">—</div></div>
+        <div class="fact"><div class="k">Uptime</div><div id="h-up" class="v num">—</div></div>
+        <div class="fact"><div class="k">IPv4</div><div id="h-v4" class="v num">—</div></div>
+        <div class="fact"><div class="k">IPv6</div><div id="h-v6" class="v num">—</div></div>
       </div>
     </div>
-    <div class="tunnel-filters">
-      <div class="filter-pills" role="group" aria-label="Filter tunnels">
-        <button class="chip active" type="button" data-filter="all" aria-pressed="true">All</button>
-        <button class="chip" type="button" data-filter="iran" aria-pressed="false">Iran</button>
-        <button class="chip" type="button" data-filter="kharej" aria-pressed="false">Kharej</button>
-        <button class="chip" type="button" data-filter="direct" aria-pressed="false">Direct</button>
-        <button class="chip" type="button" data-filter="reverse" aria-pressed="false">Reverse</button>
-        <button class="chip" type="button" data-filter="up" aria-pressed="false">Up</button>
-        <button class="chip" type="button" data-filter="down" aria-pressed="false">Down</button>
+  </section>
+
+  <section id="view-test" class="view" role="tabpanel" aria-labelledby="nav-test" hidden>
+    <div class="vhead"><h2>Connection test</h2><p>Iran starts a temporary responder and gives a link. Kharej pastes that link, measures every method, and can deploy the best DIRECT or REVERSE result.</p></div>
+    <article class="card testcard">
+      <div class="seg" role="tablist" aria-label="Connection test role">
+        <button type="button" id="t-mode-iran" role="tab" aria-selected="true" aria-controls="t-iran-panel">Iran · listener</button>
+        <button type="button" id="t-mode-kharej" role="tab" aria-selected="false" aria-controls="test-form">Kharej · tester</button>
+      </div>
+      <div id="test-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+      <section id="t-iran-panel" role="tabpanel" aria-labelledby="t-mode-iran">
+        <p class="hint">The link is valid for 15 minutes; the listener closes itself so nothing stays open.</p>
+        <div><label for="t-host">This server public IPv4 (optional)</label><input id="t-host" class="mono" placeholder="Auto-detect"></div>
+        <div class="test-actions">
+          <button id="t-start" class="btn primary" type="button">Start listener</button>
+          <button id="t-stop" class="btn" type="button" disabled>Stop listener</button>
+        </div>
+        <div id="t-iran-status" class="test-status" hidden>
+          <div class="status-grid">
+            <div><div class="k">Listener</div><div id="t-listen-state" class="v">—</div></div>
+            <div><div class="k">UDP</div><div id="t-udp" class="v">—</div></div>
+            <div><div class="k">TCP</div><div id="t-tcp" class="v">—</div></div>
+            <div><div class="k">Expires</div><div id="t-expires" class="v">—</div></div>
+          </div>
+          <div><label for="t-iran-link">Test link for Kharej</label>
+            <div class="copy-row"><input id="t-iran-link" class="mono" readonly autocomplete="off"><button id="t-copy" class="btn" type="button">Copy link</button></div></div>
+          <p id="t-iran-meta" class="hint"></p>
+        </div>
+        <div id="t-iran-progress" class="table-wrap" hidden></div>
+        <pre id="t-iran-report" class="out" hidden></pre>
+      </section>
+      <form id="test-form" role="tabpanel" aria-labelledby="t-mode-kharej" novalidate hidden>
+        <div><label for="t-link">Iran test link</label><input id="t-link" class="mono" required autocomplete="off" placeholder="ctunnel-test://..."></div>
+        <div class="grid2">
+          <div><label for="t-role">Create endpoint as</label><select id="t-role"><option value="kharej">Kharej — use matching Iran configuration</option><option value="iran">Iran — create first endpoint</option></select></div>
+          <div><label for="t-local">This server IPv4</label><input id="t-local" class="mono" placeholder="Auto-detect"></div>
+        </div>
+        <div class="grid2">
+          <div><label for="t-secret">Tunnel secret</label><input id="t-secret" type="password" autocomplete="new-password" placeholder="Required only to deploy on Kharej"></div>
+          <div><label for="t-forwards">Forward ports on Iran</label><input id="t-forwards" class="mono" placeholder="443, 2053=8443"></div>
+        </div>
+        <p class="hint">The test link is not a tunnel setup link. Deploying returns a separate <code>ctunnel://</code> link for the peer.</p>
+        <div class="test-actions"><button id="t-btn" class="btn primary" type="submit">Run test</button></div>
+        <pre id="t-out" class="out" hidden></pre>
+        <div id="t-job-progress" class="table-wrap" hidden></div>
+        <section id="t-best" class="test-choice" hidden aria-live="polite">
+          <h4 id="t-best-title"></h4>
+          <p id="t-best-stats"></p>
+          <div class="test-actions">
+            <button id="t-deploy-direct" class="btn primary" type="button" disabled>Deploy Best Direct</button>
+            <button id="t-deploy-reverse" class="btn" type="button" disabled>Deploy Best Reverse</button>
+          </div>
+        </section>
+      </form>
+    </article>
+  </section>
+
+  <section id="view-tunnels" class="view" role="tabpanel" aria-labelledby="nav-tunnels" hidden>
+    <div class="vhead">
+      <h2>Tunnels</h2><span id="t-count" class="count">0</span>
+      <div class="acts">
+        <button id="btn-restart-all" class="btn" type="button"><svg aria-hidden="true"><use href="#i-refresh"/></svg>Restart all</button>
+        <button id="btn-import" class="btn" type="button" data-go="#/import"><svg aria-hidden="true"><use href="#i-link"/></svg>Add from link</button>
+        <button id="btn-new" class="btn primary" type="button" data-go="#/add"><svg aria-hidden="true"><use href="#i-plus"/></svg>New tunnel</button>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="filters" role="group" aria-label="Filter tunnels">
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="iran" aria-pressed="false">Iran</button>
+        <button type="button" data-filter="kharej" aria-pressed="false">Kharej</button>
+        <button type="button" data-filter="direct" aria-pressed="false">Direct</button>
+        <button type="button" data-filter="reverse" aria-pressed="false">Reverse</button>
+        <button type="button" data-filter="up" aria-pressed="false">Up</button>
+        <button type="button" data-filter="down" aria-pressed="false">Down</button>
       </div>
       <input id="t-search" type="search" placeholder="Search name, IP, port" aria-label="Search tunnels" autocomplete="off">
     </div>
-    <section id="tunnels" class="tunnels"></section>
-  </div>
+    <section id="tunnels" class="tunnels" aria-live="polite"></section>
+  </section>
+
+  <section id="view-manage" class="view" role="tabpanel" aria-labelledby="nav-manage" hidden>
+    <div class="vhead"><h2>Manage</h2><p>Machine-level tools: kernel tuning, backups, the health check and the panel itself.</p></div>
+    <div class="mgrid">
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-pulse"/></svg></div><div><b>Health check</b><span>Binaries, kernel settings, the panel and every tunnel, with a fix for each problem</span></div></div>
+        <div class="acts"><button class="btn primary" type="button" data-go="#/health">Run health check</button></div>
+      </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-bolt"/></svg></div><div><b>Kernel tuning</b><span>BBR, fq, larger socket buffers and IP forwarding for every tunnel</span></div></div>
+        <div class="acts"><button id="btn-optimize" class="btn" type="button">Apply tuning</button></div>
+      </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-refresh"/></svg></div><div><b>Restart tunnels</b><span>Restart every tunnel on this server, one after another</span></div></div>
+        <div class="acts"><button id="btn-restart-all-2" class="btn" type="button">Restart all tunnels</button></div>
+      </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-box"/></svg></div><div><b>Backup &amp; restore</b><span>Every tunnel's settings and secret token in one JSON file. Keep it private.</span></div></div>
+        <div class="acts">
+          <a id="btn-backup" class="btn" download><svg aria-hidden="true"><use href="#i-down"/></svg>Download backup</a>
+          <button id="btn-restore" class="btn" type="button"><svg aria-hidden="true"><use href="#i-up"/></svg>Restore from file</button>
+          <input id="restore-file" type="file" accept=".json,application/json" hidden>
+        </div>
+        <p class="hint">Restore adds the tunnels this server does not have and starts them. Tunnels with the same name are left as they are.</p>
+      </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-gear"/></svg></div><div><b>Panel settings</b><span>Base path, custom domain and HTTPS certificate</span></div></div>
+        <div class="acts"><button class="btn" type="button" data-go="#/settings">Open settings</button></div>
+      </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-down"/></svg></div><div><b>Updates</b><span id="m-version">Running —</span></div></div>
+        <div class="acts"><button id="btn-check-update" class="btn" type="button">Check for update</button></div>
+      </article>
+    </div>
+  </section>
+
+  <footer class="foot-links">
+    <a href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
+    <a href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true"><use href="#i-tg"/></svg>Telegram</a>
+    <span>Panel design after BackPack by AminMGMT</span>
+  </footer>
 </div>
 
-<dialog id="dlg-new" class="wide">
-  <form id="create-form" novalidate>
-    <h3>New tunnel</h3>
+<dialog id="dlg-new" class="wide" aria-labelledby="new-title">
+  <form id="create-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="new-title">New tunnel</h3><p>This builds this server's end. The setup link at the end builds the other one.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div id="create-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div class="grid2">
-      <div><label for="f-role">This server is</label>
-        <select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
-      <div><label for="f-reverse">Tunnel mode</label>
-        <select id="f-reverse"><option value="0">DIRECT</option><option value="1">REVERSE</option></select></div>
+      <div><label for="f-role">This server is</label><select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
+      <div><label for="f-reverse">Tunnel mode</label><select id="f-reverse"><option value="0">DIRECT</option><option value="1">REVERSE — kharej dials in</option></select></div>
     </div>
     <div class="grid2">
-      <div><label for="f-method">Method (categorized by layer)</label><select id="f-method"></select></div>
+      <div><label for="f-method">Method</label><select id="f-method"></select></div>
       <div><label for="f-remote">Remote server IP</label><input id="f-remote" class="num" required></div>
     </div>
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
@@ -172,7 +521,7 @@ body{background:radial-gradient(1100px 520px at 78% -12%,rgba(255,255,255,.035),
       <summary>Advanced — empty fields are set automatically</summary>
       <div class="stack">
         <div class="grid2">
-          <div><label for="f-name">Name (max 9)</label><input id="f-name" maxlength="9" placeholder="t1"></div>
+          <div><label for="f-name">Name (max 9)</label><input id="f-name" maxlength="9" placeholder="t1" pattern="[a-z0-9][a-z0-9-]*"></div>
           <div><label for="f-local">This server IP</label><input id="f-local" class="num"></div>
         </div>
         <div class="grid2">
@@ -186,132 +535,93 @@ body{background:radial-gradient(1100px 520px at 78% -12%,rgba(255,255,255,.035),
           <div><label for="f-tun-iran">Iran local tunnel IPv4</label><input id="f-tun-iran" class="num" placeholder="10.77.N.1"></div>
           <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
         </div>
-        <div class="grid2">
+        <div class="grid3">
           <div><label for="f-mtu">MTU</label><input id="f-mtu" type="number" min="576" max="9000"></div>
           <div><label for="f-rate">Rate limit (Mbit/s)</label><input id="f-rate" type="number" min="0"></div>
+          <div id="pad-wrap"><label for="f-padding">Random padding (bytes)</label><input id="f-padding" type="number" min="0" max="64" placeholder="default"></div>
         </div>
         <div class="grid2">
-          <div><label for="f-lanes">GRE lanes</label><input id="f-lanes" type="number" min="1" max="8"></div>
-          <div><label for="f-tid">EoIP tunnel-id</label><input id="f-tid" type="number" min="0" max="65535"></div>
+          <div id="lanes-wrap"><label for="f-lanes">GRE lanes</label><input id="f-lanes" type="number" min="1" max="8"></div>
+          <div id="tid-wrap"><label for="f-tid">Tunnel ID (EoIP / L2TPv3)</label><input id="f-tid" type="number" min="0" max="65535"></div>
         </div>
       </div>
     </details>
-    <div class="foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
+    <div class="dfoot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
   </form>
 </dialog>
 
-<dialog id="dlg-import">
-  <form id="import-form" novalidate>
-    <h3>Add from link</h3>
+<dialog id="dlg-import" aria-labelledby="import-title">
+  <form id="import-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="import-title">Add from link</h3><p>Paste the setup link printed on the other server.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div id="import-error" class="form-error" role="alert" tabindex="-1" hidden></div>
-    <div><label for="i-import-link">Link printed on the other server</label><textarea id="i-import-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
+    <div><label for="i-import-link">Setup link</label><textarea id="i-import-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
     <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="9"></div>
-    <div class="foot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
+    <div class="dfoot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
   </form>
 </dialog>
 
-<dialog id="dlg-test" class="wide">
-  <div class="test-shell">
-    <div class="test-head">
-      <div>
-        <h3>Connection test</h3>
-        <p class="hint">Iran starts a temporary responder and gives the link. Kharej pastes that link and runs the live multi-method test.</p>
-      </div>
-      <div class="seg" role="tablist" aria-label="Connection test role">
-        <button type="button" id="t-mode-iran" class="seg-btn" role="tab" aria-selected="true" aria-controls="t-iran-panel">Iran · listener</button>
-        <button type="button" id="t-mode-kharej" class="seg-btn" role="tab" aria-selected="false" aria-controls="test-form">Kharej · tester</button>
-      </div>
-      <button class="btn ghost" type="button" data-close>Close</button>
-    </div>
-    <div id="test-error" class="form-error" role="alert" tabindex="-1" hidden></div>
-
-    <section id="t-iran-panel" role="tabpanel" aria-labelledby="t-mode-iran">
-      <p class="hint">Start the responder on this Iran server. The link is valid for 15 minutes; the listener closes itself so nothing stays open.</p>
-      <div><label for="t-host">This server public IPv4 (optional)</label><input id="t-host" class="mono" placeholder="Auto-detect"></div>
-      <div class="test-actions">
-        <button id="t-start" class="btn primary" type="button">Start listener</button>
-        <button id="t-stop" class="btn ghost" type="button" disabled>Stop listener</button>
-      </div>
-      <div id="t-iran-status" class="test-status" hidden>
-        <div class="status-grid">
-          <div><div class="k">Listener</div><div id="t-listen-state" class="v">—</div></div>
-          <div><div class="k">UDP</div><div id="t-udp" class="v">—</div></div>
-          <div><div class="k">TCP</div><div id="t-tcp" class="v">—</div></div>
-          <div><div class="k">Expires</div><div id="t-expires" class="v">—</div></div>
-        </div>
-        <div>
-          <label for="t-iran-link">Test link for Kharej</label>
-          <div class="copy-row"><input id="t-iran-link" class="mono" readonly autocomplete="off"><button id="t-copy" class="btn" type="button">Copy link</button></div>
-        </div>
-        <p id="t-iran-meta" class="hint"></p>
-      </div>
-      <div id="t-iran-progress" class="table-wrap" hidden></div>
-      <pre id="t-iran-report" class="out" hidden></pre>
-    </section>
-
-    <form id="test-form" role="tabpanel" aria-labelledby="t-mode-kharej" novalidate hidden>
-      <p class="hint">Paste the <code>ctunnel-test://</code> link generated on Iran. Each supported method is measured independently, then the best DIRECT and REVERSE candidates are stored for deployment.</p>
-      <div><label for="t-link">Iran test link</label><input id="t-link" class="mono" required autocomplete="off" placeholder="ctunnel-test://..."></div>
-      <div class="grid2">
-        <div><label for="t-role">Create endpoint as</label><select id="t-role"><option value="kharej">Kharej — use matching Iran configuration</option><option value="iran">Iran — create first endpoint</option></select></div>
-        <div><label for="t-local">This server IPv4</label><input id="t-local" class="mono" placeholder="Auto-detect"></div>
-      </div>
-      <div><label for="t-secret">Tunnel secret</label><input id="t-secret" type="password" autocomplete="new-password" placeholder="Required only to deploy on Kharej"></div>
-      <div><label for="t-forwards">Forward ports on Iran</label><input id="t-forwards" class="mono" placeholder="443, 2053=8443"></div>
-      <p class="hint">The test link is not a tunnel setup link. Deployment returns a separate <code>ctunnel://</code> link for the peer.</p>
-      <pre id="t-out" class="out" hidden></pre>
-      <div id="t-job-progress" class="table-wrap" hidden></div>
-      <section id="t-best" class="test-choice" hidden aria-live="polite">
-        <h4 id="t-best-title"></h4>
-        <p id="t-best-stats"></p>
-        <div class="test-actions">
-          <button id="t-deploy-direct" class="btn primary" type="button" disabled>Deploy Best Direct</button>
-          <button id="t-deploy-reverse" class="btn" type="button" disabled>Deploy Best Reverse</button>
-        </div>
-      </section>
-      <div class="foot"><button id="t-btn" class="btn primary" type="submit">Run test</button></div>
-    </form>
-  </div>
-</dialog>
-
-<dialog id="dlg-settings" class="wide">
- <form id="settings-form" novalidate>
-  <h3>Panel settings</h3>
-  <div id="settings-error" class="form-error" role="alert" tabindex="-1" hidden></div>
-  <div class="grid2"><div><label for="p-path">Base path</label><input id="p-path" class="mono" required pattern="/[A-Za-z0-9][A-Za-z0-9_-]{5,63}" autocomplete="off"></div><div><label for="p-domain">Custom domain</label><input id="p-domain" class="mono" placeholder="panel.example.com" autocomplete="off"></div></div>
-  <p class="hint">Use a hostname without a scheme, port or path. Point its DNS record to this server before saving.</p>
-  <div><label for="p-mode">Transport</label><select id="p-mode"><option value="http">HTTP</option><option value="https">HTTPS — custom certificate</option></select></div>
-  <section id="p-tls" class="stack" hidden>
-   <div class="grid2"><div><label for="p-cert">Fullchain path on server</label><input id="p-cert" class="mono" placeholder="/etc/ssl/panel/fullchain.pem" autocomplete="off"></div><div><label for="p-key">Private key path on server</label><input id="p-key" class="mono" placeholder="/etc/ssl/panel/privkey.pem" autocomplete="off"></div></div>
-   <p class="hint">Provide existing server paths, or upload a matching PEM pair over HTTPS or a loopback connection. Certificates must be current and cover the configured domain.</p>
-   <div class="grid2"><div><label for="p-cert-upload">Upload fullchain.pem</label><input id="p-cert-upload" type="file" accept=".pem,.crt"></div><div><label for="p-key-upload">Upload privkey.pem</label><input id="p-key-upload" type="file" accept=".pem,.key"></div></div>
-  </section>
-  <p class="hint">HTTP is the initial default. HTTPS activates only after certificate validation. Saving a path, domain or transport change opens the new panel address.</p>
-  <div class="foot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save settings</button></div>
- </form>
-</dialog>
-
-<dialog id="dlg-link" class="wide">
-  <div>
-    <h3 id="d-title"></h3>
-    <p class="hint">On the other server: <code>sudo ctunnel</code> → Setup Kharej, or <code>ctunnel apply-link '…'</code></p>
+<dialog id="dlg-link" class="wide" aria-labelledby="d-title">
+  <div class="dbody">
+    <div class="dhead"><div><h3 id="d-title"></h3><p>On the other server: <code>sudo ctunnel</code> → Setup Kharej, or <code>ctunnel apply-link '…'</code></p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <pre id="d-link" class="out"></pre>
-    <div class="stack"><div class="k">Secret token — a server without it cannot join</div><pre id="d-token" class="out"></pre></div>
-    <div id="d-mt-wrap" class="stack"><div class="k">MikroTik peer (RouterOS 7)</div><pre id="d-mt" class="out"></pre></div>
-    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><button id="d-copy" class="btn primary" type="button">Copy link</button></div>
+    <div class="stack"><div class="hint">Secret token — a server without it cannot join</div><pre id="d-token" class="out"></pre></div>
+    <div id="d-mt-wrap" class="stack"><div class="hint">MikroTik peer (RouterOS 7)</div><pre id="d-mt" class="out"></pre></div>
+    <div class="dfoot"><button class="btn ghost" type="button" data-close>Close</button><button id="d-copy" class="btn primary" type="button">Copy link</button></div>
   </div>
 </dialog>
 
-<dialog id="dlg-update">
-  <div>
-    <h3>Update available</h3>
-    <p class="hint">This panel is running <code id="u-current">—</code>. The latest stable release is <code id="u-latest">—</code>.</p>
-    <div>
-      <label for="u-command">Run on the server</label>
-      <div class="copy-row"><input id="u-command" class="mono" readonly value="sudo bash -c &quot;$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)&quot;"><button id="u-copy" class="btn" type="button">Copy</button></div>
+<dialog id="dlg-logs" class="wide" aria-labelledby="log-title">
+  <div class="dbody">
+    <div class="dhead"><div><h3 id="log-title">Live log</h3><p id="log-meta">—</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div class="loghead">
+      <input id="log-filter" type="search" placeholder="Filter lines" aria-label="Filter log lines" autocomplete="off">
+      <select id="log-lines" aria-label="Lines to show"><option value="100">100 lines</option><option value="200" selected>200 lines</option><option value="500">500 lines</option><option value="1000">1000 lines</option></select>
+      <label class="switch"><input id="log-follow" type="checkbox" checked>Follow</label>
     </div>
-    <p class="hint">The installer verifies the release checksum and restarts the panel. Review the release notes before updating.</p>
-    <div class="foot"><button class="btn ghost" type="button" data-close>Close</button><a id="u-link" class="btn primary" target="_blank" rel="noopener noreferrer" hidden>Open release</a></div>
+    <ol id="log-list" class="logs" tabindex="0" aria-label="Journal lines"></ol>
+    <div class="dfoot"><span id="log-count" class="note"></span><button id="log-copy" class="btn" type="button">Copy</button><button class="btn primary" type="button" data-close>Close</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-health" class="wide" aria-labelledby="health-title">
+  <div class="dbody">
+    <div class="dhead"><div class="ic"><svg aria-hidden="true" width="26" height="26"><use href="#i-pulse"/></svg></div><div><h3 id="health-title">Health check</h3><p>Everything it can test from this machine, and what to do about anything it finds</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="health-counts" class="alerts"></div>
+    <div id="health-body" class="stack" aria-live="polite"></div>
+    <div class="dfoot"><span id="health-note" class="note"></span><button id="health-run" class="btn" type="button">Run again</button><button class="btn primary" type="button" data-close>Close</button></div>
+  </div>
+</dialog>
+
+<dialog id="dlg-confirm" aria-labelledby="c-title">
+  <form method="dialog" class="dbody">
+    <div class="dhead"><div><h3 id="c-title"></h3><p id="c-body"></p></div></div>
+    <div class="dfoot"><button class="btn ghost" value="no">Cancel</button><button id="c-ok" class="btn danger" value="yes">Confirm</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings" class="wide" aria-labelledby="settings-title">
+  <form id="settings-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="settings-title">Panel settings</h3><p>Saving a path, domain or transport change opens the new panel address.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="settings-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+    <div class="grid2"><div><label for="p-path">Base path</label><input id="p-path" class="mono" required pattern="/[A-Za-z0-9][A-Za-z0-9_-]{5,63}" autocomplete="off"></div><div><label for="p-domain">Custom domain</label><input id="p-domain" class="mono" placeholder="panel.example.com" autocomplete="off"></div></div>
+    <p class="hint">Use a hostname without a scheme, port or path. Point its DNS record to this server before saving.</p>
+    <div><label for="p-mode">Transport</label><select id="p-mode"><option value="http">HTTP</option><option value="https">HTTPS — custom certificate</option></select></div>
+    <section id="p-tls" class="stack" hidden>
+      <div class="grid2"><div><label for="p-cert">Fullchain path on server</label><input id="p-cert" class="mono" placeholder="/etc/ssl/panel/fullchain.pem" autocomplete="off"></div><div><label for="p-key">Private key path on server</label><input id="p-key" class="mono" placeholder="/etc/ssl/panel/privkey.pem" autocomplete="off"></div></div>
+      <p class="hint">Give existing server paths, or upload a matching PEM pair over HTTPS or a loopback connection. The certificate must be current and cover the domain.</p>
+      <div class="grid2"><div><label for="p-cert-upload">Upload fullchain.pem</label><input id="p-cert-upload" type="file" accept=".pem,.crt"></div><div><label for="p-key-upload">Upload privkey.pem</label><input id="p-key-upload" type="file" accept=".pem,.key"></div></div>
+    </section>
+    <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save settings</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-update" aria-labelledby="u-title">
+  <div class="dbody">
+    <div class="dhead"><div><h3 id="u-title">Update available</h3><p>This panel runs <code id="u-current">—</code>. The latest stable release is <code id="u-latest">—</code>.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div><label for="u-command">Run on the server</label>
+      <div class="copy-row"><input id="u-command" class="mono" readonly value="sudo bash -c &quot;$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)&quot;"><button id="u-copy" class="btn" type="button">Copy</button></div></div>
+    <p class="hint">The installer verifies the release checksum and restarts the panel. Update the Iran server before the Kharej servers.</p>
+    <div class="dfoot"><button class="btn ghost" type="button" data-close>Close</button><a id="u-link" class="btn primary" target="_blank" rel="noopener noreferrer" hidden>Open release</a></div>
   </div>
 </dialog>
 
@@ -320,9 +630,28 @@ body{background:radial-gradient(1100px 520px at 78% -12%,rgba(255,255,255,.035),
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
-let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" }, telemetry = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false;
 const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
+const HISTORY = 24;
+let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, telemetry = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false, loaded = false;
+let testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" };
+const meterHistory = {};
 
+/* ---------- small helpers ---------- */
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function icon(id) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(ns, "use");
+  use.setAttribute("href", "#" + id);
+  svg.appendChild(use);
+  return svg;
+}
 function toast(msg, ok) {
   const t = $("toast");
   t.textContent = msg;
@@ -331,6 +660,34 @@ function toast(msg, ok) {
   t.hidden = false;
   clearTimeout(toast.h);
   toast.h = setTimeout(() => { t.hidden = true; }, ok ? 3000 : 7000);
+}
+function bytes(n) {
+  const u = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let i = 0; n = n || 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(1) : Math.round(n)) + " " + u[i];
+}
+function bitrate(bytesPerSec) {
+  let v = (bytesPerSec || 0) * 8;
+  const u = ["b/s", "Kb/s", "Mb/s", "Gb/s"];
+  let i = 0;
+  while (v >= 1000 && i < u.length - 1) { v /= 1000; i++; }
+  return [v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1), u[i]];
+}
+function rate(mbps) {
+  const [v, u] = bitrate((mbps || 0) * 125000);
+  return v + " " + u;
+}
+function uptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return (d ? d + "d " : "") + (d || h ? h + "h " : "") + m + "m";
+}
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
+  const ta = el("textarea"); ta.value = text; ta.setAttribute("readonly", ""); ta.className = "sr";
+  document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand("copy"); ta.remove();
+  if (!ok) throw new Error("copy blocked");
 }
 
 async function api(path, opts = {}) {
@@ -351,68 +708,96 @@ async function api(path, opts = {}) {
   } finally { clearTimeout(deadline); }
 }
 
-function showGate() {
-  clearInterval(timer);
-  timer = 0;
-  $("boot").hidden = true;
-  $("app").hidden = true;
-  $("gate").hidden = false;
-  $("login-code").focus();
+// run keeps the button's content: a busy button shows a spinner instead of new text.
+async function run(btn, fn, okMsg) {
+  if (btn && btn.disabled) return;
+  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); }
+  try {
+    const r = await fn();
+    if (r && r.ok === false) toast(r.error); else if (okMsg) toast(okMsg, true);
+    await refresh();
+    return r;
+  } catch (err) { toast(err.message); }
+  finally { if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); } }
 }
 
-function bytes(n) {
-  const u = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let i = 0;
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return (i ? n.toFixed(1) : Math.round(n)) + " " + u[i];
-}
-function uptime(s) {
-  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return (d ? d + "d " : "") + h + "h " + m + "m";
-}
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
+function confirmAction(title, body, okLabel) {
+  $("c-title").textContent = title;
+  $("c-body").textContent = body;
+  $("c-ok").textContent = okLabel;
+  const d = $("dlg-confirm");
+  d.returnValue = "";
+  d.showModal();
+  return new Promise(resolve => d.addEventListener("close", () => resolve(d.returnValue === "yes"), { once: true }));
 }
 
-function gauge(name, pct, sub) {
-  const g = document.querySelector('[data-g="' + name + '"]');
-  const p = Math.max(0, Math.min(100, pct || 0));
-  g.querySelector("progress").value = p;
-  g.querySelector("b").textContent = Math.round(p);
-  g.querySelector(".sub").textContent = sub;
+/* ---------- appearance ---------- */
+const THEMES = ["auto", "dark", "light"], THEME_LABEL = { auto: "Auto", dark: "Dark", light: "Light" };
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  $("theme-btn").querySelector(".lbl").textContent = THEME_LABEL[t];
+  $("theme-btn").setAttribute("aria-label", "Appearance: " + (t === "auto" ? "follow the system" : t));
 }
+function savedTheme() { try { return localStorage.getItem("ct-theme"); } catch (_) { return null; } }
+applyTheme(THEMES.includes(savedTheme()) ? savedTheme() : "auto");
+$("theme-btn").onclick = () => {
+  const next = THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length];
+  applyTheme(next);
+  try { localStorage.setItem("ct-theme", next); } catch (_) { /* private mode: per-session only */ }
+};
 
+/* ---------- server meters ---------- */
+document.querySelectorAll(".bars").forEach(b => { for (let i = 0; i < HISTORY; i++) b.appendChild(el("i")); });
+function meter(name, value, unit, sub, scaleMax) {
+  const m = document.querySelector('[data-m="' + name + '"]');
+  const h = meterHistory[name] || (meterHistory[name] = []);
+  h.push(value); if (h.length > HISTORY) h.shift();
+  m.querySelector("b").textContent = unit === "%" ? Math.round(value) : value;
+  m.querySelector("small").textContent = unit;
+  m.querySelector(".m-sub").textContent = sub;
+  const max = scaleMax || Math.max(...h, 1e-9);
+  const bars = m.querySelectorAll(".bars i"), off = HISTORY - h.length;
+  bars.forEach((b, i) => {
+    const v = i < off ? 0 : h[i - off];
+    b.style.height = Math.max(2, Math.round(26 * Math.min(1, v / max))) + "px";
+  });
+}
+function netMeter(name, bps) {
+  const raw = meterHistory[name + "-raw"] || (meterHistory[name + "-raw"] = []);
+  raw.push(bps); if (raw.length > HISTORY) raw.shift();
+  const [v, u] = bitrate(bps);
+  const peak = bitrate(Math.max(...raw));
+  const m = document.querySelector('[data-m="' + name + '"]');
+  m.querySelector("b").textContent = v;
+  m.querySelector("small").textContent = u;
+  m.querySelector(".m-sub").textContent = "peak " + peak.join(" ") + " in the last " + raw.length + " readings";
+  const max = Math.max(...raw, 1);
+  const bars = m.querySelectorAll(".bars i"), off = HISTORY - raw.length;
+  bars.forEach((b, i) => { b.style.height = Math.max(2, Math.round(26 * (i < off ? 0 : raw[i - off]) / max)) + "px"; });
+}
 function renderSystem(s, version) {
-  $("h-host").textContent = s.hostname || "";
+  s = s || {};
+  $("h-host").textContent = s.hostname || "C-Tunnel";
+  $("h-ver").textContent = "v" + version;
+  $("f-host").textContent = s.hostname || "—";
+  $("f-ver").textContent = "v" + version;
+  $("m-version").textContent = "Running v" + version;
   $("h-os").textContent = s.os || "—";
   $("h-up").textContent = uptime(s.uptime_sec || 0);
   $("h-v4").textContent = s.ipv4 || "—";
   $("h-v6").textContent = s.ipv6 || "—";
-  $("h-ver").textContent = "v" + version;
-  gauge("cpu", s.cpu_pct, s.cores + (s.cores === 1 ? " core" : " cores"));
-  gauge("mem", s.mem_total ? 100 * s.mem_used / s.mem_total : 0, bytes(s.mem_used) + " / " + bytes(s.mem_total));
-  gauge("disk", s.disk_total ? 100 * s.disk_used / s.disk_total : 0, bytes(s.disk_used) + " / " + bytes(s.disk_total));
-  gauge("swap", s.swap_total ? 100 * s.swap_used / s.swap_total : 0, bytes(s.swap_used) + " / " + bytes(s.swap_total));
-  $("s-load").textContent = (s.load || []).map(v => Number(v).toFixed(2)).join(", ");
+  const load = (s.load || []).map(v => Number(v).toFixed(2)).join(", ");
+  meter("cpu", s.cpu_pct || 0, "%", s.cores + (s.cores === 1 ? " core" : " cores") + (load ? " · load " + load : ""), 100);
+  meter("mem", s.mem_total ? 100 * s.mem_used / s.mem_total : 0, "%", bytes(s.mem_used) + " / " + bytes(s.mem_total), 100);
+  meter("disk", s.disk_total ? 100 * s.disk_used / s.disk_total : 0, "%", bytes(s.disk_used) + " / " + bytes(s.disk_total), 100);
+  meter("swap", s.swap_total ? 100 * s.swap_used / s.swap_total : 0, "%", s.swap_total ? bytes(s.swap_used) + " / " + bytes(s.swap_total) : "not configured", 100);
+  netMeter("rx", s.rx_rate || 0);
+  netMeter("tx", s.tx_rate || 0);
 }
 
-function stateClass(s) {
-  if (s === "up") return "up";
-  if (s === "no link" || s === "activating") return "warn";
-  return "bad";
-}
-function rate(mbps) {
-  if (!mbps || mbps <= 0) return "0 Mbps";
-  if (mbps >= 1) return Number(mbps).toFixed(2) + " Mbps";
-  return Math.round(mbps * 1000) + " Kbps";
-}
-const chartNS = "http://www.w3.org/2000/svg";
+/* ---------- charts ---------- */
 function chartPath(values, max, width, height) {
-  const pad = 2, innerW = width - pad * 2, innerH = height - pad * 2;
-  const n = values.length;
+  const pad = 2, innerW = width - pad * 2, innerH = height - pad * 2, n = values.length;
   return values.map((v, i) => {
     const x = pad + (n > 1 ? innerW * i / (n - 1) : 0);
     const y = height - pad - innerH * Math.min(1, Math.max(0, v / max));
@@ -420,188 +805,161 @@ function chartPath(values, max, width, height) {
   }).join(" ");
 }
 function areaPath(values, max, width, height) {
-  return chartPath(values, max, width, height) + " L" + (width - 2) + "," + (height - 2) + " L2," + (height - 2) + " Z";
+  return chartPath(values, max, width, height) + " L" + (width - 2) + "," + height + " L2," + height + " Z";
 }
-function updateChart(prefix, series, width, height) {
+function series(s) {
   const flat = Array.from({ length: 60 }, () => 0);
-  const rx = (series && series.rx_history && series.rx_history.length) ? series.rx_history : flat;
-  const tx = (series && series.tx_history && series.tx_history.length) ? series.tx_history : flat;
-  const max = Math.max(1, ...rx, ...tx);
-  const set = (id, attr, value) => { const e = document.getElementById(id); if (e) e.setAttribute(attr, value); };
-  set(prefix + "-rx-line", "d", chartPath(rx, max, width, height));
-  set(prefix + "-tx-line", "d", chartPath(tx, max, width, height));
-  set(prefix + "-rx-area", "d", areaPath(rx, max, width, height));
-  set(prefix + "-tx-area", "d", areaPath(tx, max, width, height));
+  const rx = s && s.rx_history && s.rx_history.length ? s.rx_history : flat;
+  const tx = s && s.tx_history && s.tx_history.length ? s.tx_history : flat;
+  return { rx, tx, max: Math.max(1, ...rx, ...tx) };
 }
-function sparkline(name) {
-  const svg = document.createElementNS(chartNS, "svg");
-  svg.setAttribute("class", "spark");
-  svg.setAttribute("viewBox", "0 0 140 44");
-  svg.setAttribute("preserveAspectRatio", "none");
-  svg.setAttribute("aria-hidden", "true");
-  const defs = document.createElementNS(chartNS, "defs");
-  for (const [key, color] of [["rx", "#7bc49d"], ["tx", "#e2ba74"]]) {
-    const grad = document.createElementNS(chartNS, "linearGradient");
-    grad.setAttribute("id", "spark-" + name + "-" + key);
-    grad.setAttribute("x1", "0"); grad.setAttribute("y1", "0"); grad.setAttribute("x2", "0"); grad.setAttribute("y2", "1");
-    const a = document.createElementNS(chartNS, "stop"); a.setAttribute("offset", "0"); a.setAttribute("stop-color", color); a.setAttribute("stop-opacity", ".26");
-    const b = document.createElementNS(chartNS, "stop"); b.setAttribute("offset", "1"); b.setAttribute("stop-color", color); b.setAttribute("stop-opacity", "0");
-    grad.append(a, b); defs.appendChild(grad);
-  }
-  svg.appendChild(defs);
-  const paths = {};
-  for (const key of ["rx", "tx"]) {
-    const area = document.createElementNS(chartNS, "path");
-    area.setAttribute("class", "area");
-    area.setAttribute("stroke", "none");
-    area.setAttribute("fill", "url(#spark-" + name + "-" + key + ")");
-    const line = document.createElementNS(chartNS, "path");
-    line.setAttribute("class", "chart-line " + key);
-    svg.append(area, line);
-    paths[key] = { area, line };
-  }
-  return { svg, paths };
-}
-function updateSpark(spark, series) {
-  if (!spark) return;
-  const flat = Array.from({ length: 60 }, () => 0);
-  const rx = (series && series.rx_history && series.rx_history.length) ? series.rx_history : flat;
-  const tx = (series && series.tx_history && series.tx_history.length) ? series.tx_history : flat;
-  const max = Math.max(1, ...rx, ...tx);
-  for (const key of ["rx", "tx"]) {
-    const values = key === "rx" ? rx : tx;
-    spark.paths[key].line.setAttribute("d", chartPath(values, max, 140, 44));
-    spark.paths[key].area.setAttribute("d", areaPath(values, max, 140, 44));
-  }
-}
-function renderTelemetry(t, system, tunnels) {
+function renderTelemetry(t, tunnels) {
   const up = tunnels.filter(x => x.state === "up").length;
-  $("m-active").textContent = up + " / " + tunnels.length;
-  $("agg-host").textContent = (system && system.ipv4) || "—";
-  if (!t || !t.aggregate) {
-    $("agg-rx").textContent = "0 Mbps"; $("agg-tx").textContent = "0 Mbps"; $("agg-total").textContent = "0 B";
-    updateChart("master", null, 600, 120);
-    return;
-  }
-  $("agg-rx").textContent = rate(t.aggregate.rx_mbps);
-  $("agg-tx").textContent = rate(t.aggregate.tx_mbps);
-  $("agg-total").textContent = bytes((t.aggregate.rx_total || 0) + (t.aggregate.tx_total || 0));
-  updateChart("master", t.aggregate, 600, 120);
+  $("m-active").textContent = up + "/" + tunnels.length;
+  const a = t && t.aggregate;
+  $("agg-rx").textContent = rate(a && a.rx_mbps);
+  $("agg-tx").textContent = rate(a && a.tx_mbps);
+  $("agg-total").textContent = bytes(a ? (a.rx_total || 0) + (a.tx_total || 0) : 0);
+  const { rx, tx, max } = series(a);
+  $("master-rx-line").setAttribute("d", chartPath(rx, max, 600, 120));
+  $("master-tx-line").setAttribute("d", chartPath(tx, max, 600, 120));
+  $("master-rx-area").setAttribute("d", areaPath(rx, max, 600, 120));
+  $("master-tx-area").setAttribute("d", areaPath(tx, max, 600, 120));
 }
 
+/* ---------- overview alerts ---------- */
+function renderAlerts(tunnels) {
+  const box = $("ov-alerts");
+  box.replaceChildren();
+  const add = (cls, text, go) => {
+    const c = el(go ? "button" : "span", "chip " + cls);
+    if (go) { c.type = "button"; c.onclick = () => navigate(go); }
+    c.append(el("span", "dot"), document.createTextNode(text));
+    box.appendChild(c);
+  };
+  const failed = tunnels.filter(t => tunnelState(t).cls === "bad").length;
+  const noLink = tunnels.filter(t => t.state === "no link").length;
+  const stopped = tunnels.filter(t => tunnelState(t).cls === "off").length;
+  if (failed) add("bad", failed + (failed === 1 ? " tunnel has failed" : " tunnels have failed"), "#/tunnels");
+  if (noLink) add("warn", noLink + (noLink === 1 ? " tunnel runs without a link" : " tunnels run without a link"), "#/tunnels");
+  if (stopped) add("", stopped + " stopped", "#/tunnels");
+  if (!tunnels.length) add("", "No tunnels yet — add one", "#/add");
+  if (versionInfo && versionInfo.update_available) add("warn", "Update " + versionInfo.latest + " is available", "#/update");
+  if (!box.children.length) add("ok", "All " + tunnels.length + " tunnels are up");
+}
 
-function kv(parent, key, value) {
+/* ---------- tunnel cards ---------- */
+function tunnelState(t) {
+  switch (t.state) {
+    case "up": return { cls: "up", label: "Connected" };
+    case "no link": return { cls: "warn", label: "No link" };
+    case "activating": case "reloading": return { cls: "warn", label: "Starting" };
+    case "inactive": case "deactivating": return { cls: "off", label: "Stopped" };
+    case "failed": return { cls: "bad", label: "Failed" };
+    default: return { cls: "bad", label: t.state ? t.state[0].toUpperCase() + t.state.slice(1) : "Unknown" };
+  }
+}
+function methodLabel(t) {
+  if (!t.reverse) return t.method;
+  return (t.family === "UDP-Crypt" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
+}
+function smallButton(label, iconID, onClick, cls) {
+  const b = el("button", "btn sm " + (cls || ""));
+  b.type = "button";
+  b.append(icon(iconID), el("span", "lbl", label));
+  b.title = label;
+  b.onclick = onClick;
+  return b;
+}
+function kv(parent, key) {
   const d = el("div");
-  const v = el("div", "num", value);
+  const v = el("div", "v");
   d.append(el("div", "k", key), v);
   parent.appendChild(d);
   return v;
 }
-
-function button(label, cls, onClick) {
-  const b = el("button", "btn sm " + (cls || ""), label);
-  b.type = "button";
-  b.onclick = onClick;
-  return b;
-}
-
-function icon(id) {
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("aria-hidden", "true");
-  const use = document.createElementNS(ns, "use");
-  use.setAttribute("href", "#" + id);
-  svg.appendChild(use);
-  return svg;
-}
-
 const cards = new Map();
+const tunnelURL = (name, action) => "/api/tunnels/" + encodeURIComponent(name) + (action ? "/" + action : "");
 
 function tunnelCard(t) {
-  const card = el("article", "card tun");
+  const card = el("article", "tun");
+  const ns = "http://www.w3.org/2000/svg";
+  const field = el("div", "field");
+  const spark = document.createElementNS(ns, "svg");
+  spark.setAttribute("class", "spark"); spark.setAttribute("viewBox", "0 0 300 80"); spark.setAttribute("preserveAspectRatio", "none"); spark.setAttribute("aria-hidden", "true");
+  const fill = document.createElementNS(ns, "path"); fill.setAttribute("class", "fill");
+  const line = document.createElementNS(ns, "path"); line.setAttribute("class", "line"); line.setAttribute("stroke", "currentColor");
+  spark.append(fill, line);
+  field.append(el("div", "wash"), el("div", "grid"), spark);
+
+  const inner = el("div", "inner");
   const top = el("div", "tun-top");
-  const ic = el("div", "icon-sq");
-  ic.appendChild(icon("i-link"));
   const title = el("div");
-  const name = el("div", "name", t.name);
+  const name = el("h3", "name");
   const meth = el("div", "meth");
   title.append(name, meth);
   const state = el("span", "state");
-  top.append(ic, title, state);
+  top.append(title, state);
+  const rates = el("div", "rates");
+  const rxB = el("b"), txB = el("b"), rxS = el("small"), txS = el("small");
+  const rxD = el("div"), txD = el("div");
+  rxD.append(rxB, rxS, el("small", "", "down")); txD.append(txB, txS, el("small", "", "up"));
+  rates.append(rxD, txD);
   const info = el("div", "kv");
-  const c = {
-    card, name, meth, state, t,
-    peer: kv(info, "Peer"),
-    tunnelIP: kv(info, "Tunnel IP"),
-    forwards: kv(info, "Forwards"),
-    io: kv(info, "RX / TX"),
-    liveRX: kv(info, "Live RX"),
-    liveTX: kv(info, "Live TX")
-  };
-  const spark = sparkline(t.name);
-  c.spark = spark;
-  const row = el("div", "row");
-  row.append(
-    button("Setup link", "", () => showLink(c.t.name, c.t.setup_link, c.t.mikrotik, c.t.token)),
-    button("Copy link", "", async () => {
-      try { await navigator.clipboard.writeText(c.t.setup_link); toast("Setup link copied", true); }
-      catch (_) { showLink(c.t.name, c.t.setup_link, c.t.mikrotik, c.t.token); }
-    }),
-    button("Edit", "", () => editTunnel(c.t)),
-    button("Restart", "", e => run(e.target, () => api("/api/tunnels/" + encodeURIComponent(c.t.name) + "/restart", { method: "POST" }), "Restarted " + c.t.name)),
-    button("Delete", "danger", e => {
-      if (confirm("Delete tunnel " + c.t.name + "? Its interface and port forwards are removed.")) {
-        run(e.target, () => api("/api/tunnels/" + encodeURIComponent(c.t.name), { method: "DELETE" }), "Deleted " + c.t.name);
-      }
-    })
+  const c = { card, name, meth, state, line, fill, rxB, rxS, txB, txS, t,
+    peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Carried RX / TX") };
+  inner.append(top, rates, info);
+
+  const band = el("div", "band");
+  c.toggle = smallButton("Stop", "i-stop", e => toggleTunnel(e.currentTarget, c.t));
+  band.append(
+    c.toggle,
+    smallButton("Restart", "i-refresh", e => run(e.currentTarget, () => api(tunnelURL(c.t.name, "restart"), { method: "POST", timeout: 120000 }), "Restarted " + c.t.name), "compact"),
+    smallButton("Logs", "i-log", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/logs")),
+    smallButton("Link", "i-link", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/link"), "compact"),
+    smallButton("Edit", "i-edit", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/edit"), "compact")
   );
-  card.append(top, info, spark.svg, row);
+  const del = el("button", "btn sm icon danger end");
+  del.type = "button"; del.title = "Delete"; del.appendChild(icon("i-trash"));
+  del.onclick = async e => {
+    const btn = e.currentTarget;
+    if (await confirmAction("Delete " + c.t.name + "?", "Its interface, port forwards and saved settings are removed from this server. The other server keeps its end until you delete it there.", "Delete tunnel")) {
+      run(btn, () => api(tunnelURL(c.t.name), { method: "DELETE", timeout: 120000 }), "Deleted " + c.t.name);
+    }
+  };
+  c.del = del;
+  band.appendChild(del);
+  card.append(field, inner, band);
   return c;
 }
-
+async function toggleTunnel(btn, t) {
+  const stop = tunnelState(t).cls !== "off";
+  if (stop && !(await confirmAction("Stop " + t.name + "?", "Traffic through this tunnel stops, and it stays stopped after a reboot until you start it again.", "Stop tunnel"))) return;
+  run(btn, () => api(tunnelURL(t.name, stop ? "stop" : "start"), { method: "POST", timeout: 120000 }), (stop ? "Stopped " : "Started ") + t.name);
+}
 function updateTunnel(c, t) {
   c.t = t;
+  const st = tunnelState(t);
+  c.card.className = "tun st-" + st.cls;
   c.name.textContent = t.name;
-  c.meth.textContent = t.method + " · " + (t.family || "") + " · " + t.role + (t.reverse ? " · reverse" : "");
-  c.state.className = "state " + stateClass(t.state);
-  c.state.textContent = t.state;
-  c.state.title = t.state;
-  c.peer.textContent = t.remote_ip + (t.port ? " : " + t.port : "");
+  c.meth.textContent = [methodLabel(t), t.family, t.role, t.reverse ? "reverse" : "direct"].filter(Boolean).join(" · ");
+  c.state.textContent = st.label;
+  c.peer.textContent = (t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any (dials in)") + (t.port ? " :" + t.port : "");
   c.tunnelIP.textContent = t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   c.forwards.textContent = (t.ports || []).join(", ") || "—";
-  c.io.textContent = bytes(t.status.rx_bytes) + " / " + bytes(t.status.tx_bytes);
-  const series = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
-  c.liveRX.textContent = rate(series && series.rx_mbps);
-  c.liveTX.textContent = rate(series && series.tx_mbps);
-  updateSpark(c.spark, series);
+  c.io.textContent = bytes(t.status && t.status.rx_bytes) + " / " + bytes(t.status && t.status.tx_bytes);
+  const s = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
+  const [rv, ru] = bitrate((s && s.rx_mbps || 0) * 125000), [tv, tu] = bitrate((s && s.tx_mbps || 0) * 125000);
+  c.rxB.textContent = rv; c.rxS.textContent = ru; c.txB.textContent = tv; c.txS.textContent = tu;
+  const { rx, tx } = series(s);
+  const sum = rx.map((v, i) => v + (tx[i] || 0)), max = Math.max(1, ...sum);
+  c.line.setAttribute("d", chartPath(sum, max, 300, 80));
+  c.fill.setAttribute("d", areaPath(sum, max, 300, 80));
+  const off = st.cls === "off";
+  c.toggle.replaceChildren(icon(off ? "i-play" : "i-stop"), el("span", "lbl", off ? "Start" : "Stop"));
+  c.toggle.title = off ? "Start" : "Stop";
+  c.del.setAttribute("aria-label", "Delete " + t.name);
 }
-
-function editTunnel(t) {
-  const form = $("create-form");
-  form.reset(); form.saved = null; form.edit = t.name;
-  $("f-role").value = t.role;
-  $("f-reverse").value = t.reverse ? "1" : "0";
-  $("f-method").value = t.method;
-  $("f-remote").value = t.remote_ip || "";
-  $("f-local").value = t.local_ip || "";
-  $("f-name").value = t.name;
-  $("f-name").disabled = true;
-  $("f-index").value = t.index || "";
-  $("f-port").value = t.port || "";
-  $("f-token").value = t.token || "";
-  $("f-mtu").value = t.mtu || "";
-  $("f-rate").value = t.rate_mbps || "";
-  $("f-lanes").value = t.lanes || "";
-  $("f-tid").value = t.tunnel_id || "";
-  $("f-ports").value = (t.ports || []).join(", ");
-  $("f-tun-iran").value = t.role === "iran" ? (t.tun_local4 || "") : (t.tun_remote4 || "");
-  $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
-  form.querySelector('[type="submit"]').textContent = "Save and restart";
-  $("create-error").hidden = true;
-  syncForm();
-  $("dlg-new").showModal();
-}
-
 function filteredTunnels() {
   const q = tunnelQuery.trim().toLowerCase();
   return allTunnels.filter(t => {
@@ -612,75 +970,41 @@ function filteredTunnels() {
     if (tunnelFilter === "up" && t.state !== "up") return false;
     if (tunnelFilter === "down" && t.state === "up") return false;
     if (!q) return true;
-    return [t.name, t.remote_ip, t.local_ip, t.tun_local4, t.tun_remote4, t.method, t.family, t.role, String(t.port || ""), (t.ports || []).join(" ")]
-      .join(" ").toLowerCase().includes(q);
+    return [t.name, t.remote_ip, t.local_ip, t.tun_local4, t.tun_remote4, t.method, t.family, t.role, String(t.port || ""), (t.ports || []).join(" ")].join(" ").toLowerCase().includes(q);
   });
 }
 function setTunnelFilter(filter) {
   tunnelFilter = filter;
-  document.querySelectorAll("[data-filter]").forEach(b => {
-    const on = b.dataset.filter === filter;
-    b.classList.toggle("active", on);
-    b.setAttribute("aria-pressed", String(on));
-  });
-  renderTunnels(filteredTunnels());
+  document.querySelectorAll("[data-filter]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.filter === filter)));
+  renderTunnels();
 }
-function setView(view) {
-  currentView = view;
-  const overview = view === "overview";
-  $("view-overview").hidden = !overview;
-  $("view-tunnels").hidden = overview;
-  $("nav-overview").setAttribute("aria-selected", String(overview));
-  $("nav-tunnels").setAttribute("aria-selected", String(!overview));
-  if (!overview) renderTunnels(filteredTunnels());
-}
-
-function renderTunnels(list) {
-  const box = $("tunnels");
-  $("t-count").textContent = list.length;
+function renderTunnels() {
+  const list = filteredTunnels(), box = $("tunnels");
+  $("t-count").textContent = allTunnels.length;
   box.querySelector(".empty")?.remove();
-  if (!list.length) {
-    box.textContent = "";
-    cards.clear();
-    box.appendChild(el("div", "empty", allTunnels.length ? "No tunnels match this filter." : "No tunnels yet. Create one with New tunnel, or add one from the other server's link."));
-    return;
-  }
   const seen = new Set();
   for (const t of list) {
     seen.add(t.name);
     let c = cards.get(t.name);
-    if (!c) {
-      c = tunnelCard(t);
-      cards.set(t.name, c);
-      box.appendChild(c.card);
-    }
+    if (!c) { c = tunnelCard(t); cards.set(t.name, c); }
+    box.appendChild(c.card);
     updateTunnel(c, t);
   }
-  for (const [name, c] of cards) {
-    if (!seen.has(name)) {
-      c.card.remove();
-      cards.delete(name);
-    }
+  for (const [name, c] of cards) if (!seen.has(name)) { c.card.remove(); cards.delete(name); }
+  if (!list.length) {
+    const e = el("div", "empty");
+    e.append(el("b", "", allTunnels.length ? "Nothing matches" : "No tunnels yet"), document.createTextNode(allTunnels.length ? "No tunnel matches this filter or search." : "Create one with New tunnel, or add one from the other server's setup link."));
+    box.appendChild(e);
   }
 }
 
-function fillMethods(list) {
-  methods = list;
-  const sel = $("f-method");
-  const groups = {};
-  for (const m of methods) {
-    if (!groups[m.Family]) {
-      groups[m.Family] = el("optgroup");
-      groups[m.Family].label = m.Family;
-      sel.appendChild(groups[m.Family]);
-    }
-    const o = el("option", "", m.Name + " — " + m.Title);
-    o.value = m.Name;
-    groups[m.Family].appendChild(o);
-  }
-  syncForm();
+/* ---------- polling ---------- */
+function showGate() {
+  clearInterval(timer); timer = 0; loaded = false;
+  $("boot").hidden = true; $("app").hidden = true; $("gate").hidden = false;
+  for (const d of document.querySelectorAll("dialog[open]")) d.close();
+  $("login-code").focus();
 }
-
 async function refresh({ force = false, reportErrors = false } = {}) {
   if (document.hidden && !force) return;
   // Drain a pre-login overview before requesting authenticated state. Reusing
@@ -695,16 +1019,17 @@ async function refresh({ force = false, reportErrors = false } = {}) {
     panel = data.panel || {};
     telemetry = data.telemetry || null;
     allTunnels = data.tunnels || [];
-    $("boot").hidden = true;
-    $("gate").hidden = true;
-    $("app").hidden = false;
-    if (!methods.length) fillMethods(data.methods);
+    $("boot").hidden = true; $("gate").hidden = true; $("app").hidden = false;
+    $("btn-backup").href = BASE_PATH + "/api/backup";
+    if (!methods.length) fillMethods(data.methods || []);
     renderSystem(data.system, data.version);
-    renderTelemetry(data.telemetry, data.system, allTunnels);
-    renderTunnels(filteredTunnels());
+    renderTelemetry(telemetry, allTunnels);
+    renderTunnels();
+    renderAlerts(allTunnels);
     $("sync-status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (!timer) timer = setInterval(refresh, 4000);
-    if (!versionRequested) { versionRequested = true; ensureVersionCheck(); }
+    if (!versionRequested) { versionRequested = true; checkVersion(false); }
+    if (!loaded) { loaded = true; route(); }
   })();
   refreshTask = task;
   try { await task; }
@@ -717,24 +1042,77 @@ async function refresh({ force = false, reportErrors = false } = {}) {
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
-async function run(btn, fn, okMsg) {
-  if (btn && btn.disabled) return;
-  const label = btn ? btn.textContent : "";
-  if (btn) { btn.disabled = true; btn.setAttribute("aria-busy", "true"); btn.textContent = "Working…"; }
-  try {
-    const r = await fn();
-    if (r && r.ok === false) toast(r.error); else if (okMsg) toast(okMsg, true);
-    await refresh();
-    return r;
-  } catch (err) { toast(err.message); }
-  finally { if (btn) { btn.disabled = false; btn.removeAttribute("aria-busy"); btn.textContent = label; } }
+/* ---------- routing ----------
+   Sections are pages; everything else is a dialog over the section it belongs
+   to, and closing it returns there. Every screen has its own hash. */
+const SECTIONS = { "": "overview", test: "test", tunnels: "tunnels", manage: "manage" };
+const DIALOG_ROUTES = { add: "tunnels", import: "tunnels", health: "manage", settings: "manage", update: "manage" };
+let routeDialog = null, pushedDialog = false;
+function navigate(hash) {
+  if (location.hash === hash) { route(); return; }
+  pushedDialog = !SECTIONS.hasOwnProperty(hash.replace(/^#\/?/, ""));
+  location.hash = hash;
 }
+function sectionHash(view) { return view === "overview" ? "#/" : "#/" + view; }
+function setView(view) {
+  currentView = view;
+  for (const v of ["overview", "test", "tunnels", "manage"]) {
+    $("view-" + v).hidden = v !== view;
+    $("nav-" + v).setAttribute("aria-selected", String(v === view));
+  }
+  if (view === "tunnels") renderTunnels();
+  if (view === "test") setTestMode(testMode); else stopTestPoll();
+}
+function openRouteDialog(id) {
+  routeDialog = $(id);
+  if (!routeDialog.open) routeDialog.showModal();
+}
+function route() {
+  if (!loaded) return;
+  if (!location.hash) history.replaceState(null, "", "#/");
+  const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  const first = parts[0] || "";
+  if (routeDialog && routeDialog.open) { const d = routeDialog; routeDialog = null; d.close(); }
+  if (SECTIONS.hasOwnProperty(first)) { setView(SECTIONS[first]); return; }
+  if (DIALOG_ROUTES[first]) {
+    setView(DIALOG_ROUTES[first]);
+    if (first === "add") openCreate(null);
+    else if (first === "import") openImport();
+    else if (first === "health") openHealth();
+    else if (first === "settings") openSettings();
+    else if (first === "update") { if (versionInfo && versionInfo.update_available) openRouteDialog("dlg-update"); else history.replaceState(null, "", "#/manage"); }
+    return;
+  }
+  if (first === "t" && parts[1]) {
+    setView("tunnels");
+    const t = allTunnels.find(x => x.name === parts[1]);
+    if (!t) { toast("Tunnel " + parts[1] + " not found"); history.replaceState(null, "", "#/tunnels"); return; }
+    if (parts[2] === "logs") openLogs(t);
+    else if (parts[2] === "link") showLink(t.name, t.setup_link, t.mikrotik, t.token, true);
+    else if (parts[2] === "edit") openCreate(t);
+    return;
+  }
+  history.replaceState(null, "", "#/");
+  setView("overview");
+}
+window.addEventListener("hashchange", route);
+document.querySelectorAll("dialog").forEach(d => d.addEventListener("close", () => {
+  if (d !== routeDialog) return;
+  routeDialog = null;
+  if (pushedDialog) { pushedDialog = false; history.back(); }
+  else history.replaceState(null, "", sectionHash(currentView));
+}));
+document.addEventListener("click", e => {
+  const go = e.target instanceof Element && e.target.closest("[data-go]");
+  if (go) { e.preventDefault(); navigate(go.dataset.go); }
+});
+document.querySelectorAll("[data-close]").forEach(b => { b.onclick = () => b.closest("dialog").close(); });
 
+/* ---------- forms ---------- */
 function formError(id, message) {
   const box = $(id);
   box.replaceChildren(document.createTextNode(message));
-  box.hidden = false;
-  box.focus();
+  box.hidden = false; box.focus();
 }
 function validateForm(form, errorID) {
   const invalid = Array.from(form.elements).filter(e => e.willValidate && !e.validity.valid);
@@ -746,102 +1124,98 @@ function validateForm(form, errorID) {
   for (const field of invalid) {
     field.setAttribute("aria-invalid", "true");
     const details = field.closest("details"); if (details) details.open = true;
-    const link = el("a", "field-error", (field.labels?.[0]?.textContent || field.id) + ": " + field.validationMessage);
+    const link = el("a", "", (field.labels?.[0]?.textContent || field.id) + ": " + field.validationMessage);
     link.href = "#" + field.id;
     link.onclick = e => { e.preventDefault(); field.focus(); };
     box.appendChild(link);
   }
-  box.hidden = false;
-  box.focus();
+  box.hidden = false; box.focus();
   return false;
 }
+function num(id) { const v = $(id).value.trim(); return v === "" ? 0 : Number(v); }
 
-function showLink(name, link, mikrotik, token) {
-  $("d-title").textContent = "Setup link for " + name;
-  $("d-token").textContent = token || "";
-  $("d-link").textContent = link;
-  $("d-mt").textContent = mikrotik || "";
-  $("d-mt-wrap").hidden = !mikrotik;
-  $("dlg-link").showModal();
+function fillMethods(list) {
+  methods = list;
+  const sel = $("f-method"), groups = {};
+  for (const m of methods) {
+    if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family; sel.appendChild(groups[m.Family]); }
+    const o = el("option", "", m.Name + " — " + m.Title);
+    o.value = m.Name;
+    groups[m.Family].appendChild(o);
+  }
+  syncForm();
 }
-
-document.querySelectorAll("[data-close]").forEach(b => { b.onclick = () => b.closest("dialog").close(); });
-$("btn-new").onclick = () => {
-  const form = $("create-form");
-  form.reset(); form.saved = null; form.edit = null;
-  $("f-name").disabled = false;
-  $("create-form").querySelector('[type="submit"]').textContent = "Create and start";
-  $("create-error").hidden = true; syncForm(); $("dlg-new").showModal();
-};
-$("btn-import").onclick = () => {
- $("import-form").reset(); $("import-form").saved = null;
- $("import-form").querySelector('[type="submit"]').textContent = "Create and start";
- $("import-error").hidden = true; $("dlg-import").showModal();
-};
-$("d-copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("d-link").textContent); toast("Copied", true); }
-  catch (_) { toast("Copy failed: select the link and copy it by hand"); }
-};
-$("update-pill").onclick = openUpdateDialog;
-$("u-copy").onclick = async () => {
-  try { await navigator.clipboard.writeText($("u-command").value); toast("Update command copied", true); }
-  catch (_) { $("u-command").select(); toast("Select the command and copy it by hand"); }
-};
-$("nav-overview").onclick = () => setView("overview");
-$("nav-tunnels").onclick = () => setView("tunnels");
-$("nav-test").onclick = () => openTestDialog();
-$("nav-settings").onclick = () => $("m-settings").click();
-document.querySelectorAll("[data-filter]").forEach(b => { b.onclick = () => setTunnelFilter(b.dataset.filter); });
-$("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").value; renderTunnels(filteredTunnels()); });
-
-function setMenu(open) {
-  $("menu").hidden = !open;
-  $("menu-btn").setAttribute("aria-expanded", String(open));
-  if (open) $("menu").querySelector("button").focus();
-}
-$("menu-btn").onclick = e => { e.stopPropagation(); setMenu($("menu").hidden); };
-document.addEventListener("click", e => { if (!(e.target instanceof Element) || !e.target.closest(".menu-wrap")) setMenu(false); });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("menu").hidden) { setMenu(false); $("menu-btn").focus(); } });
-$("m-test").onclick = () => { setMenu(false); openTestDialog(); };
-$("m-restart").onclick = () => { setMenu(false); run(null, () => api("/api/tunnels/all/restart", { method: "POST" }), "All tunnels restarted"); };
-$("m-optimize").onclick = () => { setMenu(false); run(null, () => api("/api/optimize", { method: "POST" }), "Kernel tuning applied"); };
-$("m-logout").onclick = async () => { setMenu(false); await api("/api/logout", { method: "POST" }).catch(() => {}); csrf = ""; showGate(); };
-
-function num(id) {
-  const v = $(id).value.trim();
-  return v === "" ? 0 : Number(v);
-}
-
 function syncForm() {
-  const m = methods.find(x => x.Name === $("f-method").value);
   const rev = $("f-reverse").value === "1";
   for (const o of $("f-method").options) {
     const mm = methods.find(x => x.Name === o.value);
     o.hidden = o.disabled = rev && !!(mm && mm.IPv6Underlay);
   }
-  if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) {
-    $("f-method").value = "gre";
-    return syncForm();
-  }
-  const revIran = $("f-reverse").value === "1" && $("f-role").value === "iran";
+  if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) { $("f-method").value = "gre"; return syncForm(); }
+  const m = methods.find(x => x.Name === $("f-method").value);
+  const iran = $("f-role").value === "iran", revIran = rev && iran;
   $("f-remote").required = !revIran;
-  $("fwd-wrap").hidden = $("f-role").value !== "iran" || ["sit", "ip6ip6"].includes($("f-method").value);
+  $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes($("f-method").value);
+  $("pad-wrap").hidden = !(m && m.Family === "UDP-Crypt");
+  $("lanes-wrap").hidden = !(m && m.SupportsLanes);
+  $("tid-wrap").hidden = !(m && ["eoip", "l2tpv3"].includes(m.Name));
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
 }
 $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
 $("f-reverse").onchange = syncForm;
 
+function openCreate(t) {
+  const form = $("create-form");
+  form.reset(); form.saved = null; form.edit = t ? t.name : null;
+  $("create-error").hidden = true;
+  $("f-name").disabled = !!t;
+  $("new-title").textContent = t ? "Edit " + t.name : "New tunnel";
+  form.querySelector('[type="submit"]').textContent = t ? "Save and restart" : "Create and start";
+  if (t) {
+    $("f-role").value = t.role; $("f-reverse").value = t.reverse ? "1" : "0"; $("f-method").value = t.method;
+    $("f-remote").value = t.remote_ip === "0.0.0.0" || t.remote_ip === "::" ? "" : (t.remote_ip || "");
+    $("f-local").value = t.local_ip || ""; $("f-name").value = t.name;
+    $("f-index").value = t.index || ""; $("f-port").value = t.port || ""; $("f-token").value = t.token || "";
+    $("f-mtu").value = t.mtu || ""; $("f-rate").value = t.rate_mbps || ""; $("f-padding").value = t.padding || "";
+    $("f-lanes").value = t.lanes || ""; $("f-tid").value = t.tunnel_id || "";
+    $("f-ports").value = (t.ports || []).join(", ");
+    $("f-tun-iran").value = t.role === "iran" ? (t.tun_local4 || "") : (t.tun_remote4 || "");
+    $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
+  }
+  syncForm();
+  openRouteDialog("dlg-new");
+}
+function openImport() {
+  const form = $("import-form");
+  form.reset(); form.saved = null;
+  form.querySelector('[type="submit"]').textContent = "Create and start";
+  $("import-error").hidden = true;
+  openRouteDialog("dlg-import");
+}
+function showLink(name, link, mikrotik, token, routed) {
+  $("d-title").textContent = "Setup link for " + name;
+  $("d-token").textContent = token || "";
+  $("d-link").textContent = link || "";
+  $("d-mt").textContent = mikrotik || "";
+  $("d-mt-wrap").hidden = !mikrotik;
+  if (routed) openRouteDialog("dlg-link"); else $("dlg-link").showModal();
+}
+$("d-copy").onclick = async () => {
+  try { await copyText($("d-link").textContent); toast("Setup link copied", true); }
+  catch (_) { toast("Copy failed: select the link and copy it by hand"); }
+};
+
 async function saveTunnel(form, submitter, body, endpoint, dialog, errorID) {
   if (form.busy || !validateForm(form, errorID)) return;
   const editing = !!form.edit;
   form.busy = true;
   const label = submitter.textContent;
-  submitter.disabled = true; submitter.textContent = form.saved ? "Starting…" : (editing ? "Saving…" : "Creating…"); submitter.setAttribute("aria-busy", "true");
+  submitter.disabled = true; submitter.setAttribute("aria-busy", "true");
   try {
     let result;
     if (form.saved) {
-      await api("/api/tunnels/" + encodeURIComponent(form.saved.name) + "/restart", { method: "POST", timeout: 120000 });
+      await api(tunnelURL(form.saved.name, "restart"), { method: "POST", timeout: 120000 });
       result = { ...form.saved, ok: true };
     } else {
       result = await api(endpoint, { method: editing ? "PUT" : "POST", timeout: 120000, body: JSON.stringify(body) });
@@ -859,7 +1233,6 @@ async function saveTunnel(form, submitter, body, endpoint, dialog, errorID) {
     submitter.textContent = form.saved ? "Retry start" : label;
   }
 }
-
 $("create-form").addEventListener("submit", async e => {
   e.preventDefault();
   const iran = $("f-role").value === "iran";
@@ -868,20 +1241,134 @@ $("create-form").addEventListener("submit", async e => {
     role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").value === "1",
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
-    index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"),
+    index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
   };
-  if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or import its setup link."); $("f-token").closest("details").open = true; return; }
+  if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or add the tunnel from its setup link."); $("f-token").closest("details").open = true; return; }
   const form = e.currentTarget;
-  const endpoint = form.edit ? "/api/tunnels/" + encodeURIComponent(form.edit) : "/api/tunnels";
-  await saveTunnel(form, e.submitter || form.querySelector('[type="submit"]'), body, endpoint, "dlg-new", "create-error");
+  await saveTunnel(form, e.submitter || form.querySelector('[type="submit"]'), body, form.edit ? tunnelURL(form.edit) : "/api/tunnels", "dlg-new", "create-error");
 });
 $("import-form").addEventListener("submit", async e => {
- e.preventDefault();
- await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
+  e.preventDefault();
+  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
 });
 
-async function ensureVersionCheck() {
+/* ---------- live log ---------- */
+let logTunnel = null, logTimer = 0, logLines = [];
+function logLevel(m) {
+  if (/\b(error|fail(ed|ure)?|fatal|panic|denied|refused)\b/i.test(m)) return "err";
+  if (/\b(warn(ing)?|retry(ing)?|timeout|timed out|closed)\b/i.test(m)) return "wrn";
+  return "";
+}
+// journalctl -o short-iso: "2026-11-01T20:00:01+0000 host unit[pid]: message"
+function parseLog(line) {
+  const m = /^(\d{4}-\d\d-\d\dT(\d\d:\d\d:\d\d)\S*)\s+\S+\s+(.*)$/.exec(line);
+  return m ? { time: m[2], msg: m[3] } : { time: "", msg: line };
+}
+function renderLogs() {
+  const list = $("log-list"), q = $("log-filter").value.trim().toLowerCase();
+  const stick = list.scrollTop + list.clientHeight >= list.scrollHeight - 24;
+  list.replaceChildren();
+  const shown = logLines.filter(l => !q || l.toLowerCase().includes(q));
+  for (const line of shown) {
+    const p = parseLog(line), li = el("li", logLevel(p.msg));
+    li.append(el("span", "t", p.time), el("span", "m", p.msg));
+    list.appendChild(li);
+  }
+  if (!shown.length) list.appendChild(el("li", "none", logLines.length ? "No line matches the filter." : "The journal has no lines for this tunnel yet."));
+  $("log-count").textContent = shown.length + (shown.length === logLines.length ? "" : " of " + logLines.length) + " lines";
+  if (stick || $("log-follow").checked) list.scrollTop = list.scrollHeight;
+}
+async function loadLogs() {
+  if (!logTunnel) return;
+  try {
+    const r = await api(tunnelURL(logTunnel, "logs") + "?lines=" + $("log-lines").value);
+    logLines = r.lines || [];
+    $("log-meta").textContent = r.unit + (r.since ? " · started " + r.since : " · not running");
+    renderLogs();
+  } catch (err) { $("log-meta").textContent = err.message; }
+}
+function openLogs(t) {
+  logTunnel = t.name; logLines = [];
+  $("log-title").textContent = "Live log · " + t.name;
+  $("log-meta").textContent = "Loading…";
+  $("log-filter").value = "";
+  $("log-list").replaceChildren();
+  openRouteDialog("dlg-logs");
+  loadLogs();
+  clearInterval(logTimer);
+  logTimer = setInterval(() => { if ($("log-follow").checked && !document.hidden) loadLogs(); }, 3000);
+}
+$("dlg-logs").addEventListener("close", () => { clearInterval(logTimer); logTimer = 0; logTunnel = null; });
+$("log-filter").addEventListener("input", renderLogs);
+$("log-lines").onchange = loadLogs;
+$("log-copy").onclick = async () => {
+  try { await copyText(logLines.join("\n")); toast("Log copied", true); } catch (_) { toast("Copy failed: select the lines by hand"); }
+};
+
+/* ---------- health ---------- */
+async function runHealth() {
+  const body = $("health-body"), btn = $("health-run");
+  btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  $("health-note").textContent = "Checking… this takes a few seconds";
+  try {
+    const r = await api("/api/health", { timeout: 90000 });
+    const counts = r.counts || {};
+    const cbox = $("health-counts");
+    cbox.replaceChildren();
+    for (const [cls, n, label] of [["ok", counts.ok || 0, "passed"], ["warn", counts.warn || 0, "to look at"], ["bad", counts.fail || 0, "broken"]]) {
+      const c = el("span", "chip " + cls); c.append(el("span", "dot"), document.createTextNode(n + " " + label)); cbox.appendChild(c);
+    }
+    body.replaceChildren();
+    let group = null, box = null;
+    for (const c of r.checks || []) {
+      if (c.group !== group) { group = c.group; box = el("section", "hgroup"); box.appendChild(el("h4", "", group)); body.appendChild(box); }
+      const row = el("div", "hrow");
+      row.append(el("span", "dot " + ({ ok: "ok", warn: "warn", fail: "bad" }[c.level] || "")), el("b", "", c.name));
+      if (c.detail) row.appendChild(el("span", "d", c.detail));
+      if (c.fix) row.appendChild(el("span", "f", c.fix));
+      box.appendChild(row);
+    }
+    $("health-note").textContent = (r.checks || []).length + " checks · " + (counts.warn || 0) + " warnings · " + (counts.fail || 0) + " failures";
+  } catch (err) { $("health-note").textContent = err.message; }
+  finally { btn.disabled = false; btn.removeAttribute("aria-busy"); }
+}
+function openHealth() {
+  $("health-body").replaceChildren(); $("health-counts").replaceChildren();
+  openRouteDialog("dlg-health");
+  runHealth();
+}
+$("health-run").onclick = runHealth;
+
+/* ---------- manage ---------- */
+async function restartAll(btn) {
+  if (!allTunnels.length) { toast("There are no tunnels to restart"); return; }
+  if (!(await confirmAction("Restart all tunnels?", "Each of the " + allTunnels.length + " tunnels drops its traffic for a moment while it restarts.", "Restart all"))) return;
+  run(btn, () => api("/api/restart-all", { method: "POST", timeout: 300000 }), "All tunnels restarted");
+}
+$("btn-restart-all").onclick = e => restartAll(e.currentTarget);
+$("btn-restart-all-2").onclick = e => restartAll(e.currentTarget);
+$("btn-optimize").onclick = e => run(e.currentTarget, () => api("/api/optimize", { method: "POST", timeout: 60000 }), "Kernel tuning applied");
+$("btn-restore").onclick = () => $("restore-file").click();
+$("restore-file").onchange = async () => {
+  const file = $("restore-file").files[0];
+  $("restore-file").value = "";
+  if (!file) return;
+  let backup;
+  try {
+    if (file.size > 60000) throw new Error("This file is too large to be a C-Tunnel backup.");
+    backup = JSON.parse(await file.text());
+    if (backup.format !== "ctunnel-backup/1" || !Array.isArray(backup.tunnels)) throw new Error("This is not a C-Tunnel backup file.");
+  } catch (err) { toast(err.message); return; }
+  if (!(await confirmAction("Restore " + backup.tunnels.length + " tunnels?", "Tunnels this server does not have are created and started. Tunnels with the same name are left as they are.", "Restore"))) return;
+  const r = await run($("btn-restore"), () => api("/api/backup/restore", { method: "POST", timeout: 300000, body: JSON.stringify(backup) }));
+  if (!r) return;
+  const parts = [r.created.length + " created", r.skipped.length + " skipped"];
+  if (r.failed.length) parts.push(r.failed.length + " failed: " + r.failed.join("; "));
+  toast("Restore: " + parts.join(", "), !r.failed.length);
+};
+
+async function checkVersion(explicit) {
   try {
     const r = await api("/api/version");
     versionInfo = r;
@@ -891,20 +1378,56 @@ async function ensureVersionCheck() {
       $("u-current").textContent = r.current;
       $("u-latest").textContent = r.latest;
       if (r.url && r.url.startsWith("https://github.com/")) { $("u-link").href = r.url; $("u-link").hidden = false; }
-    }
-  } catch (_) { /* isolated networks stay quiet */ }
+      if (explicit) navigate("#/update");
+    } else if (explicit) toast(r.latest && r.latest !== r.current ? "Could not reach GitHub to check for updates" : "This panel runs the latest release", true);
+    renderAlerts(allTunnels);
+  } catch (err) { if (explicit) toast(err.message); }
 }
-function openUpdateDialog() {
-  if (!versionInfo || !versionInfo.update_available) return;
-  $("dlg-update").showModal();
-}
+$("update-pill").onclick = () => navigate("#/update");
+$("btn-check-update").onclick = () => checkVersion(true);
+$("u-copy").onclick = async () => {
+  try { await copyText($("u-command").value); toast("Update command copied", true); }
+  catch (_) { $("u-command").select(); toast("Select the command and copy it by hand"); }
+};
+$("btn-logout").onclick = async () => { await api("/api/logout", { method: "POST" }).catch(() => {}); csrf = ""; showGate(); };
 
+/* ---------- settings ---------- */
+$("p-mode").onchange = () => { $("p-tls").hidden = $("p-mode").value !== "https"; };
+async function openSettings() {
+  let r;
+  try { r = await api("/api/settings"); } catch (err) { toast(err.message); history.replaceState(null, "", "#/manage"); return; }
+  $("settings-form").reset(); $("settings-error").hidden = true;
+  $("p-path").value = r.base_path; $("p-domain").value = r.domain;
+  $("p-cert").value = r.cert_file; $("p-key").value = r.key_file;
+  $("p-mode").value = r.cert_file ? "https" : "http"; $("p-mode").onchange();
+  const uploadAllowed = location.protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+  $("p-cert-upload").disabled = $("p-key-upload").disabled = !uploadAllowed;
+  openRouteDialog("dlg-settings");
+}
+$("settings-form").addEventListener("submit", async e => {
+  e.preventDefault(); const form = e.currentTarget;
+  if (form.busy || !validateForm(form, "settings-error")) return;
+  const btn = e.submitter || form.querySelector('[type="submit"]');
+  form.busy = true; btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try {
+    const cert = $("p-cert-upload").files[0], key = $("p-key-upload").files[0];
+    if ((cert && !key) || (!cert && key)) throw new Error("Upload both the certificate and the key.");
+    if ((cert && cert.size > 48000) || (key && key.size > 16000)) throw new Error("The certificate or key file is too large.");
+    const r = await api("/api/settings", { method: "POST", body: JSON.stringify({ base_path: $("p-path").value.trim(), domain: $("p-domain").value.trim(), cert_file: $("p-cert").value.trim(), key_file: $("p-key").value.trim(), tls_mode: $("p-mode").value, cert_pem: cert ? await cert.text() : "", key_pem: key ? await key.text() : "" }) });
+    routeDialog = null; $("dlg-settings").close(); toast("Settings saved. Opening the new address…", true);
+    clearInterval(timer); timer = 0;
+    setTimeout(() => window.location.assign(r.url), 1500);
+  } catch (err) { formError("settings-error", err.message); }
+  finally { form.busy = false; btn.disabled = false; btn.removeAttribute("aria-busy"); }
+});
+
+/* ---------- connection test ---------- */
 function testBadge(r) {
   if (r.skipped) return ["SKIP", "warn", r.skipped];
   if (r.error) return ["ERROR", "bad", r.error];
   if (!r.sent) return ["WAIT", "idle", ""];
   if (!r.received) return ["BLOCKED", "bad", "no echo came back"];
-  if (r.received < r.sent) return ["UNSTABLE", "warn", `${r.sent - r.received} probes lost`];
+  if (r.received < r.sent) return ["UNSTABLE", "warn", (r.sent - r.received) + " probes lost"];
   return ["OK", "ok", ""];
 }
 function mbps(v) { return v > 0 ? Number(v).toFixed(1) + " Mbps" : "—"; }
@@ -912,8 +1435,7 @@ function renderTestRows(box, rows) {
   box.replaceChildren();
   if (!rows || !rows.length) { box.hidden = true; return; }
   box.hidden = false;
-  const table = el("table");
-  const head = el("tr");
+  const table = el("table"), head = el("tr");
   for (const h of ["Mode", "Method", "Family", "Status", "Echo", "Latency", "Down", "Up"]) head.appendChild(el("th", "", h));
   const thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
   const body = el("tbody");
@@ -923,18 +1445,14 @@ function renderTestRows(box, rows) {
     tr.append(el("td", "", r.mode || "—"), el("td", "mono", r.method || "—"), el("td", "", r.family || "—"));
     const st = el("span", "badge " + cls, label); if (title) st.title = title;
     const stCell = el("td"); stCell.appendChild(st); tr.appendChild(stCell);
-    tr.append(el("td", "num", `${r.received || 0}/${r.sent || 0}`),
-      el("td", "num", r.rtt_ms > 0 ? Number(r.rtt_ms).toFixed(1) + " ms" : "—"),
-      el("td", "num", mbps(r.down_mbps)), el("td", "num", mbps(r.up_mbps)));
+    tr.append(el("td", "num", (r.received || 0) + "/" + (r.sent || 0)), el("td", "num", r.rtt_ms > 0 ? Number(r.rtt_ms).toFixed(1) + " ms" : "—"), el("td", "num", mbps(r.down_mbps)), el("td", "num", mbps(r.up_mbps)));
     body.appendChild(tr);
   }
   table.appendChild(body); box.appendChild(table);
 }
 function renderTestServer(r) {
   const active = !!r.active;
-  $("t-start").disabled = active;
-  $("t-stop").disabled = !active;
-  $("t-iran-status").hidden = !active;
+  $("t-start").disabled = active; $("t-stop").disabled = !active; $("t-iran-status").hidden = !active;
   if (!active) {
     $("t-iran-progress").hidden = true; $("t-iran-progress").replaceChildren();
     $("t-iran-report").hidden = true; $("t-iran-report").textContent = "";
@@ -945,42 +1463,28 @@ function renderTestServer(r) {
   $("t-udp").textContent = r.udp_port ? ":" + r.udp_port : "—";
   $("t-tcp").textContent = r.tcp_port ? ":" + r.tcp_port : "—";
   $("t-expires").textContent = r.expires_at ? new Date(r.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
-  const raw = (r.raw_open || []).length ? r.raw_open.join(", ") : (r.raw_error || "none — UDP-only methods still work");
-  $("t-iran-meta").textContent = "Raw IP protocols: " + raw;
+  $("t-iran-meta").textContent = "Raw IP protocols: " + ((r.raw_open || []).length ? r.raw_open.join(", ") : (r.raw_error || "none — UDP-only methods still work"));
   renderTestRows($("t-iran-progress"), r.rows);
   $("t-iran-report").hidden = !r.report_text;
   $("t-iran-report").textContent = r.report_text || "";
 }
 async function refreshTestServer() {
-  try {
-    const r = await api("/api/linktest/server");
-    renderTestServer(r);
-    if (!r.active) stopTestPoll();
-  } catch (_) { /* the dialog will report the next explicit action */ }
+  try { const r = await api("/api/linktest/server"); renderTestServer(r); if (!r.active) stopTestPoll(); }
+  catch (_) { /* the next explicit action reports the error */ }
 }
 function stopTestPoll() { if (testPoll) { clearInterval(testPoll); testPoll = 0; } }
 function startTestPoll() { stopTestPoll(); testPoll = setInterval(refreshTestServer, 2000); refreshTestServer(); }
 function setTestMode(mode) {
   testMode = mode;
   const iran = mode === "iran";
-  $("t-iran-panel").hidden = !iran;
-  $("test-form").hidden = iran;
+  $("t-iran-panel").hidden = !iran; $("test-form").hidden = iran;
   $("t-mode-iran").setAttribute("aria-selected", String(iran));
   $("t-mode-kharej").setAttribute("aria-selected", String(!iran));
-  testDeploy = { direct: "", reverse: "" };
-  $("t-best").hidden = true;
   stopTestPoll();
-  if (iran) startTestPoll();
-  else if (testJobID) startJobPoll();
-}
-function openTestDialog() {
-  $("test-error").hidden = true;
-  $("dlg-test").showModal();
-  setTestMode(testMode);
+  if (iran) startTestPoll(); else if (testJobID) startJobPoll();
 }
 function renderTestBest(r) {
-  const direct = r.deployments && r.deployments.direct;
-  const reverse = r.deployments && r.deployments.reverse;
+  const direct = r.deployments && r.deployments.direct, reverse = r.deployments && r.deployments.reverse;
   testDeploy = { direct: direct ? direct.test_id : "", reverse: reverse ? reverse.test_id : "" };
   $("t-best").hidden = !direct && !reverse;
   if (!direct && !reverse) return;
@@ -988,17 +1492,15 @@ function renderTestBest(r) {
   if (direct) parts.push("DIRECT " + direct.best.method);
   if (reverse) parts.push("REVERSE " + reverse.best.method);
   $("t-best-title").textContent = parts.join(" · ");
-  const bs = r.best_settings || {};
-  const stats = [];
-  if (bs.path_mtu > 0) stats.push(`Path MTU ${bs.path_mtu}`);
-  if (bs.tunnel_mtu > 0) stats.push(`Tunnel MTU ${bs.tunnel_mtu}`);
-  if (bs.rtt_ms > 0) stats.push(`${Number(bs.rtt_ms).toFixed(1)} ms`);
+  const bs = r.best_settings || {}, stats = [];
+  if (bs.path_mtu > 0) stats.push("Path MTU " + bs.path_mtu);
+  if (bs.tunnel_mtu > 0) stats.push("Tunnel MTU " + bs.tunnel_mtu);
+  if (bs.rtt_ms > 0) stats.push(Number(bs.rtt_ms).toFixed(1) + " ms");
   $("t-best-stats").textContent = stats.length ? stats.join(" · ") : "Measured on this path. Review the table before deploying.";
-  $("t-deploy-direct").disabled = !direct;
-  $("t-deploy-direct").textContent = direct ? "Deploy Best Direct" : "No Direct result";
-  $("t-deploy-reverse").disabled = !reverse;
-  $("t-deploy-reverse").textContent = reverse ? "Deploy Best Reverse" : "No Reverse result";
+  $("t-deploy-direct").disabled = !direct; $("t-deploy-direct").textContent = direct ? "Deploy Best Direct" : "No Direct result";
+  $("t-deploy-reverse").disabled = !reverse; $("t-deploy-reverse").textContent = reverse ? "Deploy Best Reverse" : "No Reverse result";
 }
+function testDone() { stopTestPoll(); $("t-btn").disabled = false; $("t-btn").removeAttribute("aria-busy"); }
 async function refreshTestJob() {
   if (!testJobID) return;
   try {
@@ -1006,38 +1508,25 @@ async function refreshTestJob() {
     renderTestRows($("t-job-progress"), r.rows);
     if (r.text) { $("t-out").hidden = false; $("t-out").textContent = r.text; }
     else if (r.status === "running") { $("t-out").hidden = false; $("t-out").textContent = "Running live method tests…"; }
-    if (r.status === "done") {
-      stopTestPoll(); $("t-btn").disabled = false; $("t-btn").textContent = "Run test";
-      renderTestBest(r);
-      if (r.error) formError("test-error", r.error);
-    } else if (r.status === "error" || r.status === "stopped") {
-      stopTestPoll(); $("t-btn").disabled = false; $("t-btn").textContent = "Run test";
-      formError("test-error", r.error || "Test stopped");
-    }
-  } catch (err) {
-    stopTestPoll(); $("t-btn").disabled = false; $("t-btn").textContent = "Run test";
-    formError("test-error", err.message);
-  }
+    if (r.status === "done") { testDone(); renderTestBest(r); if (r.error) formError("test-error", r.error); }
+    else if (r.status === "error" || r.status === "stopped") { testDone(); formError("test-error", r.error || "Test stopped"); }
+  } catch (err) { testDone(); formError("test-error", err.message); }
 }
 function startJobPoll() { stopTestPoll(); testPoll = setInterval(refreshTestJob, 1000); refreshTestJob(); }
 async function deployBest(mode) {
-  const id = testDeploy[mode];
-  const btn = $("t-deploy-" + mode);
+  const id = testDeploy[mode], btn = $("t-deploy-" + mode);
   if (!id || !btn) return;
-  if ($("t-role").value === "kharej" && !$("t-secret").value.trim()) {
-    formError("test-error", "Enter the Iran tunnel secret to deploy on Kharej.");
-    return;
-  }
-  const r = await run(btn, () => api("/api/deploy-best", { method: "POST", body: JSON.stringify({ test_id: id, token: $("t-secret").value.trim() }) }), "Tunnel deployed");
+  if ($("t-role").value === "kharej" && !$("t-secret").value.trim()) { formError("test-error", "Enter the Iran tunnel secret to deploy on Kharej."); return; }
+  const r = await run(btn, () => api("/api/deploy-best", { method: "POST", timeout: 120000, body: JSON.stringify({ test_id: id, token: $("t-secret").value.trim() }) }), "Tunnel deployed");
   if (r && r.name) {
-    btn.textContent = r.ok ? "Deployed" : "Saved — restart from tunnel card";
-    if (r.ok) { $("dlg-test").close(); showLink(r.name, r.setup_link, r.mikrotik, r.token); }
+    btn.textContent = r.ok ? "Deployed" : "Saved — restart it from its card";
+    if (r.ok) showLink(r.name, r.setup_link, r.mikrotik, r.token);
   }
 }
-
 $("t-mode-iran").onclick = () => setTestMode("iran");
 $("t-mode-kharej").onclick = () => setTestMode("kharej");
 $("t-start").onclick = async () => {
+  $("test-error").hidden = true;
   const r = await run($("t-start"), () => api("/api/linktest/server/start", { method: "POST", body: JSON.stringify({ host: $("t-host").value.trim() }) }), "Test listener ready");
   if (r && r.active) { renderTestServer(r); startTestPoll(); }
 };
@@ -1048,10 +1537,8 @@ $("t-stop").onclick = async () => {
 $("t-copy").onclick = async () => {
   const link = $("t-iran-link").value;
   if (!link) return;
-  try { await navigator.clipboard.writeText(link); toast("Test link copied", true); }
-  catch (_) { $("t-iran-link").select(); toast("Select the link and copy it by hand"); }
+  try { await copyText(link); toast("Test link copied", true); } catch (_) { $("t-iran-link").select(); toast("Select the link and copy it by hand"); }
 };
-$("dlg-test").addEventListener("close", stopTestPoll);
 $("test-form").addEventListener("submit", async e => {
   e.preventDefault();
   if (!validateForm(e.currentTarget, "test-error") || $("t-btn").disabled) return;
@@ -1061,51 +1548,33 @@ $("test-form").addEventListener("submit", async e => {
   const r = await run($("t-btn"), () => api("/api/linktest/jobs", { method: "POST", body: JSON.stringify({ link: $("t-link").value.trim(), role: $("t-role").value, local_ip: $("t-local").value.trim(), token: $("t-secret").value.trim(), ports: $("t-forwards").value.split(/[\s,]+/).filter(Boolean) }) }), "Test started");
   if (r && r.test_id) {
     testJobID = r.test_id;
-    $("t-btn").disabled = true; $("t-btn").textContent = "Testing…";
+    $("t-btn").disabled = true; $("t-btn").setAttribute("aria-busy", "true");
     startJobPoll();
   }
 });
 $("t-deploy-direct").onclick = () => deployBest("direct");
 $("t-deploy-reverse").onclick = () => deployBest("reverse");
 
-$("p-mode").onchange = () => { $("p-tls").hidden = $("p-mode").value !== "https"; };
-$("m-settings").onclick = async () => {
- setMenu(false);
- const r = await run(null, () => api("/api/settings")); if (!r) return;
- $("settings-form").reset(); $("settings-error").hidden = true;
- $("p-path").value = r.base_path; $("p-domain").value = r.domain;
- $("p-cert").value = r.cert_file; $("p-key").value = r.key_file;
- $("p-mode").value = r.cert_file ? "https" : "http"; $("p-mode").onchange();
- const uploadAllowed = location.protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
- $("p-cert-upload").disabled = $("p-key-upload").disabled = !uploadAllowed;
- $("dlg-settings").showModal();
-};
-$("settings-form").addEventListener("submit", async e => {
- e.preventDefault(); const form = e.currentTarget;
- if (form.busy || !validateForm(form, "settings-error")) return;
- const btn = e.submitter || form.querySelector('[type="submit"]'); form.busy = true; btn.disabled = true; btn.textContent = "Saving…";
- try {
-  const cert = $("p-cert-upload").files[0], key = $("p-key-upload").files[0];
-  if ((cert && !key) || (!cert && key)) throw new Error("Upload both certificate and key.");
-  if ((cert && cert.size > 48000) || (key && key.size > 16000)) throw new Error("The certificate or key file is too large.");
-  const r = await api("/api/settings", { method: "POST", body: JSON.stringify({ base_path: $("p-path").value.trim(), domain: $("p-domain").value.trim(), cert_file: $("p-cert").value.trim(), key_file: $("p-key").value.trim(), tls_mode: $("p-mode").value, cert_pem: cert ? await cert.text() : "", key_pem: key ? await key.text() : "" }) });
-  $("dlg-settings").close(); toast("Settings saved. Opening the new address…", true);
-  clearInterval(timer); timer = 0;
-  setTimeout(() => window.location.assign(r.url), 1500);
- } catch (err) { formError("settings-error", err.message); }
- finally { form.busy = false; btn.disabled = false; btn.textContent = "Save settings"; }
-});
+document.querySelectorAll("[data-filter]").forEach(b => { b.onclick = () => setTunnelFilter(b.dataset.filter); });
+$("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").value; renderTunnels(); });
 
+/* ---------- login ---------- */
 $("login-form").addEventListener("submit", async e => {
- e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('[type="submit"]');
- if (form.busy || !form.reportValidity()) return;
- form.busy = true; btn.disabled = true; btn.textContent = "Logging in…";
- try { await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) }); await refresh({ force: true, reportErrors: true }); $("login-code").value = ""; }
- catch (err) { toast(err.message); }
- finally { form.busy = false; btn.disabled = false; btn.textContent = "Log in"; }
+  e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('[type="submit"]');
+  if (form.busy || !form.reportValidity()) return;
+  form.busy = true; btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try { await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) }); await refresh({ force: true, reportErrors: true }); $("login-code").value = ""; }
+  catch (err) { toast(err.message); }
+  finally { form.busy = false; btn.disabled = false; btn.removeAttribute("aria-busy"); }
 });
 
-refresh();
+(async () => {
+  try {
+    const s = await api("/api/session");
+    if (!s.authenticated) { showGate(); return; }
+  } catch (_) { /* an older server without /api/session: ask the overview */ }
+  refresh();
+})();
 </script>
 </body>
 </html>

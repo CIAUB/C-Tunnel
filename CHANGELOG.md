@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Web panel rebuilt after BackPack's current panel: server strip with processor, memory, disk, swap, download and upload meters and their recent history; a dock with Overview, Connection test, Tunnels and Manage; light, dark and automatic appearance.
+- Hash routes for every screen (`#/tunnels`, `#/t/<name>/logs`, `#/t/<name>/edit`, `#/health`, `#/settings`…). Dialogs open over their section and closing one returns there.
+- Tunnel cards with state colour, live rate, traffic history and Start/Stop, Restart, Live log, Setup link, Edit and Delete.
+- Live log per tunnel (`GET /api/tunnels/{name}/logs`): journal lines coloured by level, filter, line count, follow, copy.
+- Start and stop a tunnel (`POST /api/tunnels/{name}/start`, `/stop`). A stopped tunnel stays stopped after a reboot.
+- Health check in the panel (`GET /api/health`), the same checks as the CLI. They moved to `pkg/health`.
+- Backup and restore (`GET /api/backup`, `POST /api/backup/restore`): every tunnel in one JSON file; restore creates and starts the tunnels a server does not have and leaves the others alone.
+- Restart all (`POST /api/restart-all`), update check from Manage, random padding field for UDP-Crypt methods in the tunnel form.
+- `GET /api/session`, so the page finds out it is signed out without an error in the browser console.
+
+### Fixed
+- Restarting a tunnel named `all` restarted every tunnel on the server.
+- Copy buttons failed on a plain-HTTP panel, where the browser clipboard API is not available.
+- Busy buttons replaced their label and icon with "Working…" and lost the icon afterwards.
+- Delete used the browser's native confirm box; Stop, Delete, Restart all and Restore now ask in the panel.
+- The tunnel form offered GRE lanes and tunnel ID for every method; they now show only for methods that use them.
+- The header could push the page wider than a phone screen when an update was available.
+
 ## [0.3.0] - 2026-11-01
 
 ### Fixed

@@ -271,9 +271,16 @@ http://<server-ip>:6969/panel-<random-id>/
 
 Log in with the code shown in the same menu. Five wrong codes block that IP for five minutes. The terminal menu can change the port or rotate the code; rotation logs out existing sessions.
 
-In **Settings → Panel settings**, customize the base path and domain. Set the paths to a valid `fullchain.pem` and matching `privkey.pem`, or upload the pair over HTTPS/loopback. A valid pair enables HTTPS automatically after a graceful listener reload. Domain DNS must already point to the server, and the panel port must be reachable. A changed address or transport requires logging in again.
+The panel has four sections in the dock — **Overview**, **Connection test**, **Tunnels** and **Manage** — and every screen has its own address (`#/tunnels`, `#/t/<name>/logs`, `#/health`…), so a screen can be bookmarked or reloaded.
 
-**Link test** accepts the peer's `ctunnel-test://` link, measures methods separately, and offers **Deploy Best Tunnel** for a successful measured result. Deployment creates this endpoint and returns a setup link to apply on the peer. Carrier-shape tests do not replace real kernel tunnel checks.
+- **Tunnels**: each card shows its state, live rate and history, and has Start/Stop, Restart, Live log, Setup link, Edit and Delete.
+- **Live log**: the tunnel's journal, coloured by level, filterable, following new lines.
+- **Manage**: health check (the same checks as the CLI, with a fix for each problem), kernel tuning, restart all, backup download and restore, panel settings and update check.
+- **Backup**: one JSON file with every tunnel's settings and secret token. Restore adds the tunnels a server does not have and starts them. Keep the file private.
+
+In **Manage → Panel settings**, customize the base path and domain. Set the paths to a valid `fullchain.pem` and matching `privkey.pem`, or upload the pair over HTTPS/loopback. A valid pair enables HTTPS automatically after a graceful listener reload. Domain DNS must already point to the server, and the panel port must be reachable. A changed address or transport requires logging in again.
+
+**Connection test** accepts the peer's `ctunnel-test://` link, measures methods separately, and offers **Deploy Best Tunnel** for a successful measured result. Deployment creates this endpoint and returns a setup link to apply on the peer. Carrier-shape tests do not replace real kernel tunnel checks.
 
 The screenshots use synthetic demonstration data and are generated from the actual UI with Chromium. See [mobile](docs/panel-mobile.png), [settings](docs/panel-settings.png), and [0.2.1 changes and upgrade notes](CHANGELOG.md).
 

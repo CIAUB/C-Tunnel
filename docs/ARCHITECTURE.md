@@ -30,7 +30,8 @@ flowchart LR
 | `pkg/eoip` | MikroTik EoIP and EtherIP framing |
 | `pkg/speedtest` | link test responder and client |
 | `pkg/sysinfo` | CPU, memory, disk, network numbers for the panel |
-| `pkg/webpanel` | HTTPS panel, session cookie + CSRF, login rate limit |
+| `pkg/webpanel` | HTTPS panel, session cookie + CSRF, login rate limit, tunnel start/stop/logs, backup/restore |
+| `pkg/health` | health check shared by the CLI and the panel |
 | `cmd/ctunnel-engine` | userspace data plane: TUN ⇄ UDP (UDP-Crypt) or TAP ⇄ raw IP (EoIP, EtherIP) |
 | `scripts/ctunnel-kernel.sh` | builds and removes interfaces, MSS clamp, port forwards, IPsec |
 

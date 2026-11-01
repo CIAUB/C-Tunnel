@@ -86,6 +86,7 @@ func NewServer(storeDir, listenAddr string) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.auth(s.handleLogout))
 	mux.HandleFunc("GET /api/overview", s.auth(s.handleOverview))
@@ -94,6 +95,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/tunnels/{name}", s.auth(s.handleUpdate))
 	mux.HandleFunc("DELETE /api/tunnels/{name}", s.auth(s.handleDelete))
 	mux.HandleFunc("POST /api/tunnels/{name}/restart", s.auth(s.handleRestart))
+	mux.HandleFunc("POST /api/tunnels/{name}/start", s.auth(s.handleStart))
+	mux.HandleFunc("POST /api/tunnels/{name}/stop", s.auth(s.handleStop))
+	mux.HandleFunc("GET /api/tunnels/{name}/logs", s.auth(s.handleLogs))
+	mux.HandleFunc("POST /api/restart-all", s.auth(s.handleRestartAll))
+	mux.HandleFunc("GET /api/health", s.auth(s.handleHealth))
+	mux.HandleFunc("GET /api/backup", s.auth(s.handleBackup))
+	mux.HandleFunc("POST /api/backup/restore", s.auth(s.handleRestore))
 	mux.HandleFunc("POST /api/import", s.auth(s.handleImport))
 	mux.HandleFunc("POST /api/linktest", s.auth(s.handleLinkTest))
 	mux.HandleFunc("POST /api/linktest/server/start", s.auth(s.handleTestServerStart))
@@ -532,26 +540,15 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
-	var targets []catalog.TunnelConfig
-	if name == "all" {
-		targets = st.Tunnels
-	} else if tc, ok := st.Find(name); ok {
-		targets = append(targets, tc)
-	} else {
+	tc, ok := st.Find(name)
+	switch {
+	case ok:
+		s.restartTunnels(w, []catalog.TunnelConfig{tc})
+	case name == "all": // panels before 0.4 restart everything through this name
+		s.restartTunnels(w, st.Tunnels)
+	default:
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
-		return
 	}
-	var failed []string
-	for _, tc := range targets {
-		if err := tunnel.Apply(tc); err != nil {
-			failed = append(failed, tc.Name+": "+err.Error())
-		}
-	}
-	if len(failed) > 0 {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": strings.Join(failed, "; ")})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleOptimize(w http.ResponseWriter, r *http.Request) {

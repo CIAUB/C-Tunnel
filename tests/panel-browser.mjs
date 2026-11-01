@@ -9,7 +9,7 @@ const html = await readFile(new URL('../pkg/webpanel/index.html', import.meta.ur
 const hash = tag => "'sha256-" + createHash('sha256').update(html.split(`<${tag}>`)[1].split(`</${tag}>`)[0].replace(/\r\n?/g, '\n')).digest('base64') + "'";
 const fixtureCode = 'local-browser-fixture';
 let state;
-function reset() { state = { path: '/panel-browser-test', tunnels: [], createCalls: 0, deployCalls: 0, restartCalls: 0, updateCalls: 0, failStart: false, lastCreate: null, lastUpdate: null, listener: false, jobStarted: false }; }
+function reset() { state = { path: '/panel-browser-test', tunnels: [], createCalls: 0, deployCalls: 0, restartCalls: 0, updateCalls: 0, stopCalls: 0, startCalls: 0, restoreCalls: 0, failStart: false, lastCreate: null, lastUpdate: null, lastRestore: null, listener: false, jobStarted: false }; }
 reset();
 const config = () => ({ base_path: state.path, domain: '', cert_file: '', key_file: '' });
 const series = (rx, tx) => ({ rx_mbps: rx, tx_mbps: tx, rx_total: 1048576, tx_total: 524288, rx_history: Array.from({ length: 60 }, (_, i) => rx * (0.4 + 0.6 * i / 59)), tx_history: Array.from({ length: 60 }, (_, i) => tx * (0.4 + 0.6 * i / 59)) });
@@ -44,7 +44,9 @@ const server = createServer(async (req, res) => {
    state.holdOverview = false; state.onOverviewHeld();
    await new Promise(resolve => { state.releaseOverview = resolve; });
   }
-  if (!req.headers.cookie?.split('; ').includes(sessionName(req.headers.host) + '=fixture')) { send(401, { error: 'unauthorized' }); return; }
+  const signedIn = !!req.headers.cookie?.split('; ').includes(sessionName(req.headers.host) + '=fixture');
+  if (route === '/api/session') { send(200, { authenticated: signedIn }); return; }
+  if (!signedIn) { send(401, { error: 'unauthorized' }); return; }
   if (req.method !== 'GET' && req.headers['x-csrf-token'] !== 'fixture-csrf') { send(403, { error: 'invalid CSRF token' }); return; }
   if (route === '/api/overview') { send(200, overview()); return; }
   if (route === '/api/version' && req.method === 'GET') {
@@ -61,6 +63,18 @@ const server = createServer(async (req, res) => {
    send(200, { ...tunnel, ok: true }); return;
   }
   if (route === '/api/tunnels/t1/restart') { state.restartCalls++; send(200, { ok: true }); return; }
+  if (route === '/api/tunnels/t1/stop' && req.method === 'POST') { state.stopCalls++; state.tunnels[0].state = 'inactive'; send(200, { ok: true }); return; }
+  if (route === '/api/tunnels/t1/start' && req.method === 'POST') { state.startCalls++; state.tunnels[0].state = 'up'; send(200, { ok: true }); return; }
+  if (route.startsWith('/api/tunnels/t1/logs?lines=') && req.method === 'GET') {
+   send(200, { name: 't1', unit: 'ctunnel@t1.service', since: 'Sun 2026-11-01 20:00:00 UTC', lines: ['2026-11-01T20:00:01+0000 edge ctunnel[1]: tunnel t1 up', '2026-11-01T20:00:02+0000 edge ctunnel-engine[2]: error: write device: input/output error'] }); return;
+  }
+  if (route === '/api/health' && req.method === 'GET') {
+   send(200, { counts: { ok: 1, fail: 1 }, checks: [{ group: 'System', name: 'systemd', detail: 'available', level: 'ok' }, { group: 'Tunnel: t1', name: 'State', detail: 'failed', fix: 'Start, then Live Log if it stops', level: 'fail' }] }); return;
+  }
+  if (route === '/api/backup/restore' && req.method === 'POST') {
+   state.restoreCalls++; state.lastRestore = body;
+   send(200, { ok: true, created: body.tunnels.map(t => t.name), skipped: [], failed: [] }); return;
+  }
   if (route === '/api/linktest/server/start' && req.method === 'POST') {
    state.listener = true;
    send(200, { active: true, link: 'ctunnel-test://fixture-link', host: '127.0.0.1', udp_port: 7712, tcp_port: 7711, raw_open: [4, 41, 47, 50, 97, 115], expires_at: new Date(Date.now() + 900000).toISOString(), rows: [] }); return;
@@ -129,14 +143,17 @@ try {
  await page.locator('#dlg-update').waitFor({ state: 'visible' });
  assert.equal(await page.locator('#u-current').textContent(), '0.2.7');
  assert.match(await page.locator('#u-command').inputValue(), /install\.sh/);
- await page.locator('#dlg-update [data-close]').click();
+ await page.locator('#dlg-update .dfoot [data-close]').click();
+ await page.waitForFunction(() => location.hash === '#/');
  assert.ok((await page.locator('#master-rx-line').getAttribute('d'))?.length > 0);
  await page.screenshot({ path: 'test-results/panel-overview.png', fullPage: true });
- await page.locator('#menu-btn').click();
- const menu = page.locator('#menu'); await menu.waitFor({ state: 'visible' });
- assert.equal(await menu.evaluate(e => { const r = e.getBoundingClientRect(); return e.contains(document.elementFromPoint(r.left + 20, r.top + 20)); }), true);
- await page.screenshot({ path: 'test-results/panel-settings.png', fullPage: true });
+ // Health check opens over Manage from its overview tile and returns there.
+ await page.getByRole('button', { name: /Health check/ }).first().click();
+ await page.locator('#dlg-health .hrow').nth(1).waitFor();
+ assert.match(await page.locator('#health-body').textContent(), /Live Log if it stops/);
+ assert.equal(await page.evaluate(() => location.hash), '#/health');
  await page.keyboard.press('Escape');
+ await page.waitForFunction(() => location.hash === '#/');
  await page.getByRole('tab', { name: 'Tunnels', exact: true }).click();
  await page.getByRole('button', { name: 'New tunnel', exact: true }).click();
  await page.getByLabel('Remote server IP', { exact: true }).fill('203.0.113.8');
@@ -148,13 +165,30 @@ try {
  await page.locator('#create-form [type=submit]').click();
  await page.locator('#dlg-link').waitFor({ state: 'visible' });
  assert.equal(state.createCalls, 1); assert.equal(state.lastCreate.mtu, 1400); assert.equal(state.lastCreate.remote_ip, '203.0.113.8');
- await page.locator('#dlg-link [data-close]').click();
+ await page.locator('#dlg-link .dfoot [data-close]').click();
  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+ assert.equal(await page.evaluate(() => location.hash), '#/t/t1/edit');
  await page.getByLabel('MTU', { exact: true }).fill('1300');
  await page.locator('#create-form [type=submit]').click();
  await page.locator('#dlg-link').waitFor({ state: 'visible' });
  assert.equal(state.updateCalls, 1); assert.equal(state.lastUpdate.mtu, 1300);
- await page.locator('#dlg-link [data-close]').click();
+ await page.locator('#dlg-link .dfoot [data-close]').click();
+ // Live log: routed per tunnel, lines coloured by level, filterable.
+ await page.getByRole('button', { name: 'Logs', exact: true }).click();
+ await page.locator('#log-list li.err').waitFor();
+ assert.equal(await page.evaluate(() => location.hash), '#/t/t1/logs');
+ await page.locator('#log-filter').fill('tunnel t1 up');
+ assert.equal(await page.locator('#log-list li').count(), 1);
+ await page.locator('#dlg-logs .dfoot [data-close]').click();
+ await page.waitForFunction(() => location.hash === '#/tunnels');
+ // Stop asks first, then the card shows Stopped and offers Start.
+ await page.getByRole('button', { name: 'Stop', exact: true }).click();
+ await page.locator('#c-ok').click();
+ await page.locator('#tunnels .tun .state').filter({ hasText: 'Stopped' }).waitFor();
+ assert.equal(state.stopCalls, 1);
+ await page.getByRole('button', { name: 'Start', exact: true }).click();
+ await page.locator('#tunnels .tun .state').filter({ hasText: 'Connected' }).waitFor();
+ assert.equal(state.startCalls, 1);
  await page.locator('[data-filter="up"]').click();
  assert.equal(await page.locator('#tunnels .tun').count(), 1);
  await page.locator('[data-filter="reverse"]').click();
@@ -168,17 +202,14 @@ try {
  await page.screenshot({ path: 'test-results/panel-desktop.png', fullPage: true });
  await page.setViewportSize({ width: 375, height: 812 });
  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
- await page.locator('#menu-btn').click();
- await page.getByRole('button', { name: 'Link test', exact: true }).click();
+ assert.equal(await page.locator('#tunnels .tun').evaluate(e => e.scrollWidth <= e.clientWidth), true);
+ await page.getByRole('tab', { name: 'Connection test', exact: true }).click();
  await page.getByRole('button', { name: 'Start listener', exact: true }).click();
  await page.locator('#t-iran-link').waitFor({ state: 'visible' });
  assert.match(await page.locator('#t-iran-link').inputValue(), /^ctunnel-test:\/\//);
  assert.equal(state.listener, true);
  await page.getByRole('button', { name: 'Stop listener', exact: true }).click();
  await page.locator('#t-iran-status').waitFor({ state: 'hidden' });
- await page.locator('#dlg-test .test-head [data-close]').click();
- await page.locator('#menu-btn').click();
- await page.getByRole('button', { name: 'Link test', exact: true }).click();
  await page.getByRole('tab', { name: /Kharej/ }).click();
  await page.locator('#t-link').fill('ctunnel-test://fixture');
  await page.getByRole('button', { name: 'Run test', exact: true }).click();
@@ -186,10 +217,16 @@ try {
  await page.locator('#t-secret').fill('fixture-secret');
  await page.getByRole('button', { name: 'Deploy Best Direct', exact: true }).click();
  await page.locator('#dlg-link').waitFor({ state: 'visible' }); assert.equal(state.deployCalls, 1); assert.equal(state.jobStarted, true);
- await page.locator('#dlg-link [data-close]').click();
+ await page.locator('#dlg-link .dfoot [data-close]').click();
  await page.screenshot({ path: 'test-results/panel-mobile.png', fullPage: true });
- await page.locator('#menu-btn').click();
- await page.getByRole('button', { name: 'Panel settings', exact: true }).click();
+ // Restore posts the parsed backup after a confirmation.
+ await page.getByRole('tab', { name: 'Manage', exact: true }).click();
+ assert.match(await page.locator('#btn-backup').getAttribute('href'), /\/api\/backup$/);
+ await page.locator('#restore-file').setInputFiles({ name: 'b.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ format: 'ctunnel-backup/1', tunnels: [{ name: 'r1', role: 'iran', method: 'gre', remote_ip: '203.0.113.9' }] })) });
+ await page.locator('#c-ok').click();
+ await page.locator('#toast').filter({ hasText: '1 created' }).waitFor();
+ assert.equal(state.restoreCalls, 1); assert.equal(state.lastRestore.tunnels[0].name, 'r1');
+ await page.getByRole('button', { name: 'Open settings', exact: true }).click();
  await page.getByLabel('Base path', { exact: true }).fill('/panel-changed');
  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
  await page.waitForURL(`http://panel.test:${port}/panel-changed/`);
@@ -206,5 +243,5 @@ try {
  await retryPage.locator('#dlg-link').waitFor({ state: 'visible' });
  assert.equal(state.createCalls, 1); assert.equal(state.restartCalls, 1);
  assert.deepEqual(errors, []);
- console.log('PASS: legacy Secure cookie recovery, login/overview race, update banner, telemetry chart, filters, settings layering, validation, Create, Edit, failed-start retry, Iran listener, Kharej live job, direct deployment, routing, desktop/mobile overflow');
+ console.log('PASS: legacy Secure cookie recovery, login/overview race, update dialog, telemetry chart, health check, validation, Create, Edit, live log, stop/start, filters, failed-start retry, Iran listener, Kharej live job, direct deployment, restore, settings, hash routing, desktop/mobile overflow');
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
