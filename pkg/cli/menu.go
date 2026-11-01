@@ -179,7 +179,7 @@ func setupWizard(role string) {
 		tc.RemoteIP = Ask(remPrompt, "")
 	}
 	tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
-	tc.Name = Ask("Tunnel name (max 9: a-z 0-9 -)", "t"+strconv.Itoa(tc.Index))
+	tc.Name = Ask("Tunnel name (max 10: a-z 0-9 -, Enter = t<N>-<port>)", "")
 	for {
 		prompt := "Secret token, same on both servers (Enter = random)"
 		if role == "kharej" {

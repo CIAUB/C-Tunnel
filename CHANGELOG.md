@@ -12,6 +12,9 @@
 - Backup and restore (`GET /api/backup`, `POST /api/backup/restore`): every tunnel in one JSON file; restore creates and starts the tunnels a server does not have and leaves the others alone.
 - Restart all (`POST /api/restart-all`), update check from Manage, random padding field for UDP-Crypt methods in the tunnel form.
 - `GET /api/session`, so the page finds out it is signed out without an error in the browser console.
+- Traffic totals survive restarts, edits and reboots. `ctunnel-kernel down` folds the interface counters into `/etc/ctunnel/traffic/<name>` before the interface is deleted, and the panel checkpoints them every minute, so a power cut loses at most a minute. Deleting a tunnel deletes its total.
+- New tunnels are named `t<N>-<port>`: the tunnel's port, or the first forwarded port for a portless kernel tunnel (`t1-24001`, `t3-443`). Names may be up to 10 characters. Existing tunnels keep their names.
+- `cmd/ctunnel-local`: runs the panel on a desktop with simulated tunnels, for trying the UI (`go run ./cmd/ctunnel-local`).
 
 ### Fixed
 - Restarting a tunnel named `all` restarted every tunnel on the server.

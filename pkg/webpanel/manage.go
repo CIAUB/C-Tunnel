@@ -1,7 +1,9 @@
 package webpanel
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +22,31 @@ const (
 )
 
 var runHealth = health.Run
+
+// trafficCheckpointEvery bounds what a power cut can lose from the saved
+// traffic totals; a clean stop or reboot saves them in ctunnel-kernel down.
+const trafficCheckpointEvery = time.Minute
+
+func (s *Server) checkpointTraffic(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		st, err := s.store()
+		if err != nil {
+			continue
+		}
+		for _, tc := range st.Tunnels {
+			if err := tunnel.CheckpointTraffic(tc.Name); err != nil {
+				log.Printf("traffic checkpoint %s: %v", tc.Name, err)
+			}
+		}
+	}
+}
 
 // handleSession lets the page find out whether it is signed in without
 // requesting an authenticated route first.

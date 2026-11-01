@@ -6,8 +6,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -177,6 +175,7 @@ func Remove(st *catalog.Store, name string) error {
 		return err
 	}
 	_ = os.Remove(EnvPath(st.Dir, name))
+	forgetTraffic(name)
 	return nil
 }
 
@@ -200,7 +199,7 @@ func kernelDown(name string) error {
 type Status struct {
 	Service string `json:"service"` // systemd ActiveState: active, failed, inactive...
 	LinkUp  bool   `json:"link_up"`
-	RxBytes uint64 `json:"rx_bytes"`
+	RxBytes uint64 `json:"rx_bytes"` // since the tunnel was created, across restarts and reboots
 	TxBytes uint64 `json:"tx_bytes"`
 }
 
@@ -214,22 +213,11 @@ func GetStatus(tc catalog.TunnelConfig) Status {
 	if s.Service = strings.TrimSpace(s.Service); s.Service == "" || len(s.Service) > 16 || strings.ContainsAny(s.Service, " \n") {
 		s.Service = "unknown"
 	}
-	dev := Dev(tc.Name)
-	if ifc, err := net.InterfaceByName(dev); err == nil {
+	if ifc, err := net.InterfaceByName(Dev(tc.Name)); err == nil {
 		s.LinkUp = ifc.Flags&net.FlagUp != 0
 	}
-	s.RxBytes = readCounter(dev, "rx_bytes")
-	s.TxBytes = readCounter(dev, "tx_bytes")
+	s.RxBytes, s.TxBytes = TrafficTotal(tc.Name)
 	return s
-}
-
-func readCounter(dev, name string) uint64 {
-	b, err := os.ReadFile(filepath.Join("/sys/class/net", dev, "statistics", name))
-	if err != nil {
-		return 0
-	}
-	v, _ := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
-	return v
 }
 
 // Optimize applies the kernel network tuning through the helper.

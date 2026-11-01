@@ -33,6 +33,28 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
         f.write_text(text+'\ncmd_optimize\n')
         return subprocess.run(['bash', str(f)], env=dict(self.env, CT_SYSCTL=str(self.d/'sysctl.conf')),
                               capture_output=True, text=True)
+    def checkpoint(self, index, rx, tx, boot='boot-a'):
+        net = self.d/'sys/class/net/ct-t1-24001'
+        (net/'statistics').mkdir(parents=True, exist_ok=True)
+        (net/'ifindex').write_text(f'{index}\n')
+        (net/'statistics/rx_bytes').write_text(f'{rx}\n')
+        (net/'statistics/tx_bytes').write_text(f'{tx}\n')
+        (self.d/'boot_id').write_text(boot+'\n')
+        text = (ROOT/'scripts/ctunnel-kernel.sh').read_text()
+        f = self.d/'checkpoint.sh'
+        f.write_text(text[:text.index('\ncase "${1:-}" in')] + '\nDEV=ct-t1-24001 NAME=t1-24001 traffic_checkpoint\n')
+        r = subprocess.run(['bash', str(f)], env=dict(self.env, CT_DIR=str(self.d), CT_SYSFS=str(self.d/'sys'),
+                           CT_BOOT_ID=str(self.d/'boot_id')), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return (self.d/'traffic/t1-24001').read_text().split()
+    def test_traffic_checkpoint_keeps_totals_across_interfaces(self):
+        self.assertEqual(self.checkpoint(5, 100, 50), ['100', '50', 'boot-a:5', '100', '50'])
+        # The same interface folded twice adds only what it carried in between.
+        self.assertEqual(self.checkpoint(5, 150, 70), ['150', '70', 'boot-a:5', '150', '70'])
+        # A new interface (restart) starts from zero and is added in full.
+        self.assertEqual(self.checkpoint(9, 10, 5), ['160', '75', 'boot-a:9', '10', '5'])
+        # After a reboot the index can repeat; the boot ID tells them apart.
+        self.assertEqual(self.checkpoint(9, 4, 6, boot='boot-b'), ['164', '81', 'boot-b:9', '4', '6'])
     def test_supported_congestion_fallback_and_defaults(self):
         r=self.optimize()
         self.assertEqual(r.returncode, 0, r.stderr)

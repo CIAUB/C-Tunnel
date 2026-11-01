@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	MaxNameLen  = 9 // "ct-" + name + ".7" (lane suffix) must fit Linux's 15-char interface names
+	MaxNameLen  = 10 // "ct-" + name + ".7" or "-r" must fit Linux's 15-char interface names
 	MaxIndex    = 250
 	DefaultPad  = 16
 	maxPadding  = 64
@@ -36,6 +36,22 @@ var (
 
 // Dev is the Linux interface name of a tunnel.
 func Dev(name string) string { return "ct-" + name }
+
+// DefaultName is t<index>-<port>: the tunnel's own port, or for a portless
+// kernel tunnel the first forwarded port, so the name says where it listens.
+func DefaultName(tc catalog.TunnelConfig) string {
+	name := "t" + strconv.Itoa(tc.Index)
+	port := ""
+	if tc.Port > 0 {
+		port = strconv.Itoa(tc.Port)
+	} else if len(tc.Ports) > 0 {
+		port = strings.SplitN(tc.Ports[0], "=", 2)[0]
+	}
+	if port != "" && len(name)+1+len(port) <= MaxNameLen {
+		name += "-" + port
+	}
+	return name
+}
 
 // SanitizeName lowercases and drops characters not allowed in tunnel names.
 func SanitizeName(s string) string {
@@ -90,14 +106,6 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if tc.Index < 1 || tc.Index > MaxIndex {
 		return fmt.Errorf("index must be 1-%d", MaxIndex)
 	}
-	if tc.Name == "" {
-		tc.Name = "t" + strconv.Itoa(tc.Index)
-	}
-	tc.Name = SanitizeName(tc.Name)
-	if len(tc.Name) == 0 || len(tc.Name) > MaxNameLen || !nameRe.MatchString(tc.Name) {
-		return fmt.Errorf("name must be 1-%d characters of a-z, 0-9 and '-'", MaxNameLen)
-	}
-
 	if err := checkIP("this server IP", tc.LocalIP, m.IPv6Underlay); err != nil {
 		return err
 	}
@@ -254,6 +262,14 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		}
 		seenForward[listen] = true
 		tc.Ports[i] = norm
+	}
+
+	if tc.Name == "" {
+		tc.Name = DefaultName(*tc)
+	}
+	tc.Name = SanitizeName(tc.Name)
+	if len(tc.Name) == 0 || len(tc.Name) > MaxNameLen || !nameRe.MatchString(tc.Name) {
+		return fmt.Errorf("name must be 1-%d characters of a-z, 0-9 and '-'", MaxNameLen)
 	}
 
 	for _, o := range others {

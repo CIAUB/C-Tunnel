@@ -7,6 +7,9 @@ set -euo pipefail
 
 CT_DIR="${CT_DIR:-/etc/ctunnel}"
 CT_TUNNELS_DIR="${CT_DIR}/tunnels"
+CT_TRAFFIC_DIR="${CT_TRAFFIC_DIR:-${CT_DIR}/traffic}"
+CT_SYSFS="${CT_SYSFS:-/sys}"
+CT_BOOT_ID="${CT_BOOT_ID:-/proc/sys/kernel/random/boot_id}"
 CT_SYSCTL="${CT_SYSCTL:-/etc/sysctl.d/99-ctunnel.conf}"
 
 log() { echo "ctunnel-kernel: $*"; }
@@ -14,7 +17,7 @@ die() { echo "ctunnel-kernel: error: $*" >&2; exit 1; }
 
 load_env() {
     local name="$1"
-    [[ "${name}" =~ ^[a-z0-9][a-z0-9-]{0,8}$ ]] || die "invalid tunnel name '${name}'"
+    [[ "${name}" =~ ^[a-z0-9][a-z0-9-]{0,9}$ ]] || die "invalid tunnel name '${name}'"
     local f="${CT_TUNNELS_DIR}/${name}.env"
     [[ -f "${f}" ]] || die "missing ${f}"
     # shellcheck disable=SC1090
@@ -329,8 +332,32 @@ cmd_up() {
     log "${NAME} (${KIND}) up on ${DEV}: ${TUN_LOCAL4:-} -> ${TUN_REMOTE4:-}, MTU ${MTU}"
 }
 
+# Fold the interface counters into the tunnel's saved total before the
+# interface is deleted, so traffic survives restarts, edits and reboots. Same
+# file format as pkg/tunnel/traffic.go: "baseRx baseTx bootid:ifindex seenRx seenTx".
+traffic_checkpoint() {
+    local dir="${CT_SYSFS}/class/net/${DEV}" f="${CT_TRAFFIC_DIR}/${NAME}"
+    local key rx tx brx=0 btx=0 skey="" srx=0 stx=0 tmp
+    [[ -r "${dir}/ifindex" ]] || return 0
+    key="$(tr -d '[:space:]' < "${CT_BOOT_ID}" 2>/dev/null || true):$(tr -d '[:space:]' < "${dir}/ifindex")"
+    rx="$(cat "${dir}/statistics/rx_bytes")"; tx="$(cat "${dir}/statistics/tx_bytes")"
+    if [[ -f "${f}" ]]; then read -r brx btx skey srx stx < "${f}" || true; fi
+    [[ "${brx}${btx}${srx}${stx}" =~ ^[0-9]+$ ]] || { brx=0 btx=0 skey="" srx=0 stx=0; }
+    if [[ "${skey}" == "${key}" ]]; then
+        (( rx > srx )) && brx=$(( brx + rx - srx ))
+        (( tx > stx )) && btx=$(( btx + tx - stx ))
+    else
+        brx=$(( brx + rx )); btx=$(( btx + tx ))
+    fi
+    mkdir -p "${CT_TRAFFIC_DIR}" && chmod 700 "${CT_TRAFFIC_DIR}"
+    tmp="$(mktemp "${f}.XXXXXX")"
+    printf '%s %s %s %s %s\n' "${brx}" "${btx}" "${key}" "${rx}" "${tx}" > "${tmp}"
+    mv -f "${tmp}" "${f}"
+}
+
 cmd_down() {
     load_env "$1"
+    traffic_checkpoint || log "warning: could not save the traffic total of ${NAME}"
     fw_clear
     ipsec_down
     links_down
@@ -397,7 +424,7 @@ cmd_doctor() {
 
 case "${1:-}" in
     up|down)
-        [[ "${2:-}" =~ ^[a-z0-9][a-z0-9-]{0,8}$ ]] || die "invalid tunnel name"
+        [[ "${2:-}" =~ ^[a-z0-9][a-z0-9-]{0,9}$ ]] || die "invalid tunnel name"
         exec 9>"/run/ctunnel-${2}.lock"
         flock -w 30 9 || die "tunnel operation already running"
         ;;

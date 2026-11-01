@@ -168,6 +168,9 @@ func (s *Server) Serve(parent context.Context) error {
 	if s.configErr != nil {
 		return s.configErr
 	}
+	checkpoints, stopCheckpoints := context.WithCancel(parent)
+	defer stopCheckpoints()
+	go s.checkpointTraffic(checkpoints, trafficCheckpointEvery)
 	for {
 		c := s.config()
 		ln, err := net.Listen("tcp", s.listenAddr)

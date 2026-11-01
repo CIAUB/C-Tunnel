@@ -330,8 +330,8 @@ func TestReverseKernelTunnelUsesReverseCarrierAndCustomLocalIPs(t *testing.T) {
 	if greRev.RemoteIP != "0.0.0.0" || greRev.Port != 24001 {
 		t.Fatalf("expected RemoteIP=0.0.0.0 and Port=24001 for reverse GRE, got %+v", greRev)
 	}
-	if got := Unit(greRev); got != "ctunnel-engine@t1.service" {
-		t.Fatalf("expected ctunnel-engine@t1.service for reverse GRE, got %q", got)
+	if got := Unit(greRev); got != "ctunnel-engine@t1-24001.service" {
+		t.Fatalf("expected ctunnel-engine@t1-24001.service for reverse GRE, got %q", got)
 	}
 
 	// 2. A second tunnel on the same Iran server can reuse the same TunLocal4 (10.88.1.1) with a different TunRemote4.
@@ -394,6 +394,32 @@ func TestConcurrentWriteEnvHasUniqueTemporaryFiles(t *testing.T) {
 		info, err := os.Stat(EnvPath(dir, "t1"))
 		if err != nil || info.Mode().Perm() != 0600 {
 			t.Fatalf("env permissions: %v %v", info, err)
+		}
+	}
+}
+
+func TestDefaultNameCarriesIndexAndPort(t *testing.T) {
+	cases := []struct {
+		tc   catalog.TunnelConfig
+		want string
+	}{
+		{catalog.TunnelConfig{Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "t1-24001"},
+		{catalog.TunnelConfig{Role: "iran", Method: "gre", Reverse: true, LocalIP: "198.51.100.1", Index: 12}, "t12-24012"},
+		{catalog.TunnelConfig{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Ports: []string{"2053=8443", "443"}}, "t1-2053"},
+		{catalog.TunnelConfig{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "t1"},
+		{catalog.TunnelConfig{Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Index: 250, Port: 65535}, "t250-65535"},
+		{catalog.TunnelConfig{Name: "edge", Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "edge"},
+	}
+	for _, c := range cases {
+		tc := c.tc
+		if err := Normalize(&tc, nil); err != nil {
+			t.Fatalf("%+v: %v", c.tc, err)
+		}
+		if tc.Name != c.want {
+			t.Errorf("name = %q, want %q", tc.Name, c.want)
+		}
+		if len("ct-"+tc.Name+".7") > 15 {
+			t.Errorf("%s overflows the interface name limit", tc.Name)
 		}
 	}
 }

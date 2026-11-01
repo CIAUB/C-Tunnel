@@ -350,7 +350,7 @@ details[open] summary{margin-bottom:12px}
     <div class="rule">This server</div>
     <article class="card hero">
       <div class="hero-top">
-        <div><b id="agg-total" class="num">0 B</b><p>carried by the tunnels since their interfaces came up</p></div>
+        <div><b id="agg-total" class="num">0 B</b><p>carried by the tunnels since they were created — kept across restarts and reboots</p></div>
         <div class="chips">
           <span class="chip"><span class="dot"></span><span id="agg-rx">0 b/s</span>&nbsp;down</span>
           <span class="chip"><span class="dot"></span><span id="agg-tx">0 b/s</span>&nbsp;up</span>
@@ -521,7 +521,7 @@ details[open] summary{margin-bottom:12px}
       <summary>Advanced — empty fields are set automatically</summary>
       <div class="stack">
         <div class="grid2">
-          <div><label for="f-name">Name (max 9)</label><input id="f-name" maxlength="9" placeholder="t1" pattern="[a-z0-9][a-z0-9-]*"></div>
+          <div><label for="f-name">Name (max 10)</label><input id="f-name" maxlength="10" placeholder="t&lt;N&gt;-&lt;port&gt;" pattern="[a-z0-9][a-z0-9-]*"></div>
           <div><label for="f-local">This server IP</label><input id="f-local" class="num"></div>
         </div>
         <div class="grid2">
@@ -555,7 +555,7 @@ details[open] summary{margin-bottom:12px}
     <div class="dhead"><div><h3 id="import-title">Add from link</h3><p>Paste the setup link printed on the other server.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div id="import-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div><label for="i-import-link">Setup link</label><textarea id="i-import-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
-    <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="9"></div>
+    <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="10"></div>
     <div class="dfoot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
   </form>
 </dialog>
@@ -907,7 +907,7 @@ function tunnelCard(t) {
   rates.append(rxD, txD);
   const info = el("div", "kv");
   const c = { card, name, meth, state, line, fill, rxB, rxS, txB, txS, t,
-    peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Carried RX / TX") };
+    peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Total RX / TX") };
   inner.append(top, rates, info);
 
   const band = el("div", "band");
