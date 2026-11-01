@@ -150,12 +150,14 @@ button.chip{cursor:pointer}
 .tun.st-up{--mc:var(--ok)}.tun.st-bad{--mc:var(--er)}.tun.st-warn{--mc:var(--wr)}
 .tun.st-bad{border-color:color-mix(in srgb,var(--er) 30%,transparent)}
 .tun.st-off{opacity:.8}
-.tun .field{position:absolute;inset:0 0 0 30%;pointer-events:none}
-.tun .wash{position:absolute;inset:0;background:linear-gradient(to left,color-mix(in srgb,var(--mc) calc(var(--wash)*100%),transparent),transparent 80%)}
-.tun .grid{position:absolute;inset:0;opacity:.12;background-image:radial-gradient(var(--tx) 1px,transparent 1px);background-size:14px 14px;-webkit-mask-image:linear-gradient(to right,transparent,#000 60%);mask-image:linear-gradient(to right,transparent,#000 60%)}
-.tun .spark{position:absolute;left:0;right:0;bottom:0;width:100%;height:58%;stroke:none}
-.tun .spark .line{fill:none;stroke:var(--mc);stroke-width:1.8;vector-effect:non-scaling-stroke}
-.tun .spark .fill{fill:var(--mc);opacity:.12}
+.tun .wash{position:absolute;inset:0;pointer-events:none;background:linear-gradient(to left,color-mix(in srgb,var(--mc) calc(var(--wash)*100%),transparent),transparent 70%)}
+.tun .field{position:relative;height:84px;margin:auto -20px -16px;border-top:1px dashed var(--ln)}
+.tun .grid{position:absolute;inset:0;opacity:.12;background-image:radial-gradient(var(--tx) 1px,transparent 1px);background-size:14px 14px;-webkit-mask-image:linear-gradient(to right,transparent,#000 40%);mask-image:linear-gradient(to right,transparent,#000 40%)}
+.tun .spark{position:absolute;inset:6px 0 0;width:100%;height:calc(100% - 6px);stroke:none}
+.tun .spark .line{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke}
+.tun .spark .down{stroke:var(--mc)}.tun .spark .up{stroke:color-mix(in srgb,var(--mc) 40%,var(--mu));stroke-dasharray:3 3}
+.tun .spark .fill{fill:var(--mc);opacity:.13}
+.rates .dn b{color:var(--tx)}.rates i{display:inline-block;width:14px;height:2px;margin-right:6px;transform:translateY(-4px);background:var(--mc)}.rates .upr i{background:repeating-linear-gradient(90deg,color-mix(in srgb,var(--mc) 40%,var(--mu)) 0 3px,transparent 3px 6px)}
 .tun .inner{position:relative;flex:1;display:flex;flex-direction:column;gap:14px;padding:18px 20px 16px}
 .tun-top{display:flex;align-items:flex-start;gap:10px}
 .tun-top>div{min-width:0;flex:1}
@@ -167,7 +169,7 @@ button.chip{cursor:pointer}
 .rates div{display:flex;align-items:baseline;gap:4px}
 .rates b{font-size:22px;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .rates small{font-size:12px;color:var(--mu)}
-.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;max-width:78%}
+.kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}
 .kv .k{font-size:11px;color:var(--mu);font-weight:600}
 .kv .v{font:12px/1.5 var(--mono);overflow-wrap:anywhere}
 .band{position:relative;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--ln);background:color-mix(in srgb,var(--s1) 94%,transparent)}
@@ -270,7 +272,7 @@ details[open] summary{margin-bottom:12px}
 .status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 #t-search{max-width:none;margin-left:0;flex-basis:100%}
 .vhead .acts{margin-left:0;width:100%}.vhead .acts .btn{flex:1}
-.kv{max-width:none}.tun .field{left:0}
+.kv{max-width:none}
 .dbody{padding:18px}.dfoot{margin:0 -18px -18px;padding:12px 18px}
 .testcard{padding:18px}.seg{width:100%}.seg button{flex:1}
 }
@@ -888,9 +890,10 @@ function tunnelCard(t) {
   const spark = document.createElementNS(ns, "svg");
   spark.setAttribute("class", "spark"); spark.setAttribute("viewBox", "0 0 300 80"); spark.setAttribute("preserveAspectRatio", "none"); spark.setAttribute("aria-hidden", "true");
   const fill = document.createElementNS(ns, "path"); fill.setAttribute("class", "fill");
-  const line = document.createElementNS(ns, "path"); line.setAttribute("class", "line"); line.setAttribute("stroke", "currentColor");
-  spark.append(fill, line);
-  field.append(el("div", "wash"), el("div", "grid"), spark);
+  const line = document.createElementNS(ns, "path"); line.setAttribute("class", "line down"); line.setAttribute("stroke", "currentColor");
+  const upLine = document.createElementNS(ns, "path"); upLine.setAttribute("class", "line up"); upLine.setAttribute("stroke", "currentColor");
+  spark.append(fill, upLine, line);
+  field.append(el("div", "grid"), spark);
 
   const inner = el("div", "inner");
   const top = el("div", "tun-top");
@@ -902,13 +905,13 @@ function tunnelCard(t) {
   top.append(title, state);
   const rates = el("div", "rates");
   const rxB = el("b"), txB = el("b"), rxS = el("small"), txS = el("small");
-  const rxD = el("div"), txD = el("div");
-  rxD.append(rxB, rxS, el("small", "", "down")); txD.append(txB, txS, el("small", "", "up"));
+  const rxD = el("div", "dn"), txD = el("div", "upr");
+  rxD.append(el("i"), rxB, rxS, el("small", "", "down")); txD.append(el("i"), txB, txS, el("small", "", "up"));
   rates.append(rxD, txD);
   const info = el("div", "kv");
-  const c = { card, name, meth, state, line, fill, rxB, rxS, txB, txS, t,
+  const c = { card, name, meth, state, line, upLine, fill, rxB, rxS, txB, txS, t,
     peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Total RX / TX") };
-  inner.append(top, rates, info);
+  inner.append(top, rates, info, field);
 
   const band = el("div", "band");
   c.toggle = smallButton("Stop", "i-stop", e => toggleTunnel(e.currentTarget, c.t));
@@ -929,7 +932,7 @@ function tunnelCard(t) {
   };
   c.del = del;
   band.appendChild(del);
-  card.append(field, inner, band);
+  card.append(el("div", "wash"), inner, band);
   return c;
 }
 async function toggleTunnel(btn, t) {
@@ -951,10 +954,10 @@ function updateTunnel(c, t) {
   const s = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
   const [rv, ru] = bitrate((s && s.rx_mbps || 0) * 125000), [tv, tu] = bitrate((s && s.tx_mbps || 0) * 125000);
   c.rxB.textContent = rv; c.rxS.textContent = ru; c.txB.textContent = tv; c.txS.textContent = tu;
-  const { rx, tx } = series(s);
-  const sum = rx.map((v, i) => v + (tx[i] || 0)), max = Math.max(1, ...sum);
-  c.line.setAttribute("d", chartPath(sum, max, 300, 80));
-  c.fill.setAttribute("d", areaPath(sum, max, 300, 80));
+  const { rx, tx, max } = series(s);
+  c.line.setAttribute("d", chartPath(rx, max, 300, 80));
+  c.upLine.setAttribute("d", chartPath(tx, max, 300, 80));
+  c.fill.setAttribute("d", areaPath(rx, max, 300, 80));
   const off = st.cls === "off";
   c.toggle.replaceChildren(icon(off ? "i-play" : "i-stop"), el("span", "lbl", off ? "Start" : "Stop"));
   c.toggle.title = off ? "Start" : "Stop";
