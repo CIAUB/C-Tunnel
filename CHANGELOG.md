@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.1]
+## [0.4.1] - 2026-11-02
 
 ### Fixed
 - README panel screenshots show the 0.4 panel (desktop, mobile and settings) instead of the 0.2.1 ones.
