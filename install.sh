@@ -38,8 +38,8 @@ resolve_installer_version "$0" "${BASH_SOURCE[0]:-}" "$@"
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "run as root: sudo bash -c \"\$(curl -sL https://raw.githubusercontent.com/${REPO}/main/install.sh)\""
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
 
-# ARCH names the release assets; GO_TARGET and GO_DL_ARCH are for building from
-# source (Go names 32-bit ARM GOARCH=arm and ships one armv6l archive for it).
+# ARCH names the release assets; GO_TARGET is for building from source, where
+# Go calls 32-bit ARM GOARCH=arm.
 GO_TARGET=()
 case "$(uname -m)" in
     x86_64|amd64)  ARCH="amd64" ;;
@@ -47,8 +47,6 @@ case "$(uname -m)" in
     armv7l|armv7|armv8l|armhf) ARCH="armv7"; GO_TARGET=(GOARCH=arm GOARM=7) ;;
     *) die "unsupported architecture $(uname -m) (amd64, arm64 and armv7 only)" ;;
 esac
-GO_DL_ARCH="$ARCH"
-[[ "$ARCH" == "armv7" ]] && GO_DL_ARCH="armv6l"
 
 # Serialize package installation and binary/unit replacement across invocations.
 command -v flock >/dev/null 2>&1 || die "install util-linux (flock) first"
@@ -117,13 +115,15 @@ fetch_release() {
 
 # Go publishes archive hashes in its download JSON, not per-archive .sha256 files.
 bootstrap_go() {
-    local metadata_url='https://go.dev/dl/?mode=json' selection archive digest
+    local metadata_url='https://go.dev/dl/?mode=json' selection archive digest dl_arch="$ARCH"
+    # Go ships one 32-bit ARM archive, for armv6l, which runs on armv7.
+    [[ "$ARCH" == "armv7" ]] && dl_arch="armv6l"
     if [[ -n "$GO_VERSION" ]]; then
         [[ "$GO_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "invalid Go version"
         metadata_url+='&include=all'
     fi
     curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 "$metadata_url" -o "${WORK}/go-releases.json"
-    selection="$(python3 - "${WORK}/go-releases.json" "$GO_VERSION" "$GO_DL_ARCH" <<'PYTHON'
+    selection="$(python3 - "${WORK}/go-releases.json" "$GO_VERSION" "$dl_arch" <<'PYTHON'
 import json
 import re
 import sys
@@ -157,7 +157,7 @@ except (OSError, ValueError, TypeError, KeyError) as error:
 PYTHON
 )" || die "cannot select a verified Go archive"
     read -r GO_VERSION digest <<< "$selection"
-    archive="go${GO_VERSION}.linux-${GO_DL_ARCH}.tar.gz"
+    archive="go${GO_VERSION}.linux-${dl_arch}.tar.gz"
     echo "Go not found; downloading Go ${GO_VERSION}..."
     curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 "https://go.dev/dl/${archive}" -o "${WORK}/go.tgz"
     printf '%s  %s\n' "$digest" "${WORK}/go.tgz" | sha256sum -c --status || die "Go checksum mismatch"

@@ -207,9 +207,9 @@ type Status struct {
 	// Method is the method running now: the backup one while failed over.
 	Method   string `json:"active_method"`
 	OnBackup bool   `json:"on_backup,omitempty"`
-	LinkUp  bool   `json:"link_up"`
-	RxBytes uint64 `json:"rx_bytes"` // since the tunnel was created, across restarts and reboots
-	TxBytes uint64 `json:"tx_bytes"`
+	LinkUp   bool   `json:"link_up"`
+	RxBytes  uint64 `json:"rx_bytes"` // since the tunnel was created, across restarts and reboots
+	TxBytes  uint64 `json:"tx_bytes"`
 }
 
 // Up reports whether the service runs and the interface is up.

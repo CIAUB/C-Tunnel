@@ -211,7 +211,7 @@ fi''')
         for version in ['1.27.3','1.26.10']:
             releases.append({'version':'go'+version,'stable':True,'files':[
                 {'filename':f'go{version}.linux-{a}.tar.gz','kind':'archive','sha256':digest}
-                for a in ['amd64','arm64']]})
+                for a in ['amd64','arm64','armv6l']]})
         (fixture/'metadata').write_text('<html>redirect</html>' if mode == 'html' else json.dumps(releases))
         self.tool('curl', '''url=''; for arg; do [[ "$arg" == https://* ]] && url="$arg"; done
 printf '%s\\n' "$url" >> "$FIXTURE/urls"
@@ -230,6 +230,10 @@ if [[ "$url" == *mode=json* ]]; then cp "$FIXTURE/metadata" "$2"; else cp "$FIXT
         self.assertTrue((work/'go/bin/go').is_file())
         self.assertIn('go1.27.3.linux-arm64.tar.gz', urls)
         self.assertNotIn('.sha256', urls)
+    def test_go_bootstrap_armv7_uses_the_armv6l_archive(self):
+        result, _, urls=self.bootstrap(arch='armv7')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('go1.27.3.linux-armv6l.tar.gz', urls)
     def test_go_bootstrap_pinned_version(self):
         result, _, urls=self.bootstrap(requested='1.26.10')
         self.assertEqual(result.returncode,0,result.stderr)
