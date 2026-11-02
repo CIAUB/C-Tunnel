@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/localproxy"
+	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/webpanel"
 )
@@ -148,4 +150,20 @@ func simulateExtras() {
 	}
 	webpanel.ProxyDisable = func() error { mu.Lock(); proxy.Enabled = false; mu.Unlock(); return nil }
 	webpanel.ProxyRunning = func() bool { mu.Lock(); defer mu.Unlock(); return proxy.Enabled }
+	// Every simulated tunnel runs, and measures like a modest real link.
+	webpanel.BenchStatuses = func(tcs []catalog.TunnelConfig) []tunnel.Status {
+		out := tunnel.GetStatuses(tcs)
+		for i := range out {
+			out[i].LinkUp, out[i].Service = true, "active"
+		}
+		return out
+	}
+	webpanel.RunBench = func(ctx context.Context, target string) speedtest.Result {
+		select {
+		case <-time.After(2 * time.Second):
+		case <-ctx.Done():
+		}
+		n := float64(len(target) % 7)
+		return speedtest.Result{AvgMs: 62 + n*9, JitterMs: 1.5 + n/3, DownloadMbps: 180 + n*41, UploadMbps: 70 + n*13}
+	}
 }
