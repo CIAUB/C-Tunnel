@@ -286,7 +286,7 @@ In **Manage → Panel settings**, customize the base path and domain. Set the pa
 
 **Connection test** accepts the peer's `ctunnel-test://` link, measures methods separately, and offers **Deploy Best Tunnel** for a successful measured result. Deployment creates this endpoint and returns a setup link to apply on the peer. Carrier-shape tests do not replace real kernel tunnel checks.
 
-The screenshots use synthetic demonstration data and are generated from the actual UI with Chromium. See [mobile](docs/panel-mobile.png), [settings](docs/panel-settings.png), and [0.2.1 changes and upgrade notes](CHANGELOG.md).
+The screenshots use synthetic demonstration data and are generated from the actual UI with Chromium. See [mobile](docs/panel-mobile.png), [settings](docs/panel-settings.png), and [changes and upgrade notes](CHANGELOG.md).
 
 
 ## Command line
