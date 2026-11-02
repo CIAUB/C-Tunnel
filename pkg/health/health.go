@@ -6,6 +6,7 @@
 package health
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"ctunnel/pkg/catalog"
@@ -193,7 +195,7 @@ func serviceChecks(storeDir string) []Check {
 	const p = "Built-in Proxy"
 	if c := localproxy.Load(); c.Enabled {
 		if localproxy.Running() && listening(c.Port, "tcp") {
-			out = append(out, Check{Group: p, Name: "Service", Level: OK, Detail: fmt.Sprintf("%s on 127.0.0.1:%d", c.Type, c.Port)})
+			out = append(out, Check{Group: p, Name: "Service", Level: OK, Detail: fmt.Sprintf("%s on port %d (127.0.0.1 and the tunnel IPs)", c.Type, c.Port)})
 		} else {
 			out = append(out, Check{Group: p, Name: "Service", Level: Fail, Detail: "enabled but not answering", Fix: "Manage → Built-in Proxy → Enable / Change"})
 		}
@@ -288,9 +290,52 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 			out = append(out, Check{Group: g, Name: "Forwarded ports", Level: Info, Detail: "none"})
 		} else {
 			out = append(out, Check{Group: g, Name: "Forwarded ports", Level: OK, Detail: strings.Join(t.Ports, ", ")})
+			if s.Service == "active" && t.TunRemote4 != "" {
+				out = append(out, forwardChecks(g, t)...)
+			}
 		}
 	}
 	return out
+}
+
+// dial is net.DialTimeout; a variable so tests can stand in for the Kharej server.
+var dial = net.DialTimeout
+
+// forwardChecks dials the Kharej end of every forwarded port through the tunnel,
+// which is where the Iran server's DNAT sends it, so a forward to a port nothing
+// listens on (or one written the wrong way round) shows up here and not as a
+// silent timeout in a client. TCP only: an idle UDP port gives no answer either way.
+func forwardChecks(g string, t catalog.TunnelConfig) []Check {
+	var out []Check
+	for _, entry := range t.Ports {
+		src, dst, found := strings.Cut(entry, "=")
+		if !found {
+			dst = src
+		}
+		name := "Forward " + src
+		if found {
+			name = "Forward " + entry
+		}
+		c, err := dial("tcp", net.JoinHostPort(t.TunRemote4, dst), 2*time.Second)
+		switch {
+		case err == nil:
+			c.Close()
+			out = append(out, Check{Group: g, Name: name, Level: OK, Detail: "Kharej port " + dst + " answers"})
+		case isRefused(err):
+			fix := "start the service on Kharej port " + dst + ", listening on 0.0.0.0 or the tunnel IP " + t.TunRemote4
+			if found {
+				fix += "; in " + entry + " the first port is Iran's and the second is Kharej's"
+			}
+			out = append(out, Check{Group: g, Name: name, Level: Warn, Detail: "nothing listens on Kharej port " + dst, Fix: fix})
+		default:
+			out = append(out, Check{Group: g, Name: name, Level: Warn, Detail: "Kharej port " + dst + " does not answer", Fix: "a firewall on the Kharej server may drop it, or its service is slow to accept"})
+		}
+	}
+	return out
+}
+
+func isRefused(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED)
 }
 
 func pingCheck(g, ip string) Check {
