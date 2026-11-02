@@ -66,6 +66,7 @@ type Server struct {
 	versionCached  versionStatus
 	versionChecked time.Time
 	sampling       atomic.Bool // the background sampler feeds the charts
+	bench          benchState  // the last tunnel benchmark
 }
 
 func NewServer(storeDir, listenAddr string) *Server {
@@ -115,6 +116,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/auto-refresh", s.auth(s.handleAutoRefresh))
 	mux.HandleFunc("POST /api/auto-refresh", s.auth(s.handleAutoRefresh))
 	mux.HandleFunc("GET /api/proxy", s.auth(s.handleProxy))
+	mux.HandleFunc("GET /api/bench", s.auth(s.handleBench))
+	mux.HandleFunc("POST /api/bench", s.auth(s.handleBench))
 	mux.HandleFunc("POST /api/proxy", s.auth(s.handleProxy))
 	mux.HandleFunc("GET /api/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("POST /api/settings", s.auth(s.handleSettings))

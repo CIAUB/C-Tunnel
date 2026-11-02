@@ -190,7 +190,7 @@ button.chip{cursor:pointer}
 .mcard-head b{display:block;font-size:15px}
 .mcard-head span{display:block;font-size:12px;color:var(--mu)}
 .mcard-head>div{flex:1;min-width:0}
-.mcard .acts{display:flex;gap:8px;flex-wrap:wrap}
+.mcard .acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 
 .testcard{padding:22px;display:grid;gap:18px}
 .seg{display:inline-flex;padding:3px;border:1px solid var(--ln2);border-radius:13px;background:var(--field)}
@@ -303,6 +303,10 @@ details[open] summary{margin-bottom:12px}
 .modes{display:flex;gap:6px}
 .modes button{flex:1}
 .modes button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
+.mcard.wide{grid-column:1/-1}
+.bench-wrap table{min-width:560px}
+.bench-wrap tr.best td{background:color-mix(in srgb,var(--ac) 10%,transparent)}
+.bench-wrap td.num{font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -502,6 +506,12 @@ details[open] summary{margin-bottom:12px}
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-refresh"/></svg></div><div><b>Restart tunnels</b><span>Restart every tunnel on this server, one after another</span></div></div>
         <div class="acts"><button id="btn-restart-all-2" class="btn" type="button">Restart all tunnels</button></div>
       </article>
+      <article class="card mcard wide">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-gauge"/></svg></div><div><b>Tunnel benchmark</b><span>Speed, ping and loss of every running tunnel, measured through the tunnel one after another</span></div></div>
+        <div class="acts"><button id="btn-bench" class="btn" type="button">Run benchmark</button><span id="bench-status" class="hint" aria-live="polite"></span></div>
+        <div id="bench-wrap" class="table-wrap bench-wrap" hidden><table><thead><tr><th>Tunnel</th><th>Method</th><th>Download</th><th>Upload</th><th>Ping</th><th>Jitter</th><th>Loss</th></tr></thead><tbody id="bench-body"></tbody></table></div>
+        <p class="hint">Uses the line for about 5 seconds per tunnel. The other server needs C-Tunnel 1.1 or newer.</p>
+      </article>
       <article class="card mcard">
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-refresh"/></svg></div><div><b>Auto restart</b><span>Restart every tunnel on a schedule, on the server's clock</span></div></div>
         <div class="arwrap">
@@ -556,6 +566,8 @@ details[open] summary{margin-bottom:12px}
       <div><label for="f-method">Method</label><select id="f-method"></select></div>
       <div><label for="f-remote">Remote server IP</label><input id="f-remote" class="num" required></div>
     </div>
+    <div><label for="f-backup">Backup method (failover)</label><select id="f-backup"><option value="">None</option></select>
+      <p class="hint">If the method stops carrying traffic, both servers switch to this one within about a minute and try the first again every hour. Set it on both servers, or create the other end from the setup link.</p></div>
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
       <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
       <p class="hint">listen=target. Leave empty to forward nothing.</p></div>
@@ -586,6 +598,7 @@ details[open] summary{margin-bottom:12px}
           <div id="lanes-wrap"><label for="f-lanes">GRE lanes</label><input id="f-lanes" type="number" min="1" max="8"></div>
           <div id="tid-wrap"><label for="f-tid">Tunnel ID (EoIP / L2TPv3)</label><input id="f-tid" type="number" min="0" max="65535"></div>
         </div>
+        <div id="bport-wrap"><label for="f-bport">Backup method port</label><input id="f-bport" type="number" min="0" max="65535" placeholder="default for the method"></div>
       </div>
     </details>
     <div class="dfoot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
@@ -1019,8 +1032,10 @@ function updateTunnel(c, t) {
   const st = tunnelState(t);
   c.card.className = "tun st-" + st.cls;
   c.name.textContent = t.name;
-  c.meth.textContent = [methodLabel(t), t.family, t.role, t.reverse ? "reverse" : "direct"].filter(Boolean).join(" · ");
-  c.state.textContent = st.label;
+  const onBackup = t.status && t.status.on_backup;
+  c.meth.textContent = [onBackup ? t.status.active_method + " (backup)" : methodLabel(t), t.family, t.role, t.reverse ? "reverse" : "direct",
+    t.backup_method && !onBackup ? "backup " + t.backup_method : ""].filter(Boolean).join(" · ");
+  c.state.textContent = st.label + (onBackup ? " · on backup" : "");
   c.peer.textContent = (t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any (dials in)") + (t.port ? " :" + t.port : "");
   c.tunnelIP.textContent = t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   c.forwards.textContent = (t.ports || []).join(", ") || "—";
@@ -1215,12 +1230,14 @@ function num(id) { const v = $(id).value.trim(); return v === "" ? 0 : Number(v)
 
 function fillMethods(list) {
   methods = list;
-  const sel = $("f-method"), groups = {};
-  for (const m of methods) {
-    if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family; sel.appendChild(groups[m.Family]); }
-    const o = el("option", "", m.Name + " — " + m.Title);
-    o.value = m.Name;
-    groups[m.Family].appendChild(o);
+  for (const sel of [$("f-method"), $("f-backup")]) {
+    const groups = {};
+    for (const m of methods) {
+      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family; sel.appendChild(groups[m.Family]); }
+      const o = el("option", "", m.Name + " — " + m.Title);
+      o.value = m.Name;
+      groups[m.Family].appendChild(o);
+    }
   }
   syncForm();
 }
@@ -1231,6 +1248,12 @@ function syncForm() {
     o.hidden = o.disabled = rev && !!(mm && mm.IPv6Underlay);
   }
   if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) { $("f-method").value = "gre"; return syncForm(); }
+  for (const o of $("f-backup").options) {
+    const mm = methods.find(x => x.Name === o.value);
+    o.hidden = o.disabled = !!o.value && (o.value === $("f-method").value || (rev && !!(mm && mm.IPv6Underlay)));
+  }
+  if ($("f-backup").selectedOptions[0] && $("f-backup").selectedOptions[0].disabled) $("f-backup").value = "";
+  $("bport-wrap").hidden = !$("f-backup").value;
   const m = methods.find(x => x.Name === $("f-method").value);
   const iran = $("f-role").value === "iran", revIran = rev && iran;
   $("f-remote").required = !revIran;
@@ -1243,6 +1266,7 @@ function syncForm() {
 $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
 $("f-reverse").onchange = syncForm;
+$("f-backup").onchange = syncForm;
 
 function openCreate(t) {
   const form = $("create-form");
@@ -1259,6 +1283,7 @@ function openCreate(t) {
     $("f-mtu").value = t.mtu || ""; $("f-rate").value = t.rate_mbps || ""; $("f-padding").value = t.padding || "";
     $("f-lanes").value = t.lanes || ""; $("f-tid").value = t.tunnel_id || "";
     $("f-ports").value = (t.ports || []).join(", ");
+    $("f-backup").value = t.backup_method || ""; $("f-bport").value = t.backup_port || "";
     $("f-tun-iran").value = t.role === "iran" ? (t.tun_local4 || "") : (t.tun_remote4 || "");
     $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
   }
@@ -1321,7 +1346,8 @@ $("create-form").addEventListener("submit", async e => {
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
     index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
-    ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : []
+    ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : [],
+    backup_method: $("f-backup").value, backup_port: $("f-backup").value ? num("f-bport") : 0
   };
   if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or add the tunnel from its setup link."); $("f-token").closest("details").open = true; return; }
   const form = e.currentTarget;
@@ -1465,10 +1491,41 @@ async function checkVersion(explicit) {
 $("update-pill").onclick = () => navigate("#/update");
 $("btn-check-update").onclick = () => checkVersion(true);
 
+/* ---------- tunnel benchmark ---------- */
+let benchTimer = 0;
+function renderBench(b) {
+  b.rows = b.rows || []; b.skipped = b.skipped || [];
+  const status = $("bench-status"), body = $("bench-body");
+  $("btn-bench").disabled = b.running;
+  if (b.running) status.textContent = "Measuring " + (b.current || "…") + " — " + b.rows.length + " done";
+  else if (b.finished) status.textContent = b.rows.length ? (b.best ? "Fastest: " + b.best : "No tunnel answered") + (b.skipped.length ? " · not running: " + b.skipped.join(", ") : "") : "No running tunnel to measure";
+  else status.textContent = "";
+  $("bench-wrap").hidden = !b.rows.length;
+  body.replaceChildren(...b.rows.map(r => {
+    const tr = el("tr", r.name === b.best ? "best" : "");
+    if (r.error) {
+      const td = el("td", "", r.error); td.colSpan = 5;
+      tr.append(el("td", "", r.name), el("td", "mono", r.method || "—"), td);
+    } else {
+      tr.append(el("td", "", r.name + (r.name === b.best ? " ★" : "")), el("td", "mono", r.method || "—"), el("td", "num", mbps(r.down_mbps)), el("td", "num", mbps(r.up_mbps)),
+        el("td", "num", r.rtt_ms ? r.rtt_ms.toFixed(0) + " ms" : "—"), el("td", "num", r.jitter_ms ? r.jitter_ms.toFixed(1) + " ms" : "—"), el("td", "num", r.loss_pct.toFixed(0) + "%"));
+    }
+    return tr;
+  }));
+  clearTimeout(benchTimer);
+  if (b.running) benchTimer = setTimeout(async () => { try { renderBench(await api("/api/bench")); } catch (err) { status.textContent = err.message; } }, 1000);
+}
+$("btn-bench").onclick = async e => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try { renderBench(await api("/api/bench", { method: "POST" })); } catch (err) { toast(err.message); btn.disabled = false; }
+};
+
 /* ---------- Auto restart and built-in proxy (Manage) ---------- */
 let autoRefresh = null, proxyInfo = null, cdTimer = null;
 function stopCountdown() { clearInterval(cdTimer); cdTimer = null; }
 async function loadManageExtras() {
+  api("/api/bench").then(renderBench).catch(() => {});
   try { autoRefresh = await api("/api/auto-refresh"); renderAutoRefresh(); } catch (err) { $("ar-label").textContent = err.message; }
   try { proxyInfo = await api("/api/proxy"); renderProxyCard(); } catch (err) { $("px-state").textContent = err.message; }
 }

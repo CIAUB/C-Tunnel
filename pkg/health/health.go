@@ -192,6 +192,15 @@ func serviceChecks(storeDir string) []Check {
 		out = append(out, Check{Group: g, Name: "Service", Level: Fail, Detail: "enabled but not running", Fix: "journalctl -u ctunnel-panel -n 30"})
 	}
 
+	const a = "Agent"
+	switch {
+	case unitActive("ctunnel-agent.service"):
+		out = append(out, Check{Group: a, Name: "Service", Level: OK, Detail: "running (failover, tunnel benchmark)"})
+	default:
+		out = append(out, Check{Group: a, Name: "Service", Level: Warn, Detail: "not running: no failover, and the other server cannot benchmark through the tunnels",
+			Fix: "systemctl enable --now ctunnel-agent"})
+	}
+
 	const p = "Built-in Proxy"
 	if c := localproxy.Load(); c.Enabled {
 		if localproxy.Running() && listening(c.Port, "tcp") {
@@ -282,6 +291,15 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		}
 		if t.Role == "iran" && t.Reverse {
 			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("kharej dials in: %d/%s must be open here", t.Port, network)})
+		}
+	}
+
+	if t.BackupMethod != "" {
+		if tunnel.OnBackup(t.Name) {
+			out = append(out, Check{Group: g, Name: "Failover", Level: Warn, Detail: "running on the backup " + t.BackupMethod + ": " + t.Method + " did not carry traffic",
+				Fix: "the agent tries " + t.Method + " again every hour; journalctl -u ctunnel-agent shows why it switched"})
+		} else {
+			out = append(out, Check{Group: g, Name: "Failover", Level: OK, Detail: "on " + t.Method + ", backup " + t.BackupMethod})
 		}
 	}
 
