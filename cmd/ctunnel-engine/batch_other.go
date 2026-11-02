@@ -42,11 +42,13 @@ func (b *udpBatch) send(pkts [][]byte, peer netip.AddrPort) error {
 	return errors.Join(errs...)
 }
 
-func (b *udpBatch) recv(bufs [][]byte, sizes []int, srcs []netip.AddrPort) (int, error) {
+func (b *udpBatch) recv(bufs [][]byte, sizes, segs []int, srcs []netip.AddrPort) (int, error) {
 	n, src, err := b.conn.ReadFromUDPAddrPort(bufs[0])
 	if err != nil {
 		return 0, err
 	}
-	sizes[0], srcs[0] = n, src
+	sizes[0], segs[0], srcs[0] = n, 0, src
 	return 1, nil
 }
+
+func (b *udpBatch) enableGRO() bool { return false }
