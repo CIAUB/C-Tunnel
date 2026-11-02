@@ -93,7 +93,7 @@ func TestReverseEndToEndIranTrafficToKharej(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	iranTun.deliver(ct, src, make([]byte, 2048), nil)
+	iranTun.deliver(ct, src.AddrPort(), make([]byte, 2048), nil)
 	if iranTun.peer.Load() == nil || iranTun.peer.Load().Port != kharejConn.LocalAddr().(*net.UDPAddr).Port {
 		t.Fatalf("iran did not learn kharej address: got %v", iranTun.peer.Load())
 	}

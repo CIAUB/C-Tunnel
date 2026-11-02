@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+Planned for 1.0.
+
+### Changed
+- Faster UDP-Crypt engine: packets move through the kernel in batches (one `recvmmsg` / `sendmmsg` for up to 32 packets) and the UDP socket gets an 8 MiB buffer even before Optimize raises the system limit. Measured between two network namespaces on 2 CPUs: about +10% for one TCP flow and +20% for four (dtls-1.3, 1-3 runs each; the numbers vary by about 15%).
+- Optimize also sets `net.ipv4.tcp_slow_start_after_idle = 0`, so the reverse carrier's TCP streams keep their speed after a pause.
+
 ## [0.4.1] - 2026-11-02
 
 ### Fixed
