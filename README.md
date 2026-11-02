@@ -278,7 +278,7 @@ The panel has four sections in the dock — **Overview**, **Connection test**, *
 - **Manage**: health check (the same checks as the CLI, with a fix for each problem), kernel tuning, restart all, backup download and restore, panel settings and update check.
 - **Backup**: one JSON file with every tunnel's settings and secret token. Restore adds the tunnels a server does not have and starts them. Keep the file private.
 
-Traffic totals on the cards and in the CLI count from when the tunnel was created and survive restarts and reboots. New tunnels are named `t<N>-<port>` unless you give a name.
+Traffic totals on the cards and in the CLI count from when the tunnel was created and survive restarts and reboots. New tunnels are named `ir-<port>` on Iran and `kh-<port>` on Kharej unless you give a name.
 
 To try the panel on a desktop without touching its network, run `go run ./cmd/ctunnel-local` (Windows, macOS or Linux) and open `http://127.0.0.1:6969/ctunnel-local/` with login code `ctunnel-test`. Its tunnels are simulated.
 

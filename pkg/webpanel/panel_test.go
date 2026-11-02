@@ -236,15 +236,15 @@ func TestCreateTwoKharejAndDelete(t *testing.T) {
 	if len(tunnels) != 2 || tunnels[0].(map[string]any)["tun_local4"] == tunnels[1].(map[string]any)["tun_local4"] {
 		t.Fatalf("overview: %v", tunnels)
 	}
-	if !strings.Contains(strings.Join(*calls, "\n"), "restart ctunnel-engine@t1-24001.service") {
+	if !strings.Contains(strings.Join(*calls, "\n"), "restart ctunnel-engine@ir-24001.service") {
 		t.Fatalf("engine unit not started: %v", *calls)
 	}
-	res, _ = c.do("DELETE", "/api/tunnels/t1-24001", nil)
+	res, _ = c.do("DELETE", "/api/tunnels/ir-24001", nil)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("delete: %d", res.StatusCode)
 	}
 	st2, _ := catalog.LoadStore(st.Dir)
-	if len(st2.Tunnels) != 1 || st2.Tunnels[0].Name != "t2-24002" {
+	if len(st2.Tunnels) != 1 || st2.Tunnels[0].Name != "ir-24002" {
 		t.Fatalf("after delete: %+v", st2.Tunnels)
 	}
 }

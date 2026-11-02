@@ -13,7 +13,9 @@
 - Restart all (`POST /api/restart-all`), update check from Manage, random padding field for UDP-Crypt methods in the tunnel form.
 - `GET /api/session`, so the page finds out it is signed out without an error in the browser console.
 - Traffic totals survive restarts, edits and reboots. `ctunnel-kernel down` folds the interface counters into `/etc/ctunnel/traffic/<name>` before the interface is deleted, and the panel checkpoints them every minute, so a power cut loses at most a minute. Deleting a tunnel deletes its total.
-- New tunnels are named `t<N>-<port>`: the tunnel's port, or the first forwarded port for a portless kernel tunnel (`t1-24001`, `t3-443`). Names may be up to 10 characters. Existing tunnels keep their names.
+- New tunnels are named after their end and port: `ir-24001` on Iran, `kh-24001` on Kharej (the tunnel's port, or the first forwarded port for a portless kernel tunnel; `ir-t3` when there is none or the name is taken). A setup link from `ir-24001` builds `kh-24001` on the other server. Names may be up to 10 characters. Existing tunnels keep their names.
+- Chart history is sampled by the panel service in the background every 4 seconds, so the charts are already filled when the panel is opened.
+- The panel reads every tunnel's state with one `systemctl` call per refresh instead of one per tunnel, and the health check tests tunnels side by side.
 - `cmd/ctunnel-local`: runs the panel on a desktop with simulated tunnels, for trying the UI (`go run ./cmd/ctunnel-local`).
 
 ### Fixed

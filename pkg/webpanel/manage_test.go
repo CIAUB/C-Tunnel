@@ -45,17 +45,17 @@ func TestStopAndStartTunnel(t *testing.T) {
 	c.login(st.PanelCode)
 	createGRE(t, c)
 	*calls = nil
-	if res, out := c.do("POST", "/api/tunnels/t1/stop", nil); res.StatusCode != http.StatusOK {
+	if res, out := c.do("POST", "/api/tunnels/ir-t1/stop", nil); res.StatusCode != http.StatusOK {
 		t.Fatalf("stop: %d %v", res.StatusCode, out)
 	}
-	if !hasCall(*calls, "systemctl disable --now ctunnel@t1.service") {
+	if !hasCall(*calls, "systemctl disable --now ctunnel@ir-t1.service") {
 		t.Fatalf("stop did not disable the unit: %v", *calls)
 	}
 	*calls = nil
-	if res, out := c.do("POST", "/api/tunnels/t1/start", nil); res.StatusCode != http.StatusOK {
+	if res, out := c.do("POST", "/api/tunnels/ir-t1/start", nil); res.StatusCode != http.StatusOK {
 		t.Fatalf("start: %d %v", res.StatusCode, out)
 	}
-	if !hasCall(*calls, "systemctl restart ctunnel@t1.service") {
+	if !hasCall(*calls, "systemctl restart ctunnel@ir-t1.service") {
 		t.Fatalf("start did not start the unit: %v", *calls)
 	}
 	if res, _ := c.do("POST", "/api/tunnels/nope/stop", nil); res.StatusCode != http.StatusNotFound {
@@ -68,7 +68,7 @@ func TestStartRequiresCSRF(t *testing.T) {
 	c.login(st.PanelCode)
 	createGRE(t, c)
 	c.csrf = "wrong"
-	if res, _ := c.do("POST", "/api/tunnels/t1/start", nil); res.StatusCode != http.StatusForbidden {
+	if res, _ := c.do("POST", "/api/tunnels/ir-t1/start", nil); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("start without CSRF: %d", res.StatusCode)
 	}
 }
@@ -84,7 +84,7 @@ func TestRestartTunnelNamedAllRestartsOnlyIt(t *testing.T) {
 	if res, out := c.do("POST", "/api/tunnels/all/restart", nil); res.StatusCode != http.StatusOK {
 		t.Fatalf("restart: %d %v", res.StatusCode, out)
 	}
-	if hasCall(*calls, "systemctl restart ctunnel@t1.service") {
+	if hasCall(*calls, "systemctl restart ctunnel@ir-t1.service") {
 		t.Fatal("restarting the tunnel named all restarted t1 too")
 	}
 	*calls = nil
@@ -98,17 +98,17 @@ func TestLogsReturnsLinesAndBoundsCount(t *testing.T) {
 	c.login(st.PanelCode)
 	createGRE(t, c)
 	*calls = nil
-	res, out := c.do("GET", "/api/tunnels/t1/logs?lines=5000", nil)
-	if res.StatusCode != http.StatusOK || out["unit"] != "ctunnel@t1.service" {
+	res, out := c.do("GET", "/api/tunnels/ir-t1/logs?lines=5000", nil)
+	if res.StatusCode != http.StatusOK || out["unit"] != "ctunnel@ir-t1.service" {
 		t.Fatalf("logs: %d %v", res.StatusCode, out)
 	}
 	if _, ok := out["lines"].([]any); !ok {
 		t.Fatalf("lines is not a list: %v", out["lines"])
 	}
-	if !hasCall(*calls, "journalctl -u ctunnel@t1.service -n 1000 --no-pager -o short-iso") {
+	if !hasCall(*calls, "journalctl -u ctunnel@ir-t1.service -n 1000 --no-pager -o short-iso") {
 		t.Fatalf("line count not capped: %v", *calls)
 	}
-	if res, _ := c.do("GET", "/api/tunnels/t1/logs?lines=x", nil); res.StatusCode != http.StatusBadRequest {
+	if res, _ := c.do("GET", "/api/tunnels/ir-t1/logs?lines=x", nil); res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("bad lines: %d", res.StatusCode)
 	}
 }
@@ -160,7 +160,7 @@ func TestBackupRoundTrip(t *testing.T) {
 	if res.StatusCode != http.StatusOK || out["ok"] != true {
 		t.Fatalf("restore: %d %v", res.StatusCode, out)
 	}
-	if got := out["skipped"].([]any); len(got) != 1 || got[0] != "t1" {
+	if got := out["skipped"].([]any); len(got) != 1 || got[0] != "ir-t1" {
 		t.Fatalf("skipped: %v", out)
 	}
 	if got := out["created"].([]any); len(got) != 1 || got[0] != "t9" {

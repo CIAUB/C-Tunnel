@@ -37,18 +37,40 @@ var (
 // Dev is the Linux interface name of a tunnel.
 func Dev(name string) string { return "ct-" + name }
 
-// DefaultName is t<index>-<port>: the tunnel's own port, or for a portless
-// kernel tunnel the first forwarded port, so the name says where it listens.
-func DefaultName(tc catalog.TunnelConfig) string {
-	name := "t" + strconv.Itoa(tc.Index)
+// DefaultName is <side>-<port>: ir or kh for this server's role, then the
+// tunnel's own port, or for a portless kernel tunnel the first forwarded port,
+// so the name says which end it is and where it listens. Without a port, or
+// when another tunnel already has that name, the subnet index is used instead.
+func DefaultName(tc catalog.TunnelConfig, others []catalog.TunnelConfig) string {
+	side := "ir"
+	if tc.Role == "kharej" {
+		side = "kh"
+	}
 	port := ""
 	if tc.Port > 0 {
 		port = strconv.Itoa(tc.Port)
 	} else if len(tc.Ports) > 0 {
 		port = strings.SplitN(tc.Ports[0], "=", 2)[0]
 	}
-	if port != "" && len(name)+1+len(port) <= MaxNameLen {
-		name += "-" + port
+	name := side + "-" + port
+	taken := port == ""
+	for _, o := range others {
+		taken = taken || o.Name == name
+	}
+	if taken {
+		name = side + "-t" + strconv.Itoa(tc.Index)
+	}
+	return name
+}
+
+// MirrorName renames an ir-/kh- default name for the other end of the tunnel,
+// so the link from ir-24001 builds kh-24001 on the kharej server.
+func MirrorName(name, role string) string {
+	switch {
+	case role == "kharej" && strings.HasPrefix(name, "ir-"):
+		return "kh-" + strings.TrimPrefix(name, "ir-")
+	case role == "iran" && strings.HasPrefix(name, "kh-"):
+		return "ir-" + strings.TrimPrefix(name, "kh-")
 	}
 	return name
 }
@@ -265,7 +287,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	}
 
 	if tc.Name == "" {
-		tc.Name = DefaultName(*tc)
+		tc.Name = DefaultName(*tc, others)
 	}
 	tc.Name = SanitizeName(tc.Name)
 	if len(tc.Name) == 0 || len(tc.Name) > MaxNameLen || !nameRe.MatchString(tc.Name) {

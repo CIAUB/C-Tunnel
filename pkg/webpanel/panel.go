@@ -65,6 +65,7 @@ type Server struct {
 	versionMu      sync.Mutex
 	versionCached  versionStatus
 	versionChecked time.Time
+	sampling       atomic.Bool // the background sampler feeds the charts
 }
 
 func NewServer(storeDir, listenAddr string) *Server {
@@ -168,9 +169,9 @@ func (s *Server) Serve(parent context.Context) error {
 	if s.configErr != nil {
 		return s.configErr
 	}
-	checkpoints, stopCheckpoints := context.WithCancel(parent)
-	defer stopCheckpoints()
-	go s.checkpointTraffic(checkpoints, trafficCheckpointEvery)
+	work, stopWork := context.WithCancel(parent)
+	defer stopWork()
+	go s.background(work)
 	for {
 		c := s.config()
 		ln, err := net.Listen("tcp", s.listenAddr)
@@ -399,10 +400,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	views := make([]tunnelView, 0, len(st.Tunnels))
-	for _, t := range st.Tunnels {
+	statuses := tunnel.GetStatuses(st.Tunnels)
+	for i, t := range st.Tunnels {
 		link, _ := catalog.EncodeSetupLink(t)
 		m, _ := catalog.LookupMethod(t.Method)
-		status := tunnel.GetStatus(t)
+		status := statuses[i]
 		views = append(views, tunnelView{
 			TunnelConfig: t, Family: string(m.Family), Status: status, State: state(status),
 			SetupLink: link, MikroTik: tunnel.MikroTik(t),
@@ -415,7 +417,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"methods":    catalog.Methods,
 		"tunnels":    views,
 		"panel":      s.config(),
-		"telemetry":  s.observeTelemetry(views, time.Now()),
+		"telemetry":  s.currentTelemetry(views, time.Now()),
 	})
 }
 

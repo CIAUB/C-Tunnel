@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ctunnel/pkg/catalog"
@@ -208,9 +209,21 @@ func tunnelChecks(storeDir string) []Check {
 	if len(st.Tunnels) == 0 {
 		return []Check{{Group: "Tunnels", Name: "Configured tunnels", Level: Warn, Detail: "none", Fix: "Setup Iran or Setup Kharej from the main menu"}}
 	}
+	// Each tunnel pings its peer for about a second; check them side by side
+	// and keep the report in tunnel order.
+	per := make([][]Check, len(st.Tunnels))
+	var wg sync.WaitGroup
+	for i, t := range st.Tunnels {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			per[i] = tunnelChecksFor(storeDir, t)
+		}()
+	}
+	wg.Wait()
 	var out []Check
-	for _, t := range st.Tunnels {
-		out = append(out, tunnelChecksFor(storeDir, t)...)
+	for _, c := range per {
+		out = append(out, c...)
 	}
 	return out
 }

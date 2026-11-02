@@ -23,26 +23,45 @@ const (
 
 var runHealth = health.Run
 
-// trafficCheckpointEvery bounds what a power cut can lose from the saved
-// traffic totals; a clean stop or reboot saves them in ctunnel-kernel down.
-const trafficCheckpointEvery = time.Minute
+const (
+	// telemetryEvery is how often the panel service samples tunnel traffic for
+	// the charts, whether or not a browser has the panel open (as BackPack does).
+	telemetryEvery = 4 * time.Second
+	// trafficCheckpointEvery bounds what a power cut can lose from the saved
+	// traffic totals; a clean stop or reboot saves them in ctunnel-kernel down.
+	trafficCheckpointEvery = time.Minute
+)
 
-func (s *Server) checkpointTraffic(ctx context.Context, every time.Duration) {
-	t := time.NewTicker(every)
+// background keeps the chart history and the saved traffic totals current
+// while the panel service runs.
+func (s *Server) background(ctx context.Context) {
+	s.sampling.Store(true)
+	defer s.sampling.Store(false)
+	t := time.NewTicker(telemetryEvery)
 	defer t.Stop()
+	lastCheckpoint := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
-		}
-		st, err := s.store()
-		if err != nil {
-			continue
-		}
-		for _, tc := range st.Tunnels {
-			if err := tunnel.CheckpointTraffic(tc.Name); err != nil {
-				log.Printf("traffic checkpoint %s: %v", tc.Name, err)
+		case now := <-t.C:
+			st, err := s.store()
+			if err != nil {
+				continue
+			}
+			statuses := tunnel.GetStatuses(st.Tunnels)
+			views := make([]tunnelView, len(st.Tunnels))
+			for i, tc := range st.Tunnels {
+				views[i] = tunnelView{TunnelConfig: tc, Status: statuses[i]}
+			}
+			s.observeTelemetry(views, now)
+			if now.Sub(lastCheckpoint) >= trafficCheckpointEvery {
+				lastCheckpoint = now
+				for _, tc := range st.Tunnels {
+					if err := tunnel.CheckpointTraffic(tc.Name); err != nil {
+						log.Printf("traffic checkpoint %s: %v", tc.Name, err)
+					}
+				}
 			}
 		}
 	}

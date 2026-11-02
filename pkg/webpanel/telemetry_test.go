@@ -68,3 +68,19 @@ func TestVersionComparisonAndCache(t *testing.T) {
 		t.Fatalf("version cache miss: calls=%d status=%+v", calls, second)
 	}
 }
+
+func TestOverviewReadsBackgroundHistoryWithoutSampling(t *testing.T) {
+	s := &Server{telemetry: newTelemetryState()}
+	views := []tunnelView{{TunnelConfig: catalog.TunnelConfig{Name: "ir-1"}, Status: tunnel.Status{RxBytes: 0}}}
+	start := time.Now()
+	s.observeTelemetry(views, start)
+	views[0].Status.RxBytes = 1_000_000
+	s.observeTelemetry(views, start.Add(time.Second))
+	s.sampling.Store(true)
+	for i := 0; i < 3; i++ { // page loads must not push the history along
+		got := s.currentTelemetry(views, start.Add(time.Duration(2+i)*time.Second))
+		if h := got.Tunnels["ir-1"].RXHistory; h[len(h)-1] != 8 {
+			t.Fatalf("load %d: last sample %v, want 8 Mbps", i, h[len(h)-1])
+		}
+	}
+}

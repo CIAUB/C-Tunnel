@@ -89,7 +89,7 @@ func Create(st *catalog.Store, tc *catalog.TunnelConfig) error {
 // Import saves a tunnel decoded from the other server's setup link. An existing
 // tunnel with the same name is replaced only if it points at the same server.
 func Import(st *catalog.Store, tc *catalog.TunnelConfig) error {
-	tc.Name = SanitizeName(tc.Name)
+	tc.Name = SanitizeName(MirrorName(tc.Name, tc.Role))
 	if strings.TrimSpace(tc.LocalIP) == "" || tc.LocalIP == "0.0.0.0" || tc.LocalIP == "::" {
 		if ip := detectLocalIP(tc.Method); ip != "" {
 			tc.LocalIP = ip
@@ -206,9 +206,38 @@ type Status struct {
 // Up reports whether the service runs and the interface is up.
 func (s Status) Up() bool { return s.Service == "active" && s.LinkUp }
 
+// GetStatuses reads every tunnel's state with a single systemctl call, which
+// the panel runs every few seconds; GetStatus would fork one per tunnel.
+func GetStatuses(tcs []catalog.TunnelConfig) []Status {
+	out := make([]Status, len(tcs))
+	if len(tcs) == 0 {
+		return out
+	}
+	args := []string{"is-active"}
+	for _, tc := range tcs {
+		args = append(args, Unit(tc))
+	}
+	// is-active exits non-zero when any unit is not active; the lines still come.
+	text, _ := Run("systemctl", args...)
+	lines := strings.Fields(text)
+	for i, tc := range tcs {
+		if len(lines) != len(tcs) {
+			out[i] = GetStatus(tc)
+			continue
+		}
+		out[i] = statusFor(tc, lines[i])
+	}
+	return out
+}
+
 func GetStatus(tc catalog.TunnelConfig) Status {
+	state, _ := Run("systemctl", "is-active", Unit(tc))
+	return statusFor(tc, state)
+}
+
+func statusFor(tc catalog.TunnelConfig, state string) Status {
 	var s Status
-	s.Service, _ = Run("systemctl", "is-active", Unit(tc))
+	s.Service = state
 	// is-active prints one word; anything else (no systemd, bus errors) is not a state.
 	if s.Service = strings.TrimSpace(s.Service); s.Service == "" || len(s.Service) > 16 || strings.ContainsAny(s.Service, " \n") {
 		s.Service = "unknown"

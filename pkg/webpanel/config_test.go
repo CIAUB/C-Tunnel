@@ -261,7 +261,7 @@ func TestUpdateTunnel(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("create: %d %v", res.StatusCode, out)
 	}
-	res, out = c.do("PUT", "/api/tunnels/t1", map[string]any{"role": "iran", "method": "gre", "remote_ip": "203.0.113.5", "local_ip": "198.51.100.1", "mtu": 1300})
+	res, out = c.do("PUT", "/api/tunnels/ir-t1", map[string]any{"role": "iran", "method": "gre", "remote_ip": "203.0.113.5", "local_ip": "198.51.100.1", "mtu": 1300})
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("update: %d %v", res.StatusCode, out)
 	}

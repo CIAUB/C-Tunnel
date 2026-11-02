@@ -330,8 +330,8 @@ func TestReverseKernelTunnelUsesReverseCarrierAndCustomLocalIPs(t *testing.T) {
 	if greRev.RemoteIP != "0.0.0.0" || greRev.Port != 24001 {
 		t.Fatalf("expected RemoteIP=0.0.0.0 and Port=24001 for reverse GRE, got %+v", greRev)
 	}
-	if got := Unit(greRev); got != "ctunnel-engine@t1-24001.service" {
-		t.Fatalf("expected ctunnel-engine@t1-24001.service for reverse GRE, got %q", got)
+	if got := Unit(greRev); got != "ctunnel-engine@ir-24001.service" {
+		t.Fatalf("expected ctunnel-engine@ir-24001.service for reverse GRE, got %q", got)
 	}
 
 	// 2. A second tunnel on the same Iran server can reuse the same TunLocal4 (10.88.1.1) with a different TunRemote4.
@@ -398,16 +398,17 @@ func TestConcurrentWriteEnvHasUniqueTemporaryFiles(t *testing.T) {
 	}
 }
 
-func TestDefaultNameCarriesIndexAndPort(t *testing.T) {
+func TestDefaultNameCarriesSideAndPort(t *testing.T) {
 	cases := []struct {
 		tc   catalog.TunnelConfig
 		want string
 	}{
-		{catalog.TunnelConfig{Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "t1-24001"},
-		{catalog.TunnelConfig{Role: "iran", Method: "gre", Reverse: true, LocalIP: "198.51.100.1", Index: 12}, "t12-24012"},
-		{catalog.TunnelConfig{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Ports: []string{"2053=8443", "443"}}, "t1-2053"},
-		{catalog.TunnelConfig{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "t1"},
-		{catalog.TunnelConfig{Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Index: 250, Port: 65535}, "t250-65535"},
+		{catalog.TunnelConfig{Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "ir-24001"},
+		{catalog.TunnelConfig{Role: "kharej", Method: "dtls-1.3", RemoteIP: "198.51.100.1", LocalIP: "203.0.113.5", Token: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}, "kh-24001"},
+		{catalog.TunnelConfig{Role: "iran", Method: "gre", Reverse: true, LocalIP: "198.51.100.1", Index: 12}, "ir-24012"},
+		{catalog.TunnelConfig{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Ports: []string{"2053=8443", "443"}}, "ir-2053"},
+		{catalog.TunnelConfig{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Index: 3}, "ir-t3"},
+		{catalog.TunnelConfig{Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Index: 250, Port: 65535}, "ir-65535"},
 		{catalog.TunnelConfig{Name: "edge", Role: "iran", Method: "dtls-1.3", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1"}, "edge"},
 	}
 	for _, c := range cases {
@@ -421,5 +422,42 @@ func TestDefaultNameCarriesIndexAndPort(t *testing.T) {
 		if len("ct-"+tc.Name+".7") > 15 {
 			t.Errorf("%s overflows the interface name limit", tc.Name)
 		}
+	}
+}
+
+func TestDefaultNameAvoidsTakenName(t *testing.T) {
+	other := catalog.TunnelConfig{Name: "ir-443", Index: 1}
+	tc := catalog.TunnelConfig{Role: "iran", Index: 2, Ports: []string{"443"}}
+	if got := DefaultName(tc, []catalog.TunnelConfig{other}); got != "ir-t2" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMirrorNameForTheOtherEnd(t *testing.T) {
+	for _, c := range [][3]string{{"ir-24001", "kharej", "kh-24001"}, {"kh-t3", "iran", "ir-t3"}, {"ir-24001", "iran", "ir-24001"}, {"edge", "kharej", "edge"}} {
+		if got := MirrorName(c[0], c[1]); got != c[2] {
+			t.Errorf("MirrorName(%q, %q) = %q, want %q", c[0], c[1], got, c[2])
+		}
+	}
+}
+
+func TestGetStatusesUsesOneSystemctlCall(t *testing.T) {
+	orig := Run
+	t.Cleanup(func() { Run = orig })
+	calls := 0
+	Run = func(name string, args ...string) (string, error) {
+		calls++
+		return "active\nfailed\ninactive", errors.New("exit status 3")
+	}
+	tcs := []catalog.TunnelConfig{{Name: "ir-1", Method: "gre"}, {Name: "ir-2", Method: "dtls-1.3"}, {Name: "ir-3", Method: "gre"}}
+	got := GetStatuses(tcs)
+	if calls != 1 || got[0].Service != "active" || got[1].Service != "failed" || got[2].Service != "inactive" {
+		t.Fatalf("calls=%d statuses=%+v", calls, got)
+	}
+	// A short answer (old systemd, bus error) falls back to one call per unit.
+	calls = 0
+	Run = func(string, ...string) (string, error) { calls++; return "active", nil }
+	if got = GetStatuses(tcs); calls != 4 || got[2].Service != "active" {
+		t.Fatalf("fallback calls=%d statuses=%+v", calls, got)
 	}
 }

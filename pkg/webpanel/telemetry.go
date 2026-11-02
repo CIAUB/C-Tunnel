@@ -125,3 +125,26 @@ func copyTelemetrySeries(s telemetrySeries) telemetrySeries {
 	s.TXHistory = append([]float64(nil), s.TXHistory...)
 	return s
 }
+
+// currentTelemetry returns the chart data for the overview. While the panel
+// service samples in the background a page load only reads the history; a
+// server without the sampler (tests, embedded use) samples on each request.
+func (s *Server) currentTelemetry(views []tunnelView, now time.Time) telemetryView {
+	if !s.sampling.Load() {
+		return s.observeTelemetry(views, now)
+	}
+	s.telemetryMu.Lock()
+	defer s.telemetryMu.Unlock()
+	out := telemetryView{Tunnels: make(map[string]telemetrySeries, len(views))}
+	st := s.telemetry
+	if st == nil {
+		return out
+	}
+	out.Aggregate = copyTelemetrySeries(st.aggregate)
+	for _, v := range views {
+		if t := st.tunnels[v.Name]; t != nil {
+			out.Tunnels[v.Name] = copyTelemetrySeries(t.series)
+		}
+	}
+	return out
+}
