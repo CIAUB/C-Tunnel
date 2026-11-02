@@ -6,7 +6,7 @@
   <a href="https://github.com/CIAUB/C-Tunnel/releases/latest"><img src="https://img.shields.io/github/v/release/CIAUB/C-Tunnel?color=b91c1c&label=release" alt="Release"></a>
   <a href="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml"><img src="https://github.com/CIAUB/C-Tunnel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white" alt="Go 1.22">
-  <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64">
+  <img src="https://img.shields.io/badge/Linux-amd64%20%7C%20arm64%20%7C%20armv7-333?logo=linux&logoColor=white" alt="Linux amd64 | arm64 | armv7">
   <a href="https://t.me/CiAUB_CH"><img src="https://img.shields.io/badge/Telegram-@CiAUB__CH-26A5E4?logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
@@ -86,7 +86,7 @@ flowchart LR
 ## پیش‌نیازها
 
 - لینوکس با systemd: Ubuntu 20.04 به بالا، Debian 11 به بالا یا مشابه
-- معماری `amd64` یا `arm64`
+- معماری `amd64`، `arm64` یا `armv7` (ARM ۳۲ بیتی)
 - دسترسی root
 - IP عمومی روی هر سرور، و باز بودن پروتکل یا پورت UDP تانل در دیتاسنتر
 
