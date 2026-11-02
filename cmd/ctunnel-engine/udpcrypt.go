@@ -170,15 +170,21 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
 	if err != nil {
 		return err
 	}
+	// With GRO one buffer holds a run of datagrams, up to 64 KiB.
+	size := batchPacket + 1024
+	if ub.enableGRO() {
+		size = 65535
+	}
 	bufs := make([][]byte, batchSize)
 	for i := range bufs {
-		bufs[i] = make([]byte, batchPacket+1024)
+		bufs[i] = make([]byte, size)
 	}
 	sizes := make([]int, batchSize)
+	segs := make([]int, batchSize)
 	srcs := make([]netip.AddrPort, batchSize)
 	plainBuf := make([]byte, maxPacket)
 	for {
-		n, err := ub.recv(bufs, sizes, srcs)
+		n, err := ub.recv(bufs, sizes, segs, srcs)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return err
@@ -186,8 +192,16 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
 			continue
 		}
 		for i := 0; i < n; i++ {
-			if ct, err := t.framer.Unwrap(bufs[i][:sizes[i]]); err == nil {
-				t.deliver(ct, srcs[i], plainBuf, dev)
+			data, seg := bufs[i][:sizes[i]], segs[i]
+			if seg <= 0 || seg >= len(data) {
+				seg = len(data)
+			}
+			for len(data) > 0 {
+				d := data[:min(seg, len(data))]
+				data = data[len(d):]
+				if ct, err := t.framer.Unwrap(d); err == nil {
+					t.deliver(ct, srcs[i], plainBuf, dev)
+				}
 			}
 		}
 	}

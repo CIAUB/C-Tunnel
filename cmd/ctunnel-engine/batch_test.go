@@ -37,12 +37,13 @@ func TestUDPBatchSendRecvKeepsOrderAndSource(t *testing.T) {
 		bufs[i] = make([]byte, 2048)
 	}
 	sizes := make([]int, batchSize)
+	segs := make([]int, batchSize)
 	srcs := make([]netip.AddrPort, batchSize)
 	want := addrPort(a.LocalAddr().(*net.UDPAddr))
 	got := 0
 	_ = b.SetReadDeadline(time.Now().Add(2 * time.Second))
 	for got < len(pkts) {
-		n, err := rb.recv(bufs, sizes, srcs)
+		n, err := rb.recv(bufs, sizes, segs, srcs)
 		if err != nil {
 			t.Fatal(err)
 		}
