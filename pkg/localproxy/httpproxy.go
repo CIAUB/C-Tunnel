@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/socks"
+	"ctunnel/pkg/tunlisten"
 )
 
 // A minimal HTTP proxy: CONNECT for HTTPS (and any TCP the client tunnels
@@ -28,7 +29,7 @@ import (
 func serveHTTP(ctx context.Context, port int, hosts func() []string, auth socks.AuthFunc) error {
 	srv := &http.Server{Handler: &httpProxy{auth: auth}}
 	go func() { <-ctx.Done(); srv.Close() }()
-	return serveAll(ctx, port, hosts, func(lctx context.Context, ln net.Listener) {
+	return tunlisten.ServeAll(ctx, port, hosts, func(lctx context.Context, ln net.Listener) {
 		go func() { <-lctx.Done(); ln.Close() }()
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed && lctx.Err() == nil {
 			log.Printf("http proxy on %s stopped: %v", ln.Addr(), err)
