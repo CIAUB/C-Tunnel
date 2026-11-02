@@ -79,6 +79,7 @@ ASSETS=(
     "ctunnel@.service"
     "ctunnel-engine@.service"
     "ctunnel-panel.service"
+    "ctunnel-agent.service"
 )
 
 # fetch_release downloads the assets and SHA256SUMS of one release into WORK and stops
@@ -203,7 +204,7 @@ ln -sf /usr/local/bin/ctunnel /usr/local/bin/c-tunnel
 install -d -m 0755 /usr/local/lib/ctunnel
 sed 's/\r$//' "${WORK}/ctunnel-kernel.sh" > "${WORK}/kernel-normalized"
 atomic_binary "${WORK}/kernel-normalized" /usr/local/lib/ctunnel/ctunnel-kernel
-for unit in ctunnel@.service ctunnel-engine@.service ctunnel-panel.service; do
+for unit in ctunnel@.service ctunnel-engine@.service ctunnel-panel.service ctunnel-agent.service; do
     sed 's/\r$//' "${WORK}/${unit}" > "${WORK}/unit-normalized"
     atomic_binary "${WORK}/unit-normalized" "/etc/systemd/system/${unit}" 0644
 done
@@ -212,6 +213,9 @@ systemctl daemon-reload
 
 # Pick up the new engine and panel binaries on update.
 systemctl try-restart 'ctunnel-engine@*.service' ctunnel-panel.service || die "files installed, but service restart failed; inspect journalctl"
+# The agent answers the tunnel benchmark and runs failover; idle without tunnels.
+systemctl enable ctunnel-agent.service >/dev/null 2>&1 || die "cannot enable ctunnel-agent.service"
+systemctl restart ctunnel-agent.service || die "files installed, but ctunnel-agent did not start; inspect journalctl -u ctunnel-agent"
 
 echo
 echo "C-Tunnel $(/usr/local/bin/ctunnel version | awk '{print $2}') installed."

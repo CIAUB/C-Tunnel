@@ -734,12 +734,13 @@ func uninstallScreen() {
 		}
 	}
 	_ = systemctlRun("disable", "--now", "ctunnel-panel.service")
+	_ = systemctlRun("disable", "--now", "ctunnel-agent.service")
 	localproxy.Remove()
 	_ = schedule.SetAutoRefresh(0)
 	for _, p := range []string{
 		StoreDir, "/etc/sysctl.d/99-ctunnel.conf", "/usr/local/lib/ctunnel",
 		"/etc/systemd/system/ctunnel@.service", "/etc/systemd/system/ctunnel-engine@.service",
-		"/etc/systemd/system/ctunnel-panel.service",
+		"/etc/systemd/system/ctunnel-panel.service", "/etc/systemd/system/ctunnel-agent.service",
 		"/usr/local/bin/ctunnel-engine", "/usr/local/bin/c-tunnel", "/usr/local/bin/ctunnel",
 	} {
 		_ = os.RemoveAll(p)

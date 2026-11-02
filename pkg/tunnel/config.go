@@ -269,6 +269,24 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if tc.Role != "iran" {
 		tc.Ports = nil
 	}
+	if tc.BackupMethod = strings.TrimSpace(tc.BackupMethod); tc.BackupMethod != "" {
+		bm, ok := catalog.LookupMethod(tc.BackupMethod)
+		if !ok {
+			return fmt.Errorf("unknown backup method %q", tc.BackupMethod)
+		}
+		tc.BackupMethod = bm.Name
+		if bm.Name == m.Name {
+			return fmt.Errorf("the backup method must differ from %s", m.Name)
+		}
+		if tc.BackupPort < 0 || tc.BackupPort > 65535 {
+			return fmt.Errorf("backup port must be 0-65535")
+		}
+		if _, err := BackupConfig(*tc); err != nil {
+			return err
+		}
+	} else {
+		tc.BackupPort = 0
+	}
 	if len(tc.Ports) > 0 && IPv6Only(tc.Method) {
 		return fmt.Errorf("%s carries only IPv6, so ports cannot be forwarded over it; use 6to4 instead", tc.Method)
 	}

@@ -23,6 +23,7 @@ var Run = func(name string, args ...string) (string, error) {
 // Unit is the systemd unit that runs a tunnel: a oneshot for kernel tunnels,
 // a long-running engine process for userspace or reverse-carrier ones.
 func Unit(tc catalog.TunnelConfig) string {
+	tc = Effective(tc)
 	if m, ok := catalog.LookupMethod(tc.Method); ok && (m.Userspace || (tc.Reverse && m.Name != "wireguard")) {
 		return "ctunnel-engine@" + tc.Name + ".service"
 	}
@@ -70,6 +71,10 @@ func Save(st *catalog.Store, tc *catalog.TunnelConfig) error {
 		if err := kernelDown(old.Name); err != nil {
 			return err
 		}
+	}
+	// An edit starts again on the primary method.
+	if err := setOnBackup(tc.Name, false); err != nil {
+		return err
 	}
 	if err := WriteEnv(st.Dir, *tc); err != nil {
 		return err
@@ -176,6 +181,7 @@ func Remove(st *catalog.Store, name string) error {
 	}
 	_ = os.Remove(EnvPath(st.Dir, name))
 	forgetTraffic(name)
+	_ = setOnBackup(name, false)
 	return nil
 }
 
@@ -198,6 +204,9 @@ func kernelDown(name string) error {
 
 type Status struct {
 	Service string `json:"service"` // systemd ActiveState: active, failed, inactive...
+	// Method is the method running now: the backup one while failed over.
+	Method   string `json:"active_method"`
+	OnBackup bool   `json:"on_backup,omitempty"`
 	LinkUp  bool   `json:"link_up"`
 	RxBytes uint64 `json:"rx_bytes"` // since the tunnel was created, across restarts and reboots
 	TxBytes uint64 `json:"tx_bytes"`
@@ -246,6 +255,8 @@ func statusFor(tc catalog.TunnelConfig, state string) Status {
 		s.LinkUp = ifc.Flags&net.FlagUp != 0
 	}
 	s.RxBytes, s.TxBytes = TrafficTotal(tc.Name)
+	s.Method = Effective(tc).Method
+	s.OnBackup = tc.BackupMethod != "" && OnBackup(tc.Name)
 	return s
 }
 
