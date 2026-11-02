@@ -38,11 +38,17 @@ resolve_installer_version "$0" "${BASH_SOURCE[0]:-}" "$@"
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "run as root: sudo bash -c \"\$(curl -sL https://raw.githubusercontent.com/${REPO}/main/install.sh)\""
 command -v systemctl >/dev/null 2>&1 || die "systemd is required"
 
+# ARCH names the release assets; GO_TARGET and GO_DL_ARCH are for building from
+# source (Go names 32-bit ARM GOARCH=arm and ships one armv6l archive for it).
+GO_TARGET=()
 case "$(uname -m)" in
     x86_64|amd64)  ARCH="amd64" ;;
     aarch64|arm64) ARCH="arm64" ;;
-    *) die "unsupported architecture $(uname -m) (amd64 and arm64 only)" ;;
+    armv7l|armv7|armv8l|armhf) ARCH="armv7"; GO_TARGET=(GOARCH=arm GOARM=7) ;;
+    *) die "unsupported architecture $(uname -m) (amd64, arm64 and armv7 only)" ;;
 esac
+GO_DL_ARCH="$ARCH"
+[[ "$ARCH" == "armv7" ]] && GO_DL_ARCH="armv6l"
 
 # Serialize package installation and binary/unit replacement across invocations.
 command -v flock >/dev/null 2>&1 || die "install util-linux (flock) first"
@@ -116,7 +122,7 @@ bootstrap_go() {
         metadata_url+='&include=all'
     fi
     curl -fsSL --retry 3 --connect-timeout 15 --max-time 120 "$metadata_url" -o "${WORK}/go-releases.json"
-    selection="$(python3 - "${WORK}/go-releases.json" "$GO_VERSION" "$ARCH" <<'PYTHON'
+    selection="$(python3 - "${WORK}/go-releases.json" "$GO_VERSION" "$GO_DL_ARCH" <<'PYTHON'
 import json
 import re
 import sys
@@ -150,7 +156,7 @@ except (OSError, ValueError, TypeError, KeyError) as error:
 PYTHON
 )" || die "cannot select a verified Go archive"
     read -r GO_VERSION digest <<< "$selection"
-    archive="go${GO_VERSION}.linux-${ARCH}.tar.gz"
+    archive="go${GO_VERSION}.linux-${GO_DL_ARCH}.tar.gz"
     echo "Go not found; downloading Go ${GO_VERSION}..."
     curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 "https://go.dev/dl/${archive}" -o "${WORK}/go.tgz"
     printf '%s  %s\n' "$digest" "${WORK}/go.tgz" | sha256sum -c --status || die "Go checksum mismatch"
@@ -167,8 +173,8 @@ use_checkout() {
     fi
     echo "Building from source..."
     (cd "${src}" && mkdir -p bin \
-        && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-linux-${ARCH}" ./cmd/ctunnel \
-        && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-engine-linux-${ARCH}" ./cmd/ctunnel-engine)
+        && env CGO_ENABLED=0 "${GO_TARGET[@]}" go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-linux-${ARCH}" ./cmd/ctunnel \
+        && env CGO_ENABLED=0 "${GO_TARGET[@]}" go build -trimpath -ldflags="-s -w" -o "bin/ctunnel-engine-linux-${ARCH}" ./cmd/ctunnel-engine)
     cp "${src}/bin/ctunnel-linux-${ARCH}" "${src}/bin/ctunnel-engine-linux-${ARCH}" "${src}/scripts/ctunnel-kernel.sh" "${src}"/systemd/*.service "${WORK}/"
 }
 
