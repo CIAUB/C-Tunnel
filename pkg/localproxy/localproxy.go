@@ -16,10 +16,10 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
-
 	"log"
+	"net"
 	"os"
+	"path/filepath"
 
 	"ctunnel/pkg/socks"
 )
@@ -104,8 +104,8 @@ func (c Config) authFunc() socks.AuthFunc {
 	}
 }
 
-// Addr is the loopback address the proxy listens on. Loopback only: the proxy
-// is meant to be reached through the tunnel, never from the open internet.
+// Addr is the loopback address of the proxy. It also listens on each local
+// tunnel IP (listen.go), never on a public address.
 func (c Config) Addr() string { return fmt.Sprintf("127.0.0.1:%d", c.Port) }
 
 // Run serves the configured proxy until ctx is cancelled. It is a no-op when
@@ -116,15 +116,21 @@ func Run(ctx context.Context) {
 		<-ctx.Done()
 		return
 	}
-	log.Printf("built-in %s proxy listening on %s", c.Type, c.Addr())
+	log.Printf("built-in %s proxy on port %d", c.Type, c.Port)
 
 	switch c.Type {
 	case HTTP:
-		if err := serveHTTP(ctx, c.Addr(), c.authFunc()); err != nil {
+		if err := serveHTTP(ctx, c.Port, tunnelIPs, c.authFunc()); err != nil {
 			log.Printf("http proxy stopped: %v", err)
 		}
 	default: // socks5
-		if err := socks.Serve(ctx, c.Addr(), c.authFunc()); err != nil {
+		auth := c.authFunc()
+		err := serveAll(ctx, c.Port, tunnelIPs, func(lctx context.Context, ln net.Listener) {
+			if err := socks.ServeListener(lctx, ln, auth); err != nil {
+				log.Printf("socks5 proxy on %s stopped: %v", ln.Addr(), err)
+			}
+		})
+		if err != nil {
 			log.Printf("socks5 proxy stopped: %v", err)
 		}
 	}

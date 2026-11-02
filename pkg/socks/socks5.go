@@ -48,6 +48,12 @@ func Serve(ctx context.Context, addr string, auth AuthFunc) error {
 	if err != nil {
 		return err
 	}
+	return ServeListener(ctx, ln, auth)
+}
+
+// ServeListener is Serve on a listener the caller opened. It closes ln when
+// ctx is cancelled.
+func ServeListener(ctx context.Context, ln net.Listener, auth AuthFunc) error {
 	go func() { <-ctx.Done(); ln.Close() }()
 
 	// A bare `continue` on an accept error is what the acceptloop package was

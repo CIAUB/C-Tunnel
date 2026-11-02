@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -21,20 +22,18 @@ import (
 // proxy for clients that speak HTTP-proxy instead — browsers, and tools that
 // only take an http_proxy setting.
 
-// serveHTTP runs the HTTP proxy on addr until ctx is cancelled. auth is nil for
-// no-auth (loopback behind an authenticated tunnel) or a checker for Basic
-// Proxy-Authorization.
-func serveHTTP(ctx context.Context, addr string, auth socks.AuthFunc) error {
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: &httpProxy{auth: auth},
-	}
+// serveHTTP runs the HTTP proxy on port (on loopback and the tunnel IPs, see
+// serveAll) until ctx is cancelled. auth is nil for no-auth or a checker for
+// Basic Proxy-Authorization.
+func serveHTTP(ctx context.Context, port int, hosts func() []string, auth socks.AuthFunc) error {
+	srv := &http.Server{Handler: &httpProxy{auth: auth}}
 	go func() { <-ctx.Done(); srv.Close() }()
-	err := srv.ListenAndServe()
-	if err == http.ErrServerClosed {
-		return nil
-	}
-	return err
+	return serveAll(ctx, port, hosts, func(lctx context.Context, ln net.Listener) {
+		go func() { <-lctx.Done(); ln.Close() }()
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed && lctx.Err() == nil {
+			log.Printf("http proxy on %s stopped: %v", ln.Addr(), err)
+		}
+	})
 }
 
 type httpProxy struct{ auth socks.AuthFunc }

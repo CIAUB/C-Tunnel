@@ -516,11 +516,11 @@ func proxyLabel() string {
 func builtinProxyMenu() {
 	Header()
 	Title("Built-in Proxy")
-	Warn("A SOCKS5 Or HTTP Proxy On 127.0.0.1 — Forward A Tunnel Port To It.")
+	Warn("A SOCKS5 Or HTTP Proxy On 127.0.0.1 And The Tunnel IPs — Forward A Tunnel Port To It.")
 	fmt.Println()
 	c := localproxy.Load()
 	if c.Enabled && localproxy.Running() {
-		Info(fmt.Sprintf("Now: %s On 127.0.0.1:%d", c.Type, c.Port))
+		Info(fmt.Sprintf("Now: %s On Port %d (127.0.0.1 And The Tunnel IPs)", c.Type, c.Port))
 	} else {
 		Info("Now: Off")
 	}
@@ -572,9 +572,9 @@ func configureProxy(c localproxy.Config) {
 		Pause()
 		return
 	}
-	Ok(fmt.Sprintf("%s Proxy On 127.0.0.1:%d.", c.Type, c.Port))
+	Ok(fmt.Sprintf("%s Proxy On Port %d (127.0.0.1 And The Tunnel IPs).", c.Type, c.Port))
 	Info("On The Iran Server, Forward A Port To It Through The Tunnel,")
-	Info(fmt.Sprintf("e.g. 443=%d (kharej tunnel IP, port %d).", c.Port, c.Port))
+	Info(fmt.Sprintf("Iran Port First: e.g. 443=%d (Iran port 443 reaches this proxy).", c.Port))
 	Pause()
 }
 
