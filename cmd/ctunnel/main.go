@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"ctunnel/pkg/agent"
 	"flag"
 	"fmt"
 	"log"
@@ -116,6 +117,11 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "agent":
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		agent.Run(ctx, cli.StoreDir)
+
 	case "proxy-serve":
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -143,6 +149,7 @@ func main() {
   speedtest-server [-port N]   responder for linktest (default 7711/tcp)
   panel [-port N]              run the web panel in the foreground
   restart-all                  restart every tunnel (Auto Refresh runs this)
+  agent                        benchmark responder and failover (its service runs this)
   proxy-serve                  run the built-in SOCKS5/HTTP proxy (its service runs this)
   optimize                     apply BBR and buffer tuning
   catalog                      list tunnel methods

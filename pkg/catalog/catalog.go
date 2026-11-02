@@ -106,6 +106,11 @@ type TunnelConfig struct {
 	Padding        int      `json:"padding,omitempty"`
 	Reverse        bool     `json:"reverse,omitempty"` // kharej initiates the connection to iran
 	Ports          []string `json:"ports,omitempty"`   // forwarded on the iran side: "443" or "2053=8443"
+	// BackupMethod is the method both servers switch to when this one stops
+	// carrying traffic (ctunnel agent); empty means no failover. BackupPort is
+	// its port, 0 for the method's default.
+	BackupMethod string `json:"backup_method,omitempty"`
+	BackupPort   int    `json:"backup_port,omitempty"`
 }
 
 func PeerRole(role string) string {
