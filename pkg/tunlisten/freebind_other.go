@@ -1,6 +1,6 @@
 //go:build !linux
 
-package localproxy
+package tunlisten
 
 import "syscall"
 

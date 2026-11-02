@@ -35,6 +35,13 @@ func StartServer(addr string) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
+	addr, stop := ServeListener(ln)
+	return addr, stop, nil
+}
+
+// ServeListener runs the echo + speed responder on a listener the caller
+// opened, until stop is called.
+func ServeListener(ln net.Listener) (string, func()) {
 	// Bound unauthenticated sessions, including peers that never finish a hello.
 	var mu sync.Mutex
 	active := map[net.Conn]bool{}
@@ -72,7 +79,7 @@ func StartServer(addr string) (string, func(), error) {
 		})
 	}
 
-	return ln.Addr().String(), stop, nil
+	return ln.Addr().String(), stop
 }
 
 func serveSpeedOrEcho(c net.Conn) {

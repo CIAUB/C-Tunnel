@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/socks"
+	"ctunnel/pkg/tunlisten"
 )
 
 func TestTunnelIPsReadsLocalTunnelAddresses(t *testing.T) {
@@ -34,7 +35,7 @@ func TestTunnelIPsReadsLocalTunnelAddresses(t *testing.T) {
 
 // A tunnel IP must be bindable before its tunnel is up.
 func TestListenBindsAnAddressThatIsNotUpYet(t *testing.T) {
-	ln, err := listen(context.Background(), "10.255.254.2:0")
+	ln, err := tunlisten.Listen(context.Background(), "10.255.254.2:0")
 	if err != nil {
 		t.Skipf("IP_FREEBIND not available here: %v", err)
 	}
@@ -46,9 +47,9 @@ func TestListenBindsAnAddressThatIsNotUpYet(t *testing.T) {
 // stands in for a tunnel IP; added and removed tunnels are picked up.
 func TestSocks5ProxyAnswersOnTunnelIPs(t *testing.T) {
 	Dir = t.TempDir()
-	old := refreshEvery
-	refreshEvery = 50 * time.Millisecond
-	defer func() { refreshEvery = old }()
+	old := tunlisten.RefreshEvery
+	tunlisten.RefreshEvery = 50 * time.Millisecond
+	defer func() { tunlisten.RefreshEvery = old }()
 
 	echo := startEcho(t)
 	host, portStr, _ := net.SplitHostPort(echo)
@@ -64,7 +65,7 @@ func TestSocks5ProxyAnswersOnTunnelIPs(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		serveAll(ctx, proxyPort, current, func(lctx context.Context, ln net.Listener) {
+		tunlisten.ServeAll(ctx, proxyPort, current, func(lctx context.Context, ln net.Listener) {
 			socks.ServeListener(lctx, ln, nil)
 		})
 	}()
@@ -167,7 +168,7 @@ func TestServeAllFailsWhenLoopbackIsTaken(t *testing.T) {
 	port := l.Addr().(*net.TCPAddr).Port
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	err = serveAll(ctx, port, func() []string { return nil }, func(context.Context, net.Listener) {})
+	err = tunlisten.ServeAll(ctx, port, func() []string { return nil }, func(context.Context, net.Listener) {})
 	if err == nil {
 		t.Fatal("serveAll succeeded on a taken port")
 	}
