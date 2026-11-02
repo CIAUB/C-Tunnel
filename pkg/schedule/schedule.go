@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // AutoRefreshMarker tags the Auto Refresh line in the crontab.
@@ -188,4 +189,33 @@ func SetAutoRefresh(hours int) error {
 // AutoRefreshHours returns the current auto-refresh interval (0 = disabled).
 func AutoRefreshHours() int {
 	return GetIntervalHours(AutoRefreshMarker)
+}
+
+// NextRun is when the cron line HourlySpec(hours) next fires after now, in
+// now's location (cron uses the server's local time). Zero when off.
+func NextRun(hours int, now time.Time) time.Time {
+	hours = EffectiveHours(hours)
+	if hours == 0 {
+		return time.Time{}
+	}
+	// The next whole hour on the local clock.
+	t := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), 0, 0, 0, now.Location()).Add(time.Hour)
+	for i := 0; i < 24*62; i++ {
+		switch {
+		case hours < 24:
+			if t.Hour()%hours == 0 {
+				return t
+			}
+		case hours == 24:
+			if t.Hour() == 0 {
+				return t
+			}
+		default:
+			if t.Hour() == 0 && (t.Day()-1)%(hours/24) == 0 {
+				return t
+			}
+		}
+		t = t.Add(time.Hour)
+	}
+	return time.Time{}
 }

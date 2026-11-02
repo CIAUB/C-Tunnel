@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/localproxy"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/webpanel"
 )
@@ -87,6 +88,7 @@ func main() {
 	}
 	tunnel.Run = fakeRun
 	tunnel.TrafficDir = filepath.Join(dir, "traffic")
+	simulateExtras()
 	if _, err := os.Stat(filepath.Join(dir, "panel.json")); os.IsNotExist(err) {
 		b, _ := json.Marshal(map[string]string{"base_path": basePath})
 		_ = os.WriteFile(filepath.Join(dir, "panel.json"), b, 0o600)
@@ -126,4 +128,24 @@ func main() {
 		_ = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	}
 	log.Fatal(srv.ListenAndServe())
+}
+
+// simulateExtras keeps Auto restart and the built-in proxy in memory, so the
+// cards work without cron or systemd.
+func simulateExtras() {
+	var mu sync.Mutex
+	hours := 6
+	proxy := localproxy.Config{Type: localproxy.SOCKS5}
+	webpanel.AutoRefreshHours = func() int { mu.Lock(); defer mu.Unlock(); return hours }
+	webpanel.SetAutoRefresh = func(h int) error { mu.Lock(); hours = h; mu.Unlock(); return nil }
+	webpanel.ProxyLoad = func() localproxy.Config { mu.Lock(); defer mu.Unlock(); return proxy }
+	webpanel.ProxyEnable = func(c localproxy.Config) error {
+		mu.Lock()
+		c.Enabled = true
+		proxy = c
+		mu.Unlock()
+		return nil
+	}
+	webpanel.ProxyDisable = func() error { mu.Lock(); proxy.Enabled = false; mu.Unlock(); return nil }
+	webpanel.ProxyRunning = func() bool { mu.Lock(); defer mu.Unlock(); return proxy.Enabled }
 }

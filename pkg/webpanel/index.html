@@ -8,7 +8,7 @@
 <style>
 /* Layout, meters, dock and tunnel cards follow BackPack's web panel
    (internal/webui/panel) by Amin Mohammadi (AminMGMT), AGPL-3.0 — see NOTICE. */
-:root{--ok:#22c55e;--wr:#f59e0b;--er:#ef4444;--spring:cubic-bezier(.32,.72,0,1);--r:14px;--r-lg:22px;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
+:root{--ac:var(--tx);--ac-tx:var(--bg);--ok:#22c55e;--wr:#f59e0b;--er:#ef4444;--spring:cubic-bezier(.32,.72,0,1);--r:14px;--r-lg:22px;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
 :root,:root[data-theme=dark]{color-scheme:dark;--bg:#070707;--s1:#111;--s2:#181818;--s3:#1f1f1f;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.15);--ln3:rgba(255,255,255,.3);--tx:#fafafa;--tx2:#dcdcdc;--mu:#8e8e8e;--dim:#5e5e5e;--field:#0c0c0c;--sunk:rgba(255,255,255,.05);--lift:0 22px 50px -24px rgba(0,0,0,.95);--wash:.14}
 :root[data-theme=light]{color-scheme:light;--bg:#f2f2f2;--s1:#fff;--s2:#fafafa;--s3:#f0f0f0;--ln:rgba(0,0,0,.09);--ln2:rgba(0,0,0,.16);--ln3:rgba(0,0,0,.34);--tx:#0a0a0a;--tx2:#2e2e2e;--mu:#666;--dim:#a3a3a3;--field:#fff;--sunk:rgba(0,0,0,.045);--lift:0 22px 46px -26px rgba(0,0,0,.32);--wash:.1}
 @media(prefers-color-scheme:light){:root[data-theme=auto]{color-scheme:light;--bg:#f2f2f2;--s1:#fff;--s2:#fafafa;--s3:#f0f0f0;--ln:rgba(0,0,0,.09);--ln2:rgba(0,0,0,.16);--ln3:rgba(0,0,0,.34);--tx:#0a0a0a;--tx2:#2e2e2e;--mu:#666;--dim:#a3a3a3;--field:#fff;--sunk:rgba(0,0,0,.045);--lift:0 22px 46px -26px rgba(0,0,0,.32);--wash:.1}}
@@ -278,6 +278,20 @@ details[open] summary{margin-bottom:12px}
 }
 @media(max-width:380px){.tiles{grid-template-columns:minmax(0,1fr)}.tile:nth-child(odd){border-right:0}.tile:nth-last-child(2){border-bottom:1px solid var(--ln)}}
 @media(prefers-reduced-motion:reduce){*,*::after{transition:none!important;animation:none!important}}
+.dial{width:112px;height:112px;flex:none}
+.dial .tick{stroke:var(--ln3);stroke-width:2;stroke-linecap:round}
+.dial .tick.on{stroke:var(--ac);stroke-width:4}
+.dial .hand{stroke:var(--tx);stroke-width:2;stroke-linecap:round}
+.dial .hub{fill:var(--tx)}
+.arwrap{display:flex;align-items:center;gap:18px}
+.arwrap .cd{display:grid;gap:2px;min-width:0}
+.arwrap .cd small{font-size:12px;color:var(--mu)}
+.arwrap .cd b{font-size:26px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.arwrap .cd b.off{color:var(--mu);font-size:20px}
+.presets{display:flex;gap:6px;flex-wrap:wrap}
+.presets button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px}
+.kv span{color:var(--mu)}
 </style>
 </head>
 <body>
@@ -478,6 +492,21 @@ details[open] summary{margin-bottom:12px}
         <div class="acts"><button id="btn-restart-all-2" class="btn" type="button">Restart all tunnels</button></div>
       </article>
       <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-refresh"/></svg></div><div><b>Auto restart</b><span>Restart every tunnel on a schedule, on the server's clock</span></div></div>
+        <div class="arwrap">
+          <svg id="ar-dial" class="dial" viewBox="0 0 120 120" role="img" aria-label="Restart times over the day"></svg>
+          <div class="cd" aria-live="polite"><small id="ar-label">Auto restart</small><b id="ar-left" class="off">Off</b><small id="ar-next"></small></div>
+        </div>
+        <div class="presets" role="group" aria-label="Restart every">
+          <button class="btn sm" type="button" data-ar="0">Off</button><button class="btn sm" type="button" data-ar="1">1h</button><button class="btn sm" type="button" data-ar="3">3h</button><button class="btn sm" type="button" data-ar="6">6h</button><button class="btn sm" type="button" data-ar="12">12h</button><button class="btn sm" type="button" data-ar="24">24h</button><button class="btn sm" type="button" data-ar="48">2 days</button>
+        </div>
+      </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-link"/></svg></div><div><b>Built-in proxy</b><span>SOCKS5 or HTTP on this server, for a forwarded port to reach</span></div></div>
+        <div class="kv" id="px-summary"><span>State</span><b id="px-state">—</b></div>
+        <div class="acts"><button class="btn" type="button" data-go="#/proxy">Configure proxy</button></div>
+      </article>
+      <article class="card mcard">
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-box"/></svg></div><div><b>Backup &amp; restore</b><span>Every tunnel's settings and secret token in one JSON file. Keep it private.</span></div></div>
         <div class="acts">
           <a id="btn-backup" class="btn" download><svg aria-hidden="true"><use href="#i-down"/></svg>Download backup</a>
@@ -614,6 +643,18 @@ details[open] summary{margin-bottom:12px}
       <div class="grid2"><div><label for="p-cert-upload">Upload fullchain.pem</label><input id="p-cert-upload" type="file" accept=".pem,.crt"></div><div><label for="p-key-upload">Upload privkey.pem</label><input id="p-key-upload" type="file" accept=".pem,.key"></div></div>
     </section>
     <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save settings</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-proxy" aria-labelledby="px-title">
+  <form id="proxy-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="px-title">Built-in proxy</h3><p>Runs on this server, on 127.0.0.1 and every tunnel IP. Never on the public address.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="proxy-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+    <div class="grid2"><div><label for="px-on">Proxy</label><select id="px-on"><option value="1">On</option><option value="0">Off</option></select></div><div><label for="px-type">Type</label><select id="px-type"><option value="socks5">SOCKS5 (TCP and UDP)</option><option value="http">HTTP (browsers)</option></select></div></div>
+    <div><label for="px-port">Port</label><input id="px-port" class="mono" inputmode="numeric" placeholder="10800" autocomplete="off"></div>
+    <div class="grid2"><div><label for="px-user">Username</label><input id="px-user" autocomplete="off" placeholder="empty = no login"></div><div><label for="px-pass">Password</label><input id="px-pass" type="password" autocomplete="new-password"></div></div>
+    <p class="hint" id="px-hint"></p>
+    <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save</button></div>
   </form>
 </dialog>
 
@@ -1049,7 +1090,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
    Sections are pages; everything else is a dialog over the section it belongs
    to, and closing it returns there. Every screen has its own hash. */
 const SECTIONS = { "": "overview", test: "test", tunnels: "tunnels", manage: "manage" };
-const DIALOG_ROUTES = { add: "tunnels", import: "tunnels", health: "manage", settings: "manage", update: "manage" };
+const DIALOG_ROUTES = { add: "tunnels", import: "tunnels", health: "manage", settings: "manage", update: "manage", proxy: "manage" };
 let routeDialog = null, pushedDialog = false;
 function navigate(hash) {
   if (location.hash === hash) { route(); return; }
@@ -1064,6 +1105,7 @@ function setView(view) {
     $("nav-" + v).setAttribute("aria-selected", String(v === view));
   }
   if (view === "tunnels") renderTunnels();
+  if (view === "manage") loadManageExtras(); else stopCountdown();
   if (view === "test") setTestMode(testMode); else stopTestPoll();
 }
 function openRouteDialog(id) {
@@ -1083,6 +1125,7 @@ function route() {
     else if (first === "import") openImport();
     else if (first === "health") openHealth();
     else if (first === "settings") openSettings();
+    else if (first === "proxy") openProxy();
     else if (first === "update") { if (versionInfo && versionInfo.update_available) openRouteDialog("dlg-update"); else history.replaceState(null, "", "#/manage"); }
     return;
   }
@@ -1388,6 +1431,118 @@ async function checkVersion(explicit) {
 }
 $("update-pill").onclick = () => navigate("#/update");
 $("btn-check-update").onclick = () => checkVersion(true);
+
+/* ---------- Auto restart and built-in proxy (Manage) ---------- */
+let autoRefresh = null, proxyInfo = null, cdTimer = null;
+function stopCountdown() { clearInterval(cdTimer); cdTimer = null; }
+async function loadManageExtras() {
+  try { autoRefresh = await api("/api/auto-refresh"); renderAutoRefresh(); } catch (err) { $("ar-label").textContent = err.message; }
+  try { proxyInfo = await api("/api/proxy"); renderProxyCard(); } catch (err) { $("px-state").textContent = err.message; }
+}
+function drawDial(hours, now) {
+  const svg = $("ar-dial"), ns = "http://www.w3.org/2000/svg";
+  svg.replaceChildren();
+  for (let h = 0; h < 24; h++) {
+    const a = (h / 24) * 2 * Math.PI - Math.PI / 2, r1 = 50, r2 = h % 6 === 0 ? 40 : 44;
+    const on = hours > 0 && (hours >= 24 ? h === 0 : h % hours === 0);
+    const l = document.createElementNS(ns, "line");
+    l.setAttribute("x1", 60 + r1 * Math.cos(a)); l.setAttribute("y1", 60 + r1 * Math.sin(a));
+    l.setAttribute("x2", 60 + r2 * Math.cos(a)); l.setAttribute("y2", 60 + r2 * Math.sin(a));
+    l.setAttribute("class", "tick" + (on ? " on" : ""));
+    svg.appendChild(l);
+  }
+  // The dial is the server's clock: cron fires on its local time.
+  const local = new Date(now.getTime() + serverOffset * 60000);
+  const hr = local.getUTCHours() + local.getUTCMinutes() / 60, a = (hr / 24) * 2 * Math.PI - Math.PI / 2;
+  const hand = document.createElementNS(ns, "line");
+  hand.setAttribute("x1", 60); hand.setAttribute("y1", 60);
+  hand.setAttribute("x2", 60 + 32 * Math.cos(a)); hand.setAttribute("y2", 60 + 32 * Math.sin(a));
+  hand.setAttribute("class", "hand"); svg.appendChild(hand);
+  const hub = document.createElementNS(ns, "circle");
+  hub.setAttribute("cx", 60); hub.setAttribute("cy", 60); hub.setAttribute("r", 3); hub.setAttribute("class", "hub");
+  svg.appendChild(hub);
+}
+let serverOffset = 0;
+function offsetMinutes(iso) {
+  const m = /([+-])(\d\d):(\d\d)$/.exec(iso || "");
+  return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+}
+function renderAutoRefresh() {
+  const ar = autoRefresh, h = ar.hours;
+  serverOffset = offsetMinutes(ar.now);
+  // The server's clock decides when cron fires; keep its offset from ours.
+  const skew = new Date(ar.now).getTime() - Date.now();
+  document.querySelectorAll("[data-ar]").forEach(b => b.setAttribute("aria-pressed", String(Number(b.dataset.ar) === h)));
+  stopCountdown();
+  const tick = () => {
+    const now = new Date(Date.now() + skew);
+    drawDial(h, now);
+    if (!h || !ar.next) {
+      $("ar-label").textContent = "Auto restart"; $("ar-left").textContent = "Off"; $("ar-left").className = "off";
+      $("ar-next").textContent = "Tunnels restart only when you do it";
+      return;
+    }
+    let left = Math.max(0, Math.round((new Date(ar.next).getTime() - now.getTime()) / 1000));
+    if (left === 0) { stopCountdown(); setTimeout(loadManageExtras, 5000); }
+    const hh = Math.floor(left / 3600), mm = Math.floor(left % 3600 / 60), ss = left % 60;
+    $("ar-label").textContent = "Next restart in";
+    $("ar-left").className = "";
+    $("ar-left").textContent = (hh > 99 ? hh : String(hh).padStart(2, "0")) + ":" + String(mm).padStart(2, "0") + ":" + String(ss).padStart(2, "0");
+    $("ar-next").textContent = "Every " + (h % 24 === 0 && h > 24 ? (h / 24) + " days" : h + (h === 1 ? " hour" : " hours")) + " · next at " + new Date(ar.next).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " your time";
+  };
+  tick();
+  if (h && ar.next) cdTimer = setInterval(tick, 1000);
+}
+document.querySelectorAll("[data-ar]").forEach(b => b.addEventListener("click", e => {
+  const hours = Number(e.currentTarget.dataset.ar);
+  run(e.currentTarget, async () => {
+    autoRefresh = await api("/api/auto-refresh", { method: "POST", body: JSON.stringify({ hours }) });
+    renderAutoRefresh();
+  }, hours ? "Every tunnel restarts every " + (hours >= 48 ? hours / 24 + " days" : hours + " hours") : "Auto restart is off");
+}));
+function renderProxyCard() {
+  const p = proxyInfo, box = $("px-summary");
+  const rows = [["State", p.enabled ? (p.running ? "Running" : "Enabled, not running") : "Off"]];
+  if (p.enabled) {
+    rows.push(["Type", p.type === "http" ? "HTTP" : "SOCKS5"], ["Port", String(p.port)], ["Login", p.username ? p.username : "none"]);
+    rows.push(["Iran forward", p.port + "=" + p.port]);
+  }
+  box.replaceChildren(...rows.flatMap(([k, v]) => [el("span", "", k), el("b", k === "Iran forward" ? "mono" : "", v)]));
+}
+function proxyHint() {
+  const port = Number($("px-port").value) || "PORT", socks = $("px-type").value === "socks5";
+  $("px-hint").textContent = "On the Iran server forward " + port + "=" + port + " (or just " + port + ") in this tunnel. In A=B the first port is Iran's and the second is this server's." +
+    (socks ? " UDP needs the same port on both ends." : "") + ($("px-user").value ? "" : " Without a login, anyone who reaches the Iran port can use the proxy.");
+}
+["px-port", "px-type", "px-user"].forEach(id => $(id).addEventListener("input", proxyHint));
+async function openProxy() {
+  $("proxy-error").hidden = true;
+  try { proxyInfo = await api("/api/proxy"); } catch (err) { toast(err.message); history.replaceState(null, "", "#/manage"); return; }
+  const p = proxyInfo;
+  $("px-on").value = p.enabled ? "1" : "0";
+  $("px-type").value = p.type || "socks5";
+  $("px-port").value = p.port || "";
+  $("px-user").value = p.username || "";
+  $("px-pass").value = "";
+  $("px-pass").placeholder = p.has_password ? "unchanged" : "";
+  proxyHint();
+  openRouteDialog("dlg-proxy");
+}
+$("proxy-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = e.submitter, errBox = $("proxy-error");
+  errBox.hidden = true;
+  const body = { enabled: $("px-on").value === "1", type: $("px-type").value, port: Number($("px-port").value), username: $("px-user").value.trim(), password: $("px-pass").value };
+  if (body.enabled && !(body.port >= 1 && body.port <= 65535)) { errBox.textContent = "Port must be 1-65535."; errBox.hidden = false; errBox.focus(); return; }
+  btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try {
+    proxyInfo = await api("/api/proxy", { method: "POST", body: JSON.stringify(body), timeout: 30000 });
+    renderProxyCard();
+    $("dlg-proxy").close();
+    toast(body.enabled ? "Proxy on port " + body.port : "Proxy turned off", true);
+  } catch (err) { errBox.textContent = err.message; errBox.hidden = false; errBox.focus(); }
+  finally { btn.disabled = false; btn.removeAttribute("aria-busy"); }
+});
 $("u-copy").onclick = async () => {
   try { await copyText($("u-command").value); toast("Update command copied", true); }
   catch (_) { $("u-command").select(); toast("Select the command and copy it by hand"); }
