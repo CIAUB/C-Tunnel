@@ -8,13 +8,17 @@
 <style>
 /* Layout, meters, dock and tunnel cards follow BackPack's web panel
    (internal/webui/panel) by Amin Mohammadi (AminMGMT), AGPL-3.0 — see NOTICE. */
-:root{--ac:var(--tx);--ac-tx:var(--bg);--ok:#22c55e;--wr:#f59e0b;--er:#ef4444;--spring:cubic-bezier(.32,.72,0,1);--r:14px;--r-lg:22px;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
+:root{--ac:var(--tx);--ac-tx:var(--bg);--tint:0%;--ok:#22c55e;--wr:#f59e0b;--er:#ef4444;--spring:cubic-bezier(.32,.72,0,1);--r:14px;--r-lg:22px;--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;--mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
 :root,:root[data-theme=dark]{color-scheme:dark;--bg:#070707;--s1:#111;--s2:#181818;--s3:#1f1f1f;--ln:rgba(255,255,255,.08);--ln2:rgba(255,255,255,.15);--ln3:rgba(255,255,255,.3);--tx:#fafafa;--tx2:#dcdcdc;--mu:#8e8e8e;--dim:#5e5e5e;--field:#0c0c0c;--sunk:rgba(255,255,255,.05);--lift:0 22px 50px -24px rgba(0,0,0,.95);--wash:.14}
 :root[data-theme=light]{color-scheme:light;--bg:#f2f2f2;--s1:#fff;--s2:#fafafa;--s3:#f0f0f0;--ln:rgba(0,0,0,.09);--ln2:rgba(0,0,0,.16);--ln3:rgba(0,0,0,.34);--tx:#0a0a0a;--tx2:#2e2e2e;--mu:#666;--dim:#a3a3a3;--field:#fff;--sunk:rgba(0,0,0,.045);--lift:0 22px 46px -26px rgba(0,0,0,.32);--wash:.1}
 @media(prefers-color-scheme:light){:root[data-theme=auto]{color-scheme:light;--bg:#f2f2f2;--s1:#fff;--s2:#fafafa;--s3:#f0f0f0;--ln:rgba(0,0,0,.09);--ln2:rgba(0,0,0,.16);--ln3:rgba(0,0,0,.34);--tx:#0a0a0a;--tx2:#2e2e2e;--mu:#666;--dim:#a3a3a3;--field:#fff;--sunk:rgba(0,0,0,.045);--lift:0 22px 46px -26px rgba(0,0,0,.32);--wash:.1}}
+/* colour themes: an accent on top of the light/dark mode */
+:root[data-accent=ocean]{--ac:#60a5fa;--ac-tx:#06101f;--tint:7%}:root[data-accent=emerald]{--ac:#34d399;--ac-tx:#03140d;--tint:7%}:root[data-accent=violet]{--ac:#a78bfa;--ac-tx:#10082a;--tint:7%}:root[data-accent=amber]{--ac:#fb923c;--ac-tx:#1c0c02;--tint:7%}:root[data-accent=rose]{--ac:#f472b6;--ac-tx:#22061a;--tint:7%}:root[data-accent=red]{--ac:#f87171;--ac-tx:#220404;--tint:7%}
+:root[data-theme=light][data-accent=ocean]{--ac:#2563eb;--ac-tx:#fff;--tint:5%}:root[data-theme=light][data-accent=emerald]{--ac:#047857;--ac-tx:#fff;--tint:5%}:root[data-theme=light][data-accent=violet]{--ac:#7c3aed;--ac-tx:#fff;--tint:5%}:root[data-theme=light][data-accent=amber]{--ac:#c2410c;--ac-tx:#fff;--tint:5%}:root[data-theme=light][data-accent=rose]{--ac:#be185d;--ac-tx:#fff;--tint:5%}:root[data-theme=light][data-accent=red]{--ac:#dc2626;--ac-tx:#fff;--tint:5%}
+@media(prefers-color-scheme:light){:root[data-theme=auto][data-accent=ocean]{--ac:#2563eb;--ac-tx:#fff;--tint:5%}:root[data-theme=auto][data-accent=emerald]{--ac:#047857;--ac-tx:#fff;--tint:5%}:root[data-theme=auto][data-accent=violet]{--ac:#7c3aed;--ac-tx:#fff;--tint:5%}:root[data-theme=auto][data-accent=amber]{--ac:#c2410c;--ac-tx:#fff;--tint:5%}:root[data-theme=auto][data-accent=rose]{--ac:#be185d;--ac-tx:#fff;--tint:5%}:root[data-theme=auto][data-accent=red]{--ac:#dc2626;--ac-tx:#fff;--tint:5%}}
 *{box-sizing:border-box;margin:0;padding:0}[hidden]{display:none!important}
 html{-webkit-text-size-adjust:100%}
-body{min-height:100dvh;background:var(--bg);color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+body{min-height:100dvh;background:color-mix(in srgb,var(--ac) var(--tint),var(--bg));color:var(--tx);font:14px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font:inherit;color:inherit}
 svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 a{color:inherit}
@@ -22,14 +26,14 @@ code,.mono{font-family:var(--mono)}
 .num{font-variant-numeric:tabular-nums}
 code{font-size:.92em;padding:1px 5px;border-radius:5px;background:var(--sunk)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-:focus-visible{outline:2px solid var(--tx);outline-offset:3px}
+:focus-visible{outline:2px solid var(--ac);outline-offset:3px}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap;transition:background-color .15s,border-color .15s,opacity .15s}
 .btn:hover{background:var(--s3);border-color:var(--ln3)}
 .btn:active{transform:translateY(1px)}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn svg{width:16px;height:16px;flex:none}
-.btn.primary{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.btn.primary{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
 .btn.primary:hover{opacity:.88}
 .btn.ghost{background:transparent}
 .btn.danger{color:var(--er)}
@@ -72,7 +76,7 @@ button.chip{cursor:pointer}
 .shell>*,.brand>div{min-width:0}
 .top{display:flex;align-items:center;gap:12px;min-height:66px;border-bottom:1px solid var(--ln);position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);margin:0 -24px;padding:10px 24px}
 .brand{display:flex;align-items:center;gap:11px;min-width:0;margin-right:auto}
-.logo{width:34px;height:34px;flex:none;border-radius:10px;background:var(--tx);color:var(--bg);display:grid;place-items:center}
+.logo{width:34px;height:34px;flex:none;border-radius:10px;background:var(--ac);color:var(--ac-tx);display:grid;place-items:center}
 .logo svg{width:20px;height:20px}
 .brand b{display:block;font-size:15px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .brand span{display:block;font-size:12px;color:var(--mu);line-height:1.2}
@@ -89,13 +93,13 @@ button.chip{cursor:pointer}
 .m-head span{font-size:12px;color:var(--mu);margin-left:8px;font-weight:500}
 .bars{display:flex;align-items:flex-end;gap:3px;height:34px;padding-top:8px;border-top:1px dashed var(--ln2)}
 .bars i{flex:1;min-height:2px;height:2px;border-radius:2px;background:var(--dim);opacity:.55;transition:height .4s var(--spring)}
-.bars i:last-child{background:var(--tx);opacity:1}
+.bars i:last-child{background:var(--ac);opacity:1}
 .m-sub{font-size:12px;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .dock{justify-self:center;display:flex;gap:4px;padding:4px;border:1px solid var(--ln2);border-radius:16px;background:var(--s1);position:sticky;top:74px;z-index:20;box-shadow:var(--lift)}
 .dock button{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 15px;border:0;border-radius:12px;background:transparent;color:var(--mu);font-size:13px;font-weight:600;cursor:pointer;transition:background-color .2s,color .2s}
 .dock button:hover{color:var(--tx)}
-.dock button[aria-selected=true]{background:var(--tx);color:var(--bg)}
+.dock button[aria-selected=true]{background:var(--ac);color:var(--ac-tx)}
 .dock svg{width:16px;height:16px}
 #sync-status{justify-self:center;font-size:11px;color:var(--mu);margin-top:-12px}
 .view{display:grid;gap:22px;align-content:start}
@@ -113,10 +117,10 @@ button.chip{cursor:pointer}
 .hero-top .chips{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .chart{width:100%;height:150px;display:block;stroke:none}
 .chart-line{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke}
-.chart-line.rx{stroke:var(--tx)}.chart-line.tx{stroke:var(--mu)}
-.chart .area.rx{fill:var(--tx);opacity:.08}.chart .area.tx{fill:var(--mu);opacity:.07}
+.chart-line.rx{stroke:var(--ac)}.chart-line.tx{stroke:var(--mu)}
+.chart .area.rx{fill:var(--ac);opacity:.1}.chart .area.tx{fill:var(--mu);opacity:.07}
 .legend{display:flex;gap:14px;font-size:12px;color:var(--mu)}
-.legend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:var(--tx)}
+.legend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;background:var(--ac)}
 .legend span+span::before{background:var(--mu)}
 .duo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));overflow:hidden}
@@ -139,13 +143,13 @@ button.chip{cursor:pointer}
 .filters{display:flex;gap:6px;flex-wrap:wrap}
 .filters button{min-height:34px;padding:0 12px;border:1px solid var(--ln2);border-radius:999px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}
 .filters button:hover{color:var(--tx)}
-.filters button[aria-pressed=true]{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.filters button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
 #t-search{max-width:280px;min-height:36px;margin-left:auto;border-radius:999px}
 .tunnels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:16px}
 .empty{grid-column:1/-1;padding:56px 24px;text-align:center;color:var(--mu);border:1px dashed var(--ln2);border-radius:var(--r-lg);background:var(--s1)}
 .empty b{display:block;color:var(--tx);font-size:15px;margin-bottom:6px}
 
-.tun{--mc:var(--tx);position:relative;overflow:hidden;display:flex;flex-direction:column;min-height:300px;background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg);transition:border-color .3s var(--spring)}
+.tun{--mc:var(--ac);position:relative;overflow:hidden;display:flex;flex-direction:column;min-height:300px;background:var(--s1);border:1px solid var(--ln);border-radius:var(--r-lg);transition:border-color .3s var(--spring)}
 .tun:hover{border-color:var(--ln2)}
 .tun.st-up{--mc:var(--ok)}.tun.st-bad{--mc:var(--er)}.tun.st-warn{--mc:var(--wr)}
 .tun.st-bad{border-color:color-mix(in srgb,var(--er) 30%,transparent)}
@@ -191,7 +195,7 @@ button.chip{cursor:pointer}
 .testcard{padding:22px;display:grid;gap:18px}
 .seg{display:inline-flex;padding:3px;border:1px solid var(--ln2);border-radius:13px;background:var(--field)}
 .seg button{min-height:34px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--mu);font-size:12px;font-weight:600;cursor:pointer}
-.seg button[aria-selected=true]{background:var(--tx);color:var(--bg)}
+.seg button[aria-selected=true]{background:var(--ac);color:var(--ac-tx)}
 .test-actions{display:flex;gap:8px;flex-wrap:wrap}
 .test-status{display:grid;gap:14px;padding:16px;border:1px solid var(--ln);border-radius:var(--r);background:var(--s2)}
 .status-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -234,7 +238,7 @@ details[open] summary{margin-bottom:12px}
 .loghead input[type=search]{flex:1;min-width:140px;min-height:36px}
 .loghead select{width:auto;min-height:36px}
 .switch{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--tx2);cursor:pointer}
-.switch input{width:16px;min-height:16px;accent-color:var(--tx)}
+.switch input{width:16px;min-height:16px;accent-color:var(--ac)}
 .logs{list-style:none;height:min(58vh,520px);overflow:auto;padding:10px 0;background:var(--field);border:1px solid var(--ln);border-radius:var(--r);font:12px/1.65 var(--mono)}
 .logs li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:1px 14px;border-left:2px solid transparent}
 .logs li .t{color:var(--dim)}
@@ -292,6 +296,13 @@ details[open] summary{margin-bottom:12px}
 .presets button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px}
 .kv span{color:var(--mu)}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.swatches button{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 10px;border:1px solid var(--ln2);border-radius:12px;background:var(--field);color:var(--tx2);font-size:12px;font-weight:600;cursor:pointer}
+.swatches button i{width:16px;height:16px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px var(--ln2)}
+.swatches button[aria-pressed=true]{border-color:var(--ac);box-shadow:0 0 0 1px var(--ac);color:var(--tx)}
+.modes{display:flex;gap:6px}
+.modes button{flex:1}
+.modes button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
 </style>
 </head>
 <body>
@@ -658,6 +669,15 @@ details[open] summary{margin-bottom:12px}
   </form>
 </dialog>
 
+<dialog id="dlg-theme" aria-labelledby="th-title">
+  <div class="dbody">
+    <div class="dhead"><div><h3 id="th-title">Appearance</h3><p>Kept in this browser.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div><label id="th-mode-l">Mode</label><div class="modes" role="group" aria-labelledby="th-mode-l"><button class="btn sm" type="button" data-mode="auto">Auto</button><button class="btn sm" type="button" data-mode="dark">Dark</button><button class="btn sm" type="button" data-mode="light">Light</button></div></div>
+    <div><label id="th-acc-l">Colour</label><div id="th-swatches" class="swatches" role="group" aria-labelledby="th-acc-l"></div></div>
+    <div class="dfoot"><button type="button" class="btn primary" data-close>Done</button></div>
+  </div>
+</dialog>
+
 <dialog id="dlg-update" aria-labelledby="u-title">
   <div class="dbody">
     <div class="dhead"><div><h3 id="u-title">Update available</h3><p>This panel runs <code id="u-current">—</code>. The latest stable release is <code id="u-latest">—</code>.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
@@ -776,18 +796,31 @@ function confirmAction(title, body, okLabel) {
 
 /* ---------- appearance ---------- */
 const THEMES = ["auto", "dark", "light"], THEME_LABEL = { auto: "Auto", dark: "Dark", light: "Light" };
+const ACCENTS = [["mono", "Mono", ""], ["ocean", "Ocean", "#3b82f6"], ["emerald", "Emerald", "#10b981"], ["violet", "Violet", "#8b5cf6"], ["amber", "Amber", "#f97316"], ["rose", "Rose", "#ec4899"], ["red", "Red", "#ef4444"]];
+function store(key, v) { try { localStorage.setItem(key, v); } catch (_) { /* private mode: per-session only */ } }
+function stored(key) { try { return localStorage.getItem(key); } catch (_) { return null; } }
 function applyTheme(t) {
   document.documentElement.dataset.theme = t;
   $("theme-btn").querySelector(".lbl").textContent = THEME_LABEL[t];
-  $("theme-btn").setAttribute("aria-label", "Appearance: " + (t === "auto" ? "follow the system" : t));
+  $("theme-btn").setAttribute("aria-label", "Appearance: " + (t === "auto" ? "follow the system" : t) + ", " + document.documentElement.dataset.accent + " colour");
+  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode === t)));
 }
-function savedTheme() { try { return localStorage.getItem("ct-theme"); } catch (_) { return null; } }
-applyTheme(THEMES.includes(savedTheme()) ? savedTheme() : "auto");
-$("theme-btn").onclick = () => {
-  const next = THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length];
-  applyTheme(next);
-  try { localStorage.setItem("ct-theme", next); } catch (_) { /* private mode: per-session only */ }
-};
+function applyAccent(a) {
+  document.documentElement.dataset.accent = a;
+  document.querySelectorAll("#th-swatches button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.accent === a)));
+  applyTheme(document.documentElement.dataset.theme);
+}
+for (const [id, name, colour] of ACCENTS) {
+  const b = el("button"); b.type = "button"; b.dataset.accent = id;
+  const dot = el("i"); dot.style.background = colour || "var(--tx)";
+  b.append(dot, document.createTextNode(name));
+  b.onclick = () => { applyAccent(id); store("ct-accent", id); };
+  $("th-swatches").appendChild(b);
+}
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { applyTheme(b.dataset.mode); store("ct-theme", b.dataset.mode); });
+applyAccent(ACCENTS.some(a => a[0] === stored("ct-accent")) ? stored("ct-accent") : "mono");
+applyTheme(THEMES.includes(stored("ct-theme")) ? stored("ct-theme") : "auto");
+$("theme-btn").onclick = () => $("dlg-theme").showModal();
 
 /* ---------- server meters ---------- */
 document.querySelectorAll(".bars").forEach(b => { for (let i = 0; i < HISTORY; i++) b.appendChild(el("i")); });
@@ -1519,7 +1552,7 @@ async function openProxy() {
   $("proxy-error").hidden = true;
   try { proxyInfo = await api("/api/proxy"); } catch (err) { toast(err.message); history.replaceState(null, "", "#/manage"); return; }
   const p = proxyInfo;
-  $("px-on").value = p.enabled ? "1" : "0";
+  $("px-on").value = "1"; // opening the dialog is to turn it on or change it
   $("px-type").value = p.type || "socks5";
   $("px-port").value = p.port || "";
   $("px-user").value = p.username || "";
