@@ -86,7 +86,8 @@ func udpBindReply(a *net.UDPAddr) []byte {
 // outbound socket per destination, so replies find their way back.
 type udpRelay struct {
 	relay  *net.UDPConn
-	client *net.UDPAddr // learned from the first datagram
+	client *net.UDPAddr // learned from the first datagram; guarded by mu
+	ctrlIP net.IP       // where the control connection came from (SharedUDP)
 
 	mu    sync.Mutex
 	flows map[string]*udpFlow // keyed by destination
@@ -106,9 +107,9 @@ func (r *udpRelay) serve() {
 		}
 		// The first sender is taken to be the client; datagrams from anyone else
 		// are ignored, so the relay cannot be used as an open reflector.
-		if r.client == nil {
-			r.client = from
-		} else if from.Port != r.client.Port || !from.IP.Equal(r.client.IP) {
+		if c := r.clientAddr(); c == nil {
+			r.setClient(from)
+		} else if from.Port != c.Port || !from.IP.Equal(c.IP) {
 			continue
 		}
 		host, port, data, hdr, ok := parseUDPDatagram(buf[:n])
@@ -166,13 +167,26 @@ func (r *udpRelay) pumpReplies(dst string, f *udpFlow) {
 		if err != nil {
 			return
 		}
-		if r.client == nil {
+		c := r.clientAddr()
+		if c == nil {
 			return
 		}
-		if _, err := r.relay.WriteToUDP(buf[:hlen+n], r.client); err != nil {
+		if _, err := r.relay.WriteToUDP(buf[:hlen+n], c); err != nil {
 			return
 		}
 	}
+}
+
+func (r *udpRelay) clientAddr() *net.UDPAddr {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.client
+}
+
+func (r *udpRelay) setClient(a *net.UDPAddr) {
+	r.mu.Lock()
+	r.client = a
+	r.mu.Unlock()
 }
 
 func (r *udpRelay) closeAll() {
@@ -224,3 +238,5 @@ func parseUDPDatagram(b []byte) (host string, port int, data, header []byte, ok 
 	data = b[pos:]
 	return host, port, data, header, true
 }
+
+func itoa(n int) string { return strconv.Itoa(n) }

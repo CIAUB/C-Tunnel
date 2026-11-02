@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ctunnel/pkg/socks"
 )
 
 // A forwarded port reaches this server DNATed to its tunnel IP
@@ -127,4 +129,20 @@ func serveAll(ctx context.Context, port int, hosts func() []string, serve func(c
 			_ = refresh()
 		}
 	}
+}
+
+// listenUDP opens the UDP side of a SOCKS5 listener on the same address and
+// port, where a forwarded port's UDP arrives too. Without it the proxy still
+// serves TCP, and UDP ASSOCIATE falls back to a relay port per association.
+func listenUDP(ctx context.Context, addr string) *socks.SharedUDP {
+	lc := net.ListenConfig{Control: freebind}
+	pc, err := lc.ListenPacket(ctx, "udp4", addr)
+	if err != nil {
+		log.Printf("proxy UDP on %s: %v", addr, err)
+		return nil
+	}
+	u := socks.NewSharedUDP(pc.(*net.UDPConn))
+	go func() { <-ctx.Done(); pc.Close() }()
+	go u.Serve()
+	return u
 }

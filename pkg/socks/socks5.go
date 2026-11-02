@@ -54,6 +54,13 @@ func Serve(ctx context.Context, addr string, auth AuthFunc) error {
 // ServeListener is Serve on a listener the caller opened. It closes ln when
 // ctx is cancelled.
 func ServeListener(ctx context.Context, ln net.Listener, auth AuthFunc) error {
+	return ServeListenerUDP(ctx, ln, auth, nil)
+}
+
+// ServeListenerUDP is ServeListener with every UDP ASSOCIATE relayed through
+// udp (see SharedUDP) instead of a relay socket per association. nil keeps the
+// per-association relay.
+func ServeListenerUDP(ctx context.Context, ln net.Listener, auth AuthFunc, udp *SharedUDP) error {
 	go func() { <-ctx.Done(); ln.Close() }()
 
 	// A bare `continue` on an accept error is what the acceptloop package was
@@ -78,11 +85,11 @@ func ServeListener(ctx context.Context, ln net.Listener, auth AuthFunc) error {
 			continue
 		}
 		backoff.OK()
-		go handle(conn, auth)
+		go handle(conn, auth, udp)
 	}
 }
 
-func handle(conn net.Conn, auth AuthFunc) {
+func handle(conn net.Conn, auth AuthFunc, udp *SharedUDP) {
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
 
@@ -151,7 +158,11 @@ func handle(conn net.Conn, auth AuthFunc) {
 		// will send from (often 0.0.0.0:0 = "any"); we relay datagrams directly
 		// to their destinations, so this node is the UDP exit too.
 		conn.SetDeadline(time.Time{})
-		handleUDPAssociate(conn)
+		if udp != nil {
+			udp.associate(conn)
+		} else {
+			handleUDPAssociate(conn)
+		}
 
 	default:
 		reply(conn, 0x07) // command not supported

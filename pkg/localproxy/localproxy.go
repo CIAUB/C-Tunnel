@@ -126,7 +126,8 @@ func Run(ctx context.Context) {
 	default: // socks5
 		auth := c.authFunc()
 		err := serveAll(ctx, c.Port, tunnelIPs, func(lctx context.Context, ln net.Listener) {
-			if err := socks.ServeListener(lctx, ln, auth); err != nil {
+			udp := listenUDP(lctx, ln.Addr().String())
+			if err := socks.ServeListenerUDP(lctx, ln, auth, udp); err != nil {
 				log.Printf("socks5 proxy on %s stopped: %v", ln.Addr(), err)
 			}
 		})
