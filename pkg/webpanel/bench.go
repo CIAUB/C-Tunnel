@@ -101,7 +101,7 @@ func (s *Server) handleBench(w http.ResponseWriter, r *http.Request) {
 				row := benchRow{Name: tc.Name, Method: statuses[i].Method, RTTMs: res.AvgMs, JitterMs: res.JitterMs,
 					LossPct: res.LossPct, Down: res.DownloadMbps, Up: res.UploadMbps, Error: res.SpeedError}
 				if res.LossPct >= 100 {
-					row.Error = "the other server does not answer on port " + strconv.Itoa(agent.BenchPort) + " (C-Tunnel 1.1 or newer runs ctunnel-agent there)"
+					row.Error = "the other server does not answer on port " + strconv.Itoa(agent.BenchPort) + " (C-Tunnel 1.0 or newer runs ctunnel-agent there)"
 				}
 				b.mu.Lock()
 				b.Rows = append(b.Rows, row)
