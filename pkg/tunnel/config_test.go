@@ -461,3 +461,35 @@ func TestGetStatusesUsesOneSystemctlCall(t *testing.T) {
 		t.Fatalf("fallback calls=%d statuses=%+v", calls, got)
 	}
 }
+
+func TestNormalizeLayer4(t *testing.T) {
+	iran := catalog.TunnelConfig{Role: "iran", Method: "wssmux", LocalIP: "198.51.100.1", Ports: []string{"443", "2053=8443"}, SNI: "cdn.example.com"}
+	if err := Normalize(&iran, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !iran.Reverse || iran.Port != 3080+iran.Index || iran.MTU != 0 || iran.RemoteIP != "0.0.0.0" || iran.SNI != "cdn.example.com" {
+		t.Fatalf("iran end: %+v", iran)
+	}
+	if env := Env(iran); !strings.Contains(env, `SNI="cdn.example.com"`) || !strings.Contains(env, `FORWARDS="443 2053=8443"`) {
+		t.Fatalf("env:\n%s", env)
+	}
+
+	kharej := catalog.TunnelConfig{Role: "kharej", Method: "tcpmux", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.1", Port: 3081, Token: "a long secret phrase", SNI: "x.example"}
+	if err := Normalize(&kharej, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !kharej.Reverse || kharej.Port != 3081 || kharej.SNI != "" || len(kharej.Token) != 64 {
+		t.Fatalf("kharej end: %+v", kharej)
+	}
+
+	bad := []catalog.TunnelConfig{
+		{Role: "iran", Method: "tcp", LocalIP: "198.51.100.1", Port: 4000, Ports: []string{"4000"}},
+		{Role: "iran", Method: "tcp", LocalIP: "198.51.100.1", BackupMethod: "gre"},
+		{Role: "iran", Method: "ws", LocalIP: "198.51.100.1", SNI: "bad host!"},
+	}
+	for _, b := range bad {
+		if err := Normalize(&b, nil); err == nil {
+			t.Fatalf("accepted %+v", b)
+		}
+	}
+}

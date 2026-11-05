@@ -95,6 +95,7 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 			{"L3 kernel", "gre, 6to4, ipip, sit... inside the 8-stream TCP carrier; wireguard rides UDP"},
 			{"L2 kernel", "eoip, gretap, vxlan, geneve, l2tpv3, etherip inside the 8-stream TCP carrier"},
 			{"UDP-Crypt", "kharej dials UDP to iran; best on lossy or high-latency links (no TCP-in-TCP)"},
+			{"Layer 4 (BackPack-style)", "port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux; no tunnel IP"},
 		})
 	} else {
 		fam = ChooseOpt("Tunnel Layer (DIRECT)", []MenuOpt{
@@ -106,14 +107,14 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	if fam == 0 {
 		return catalog.MethodSpec{}, false, false
 	}
-	families := []catalog.Family{"", catalog.FamilyKernelL3, catalog.FamilyKernelL2, catalog.FamilyUDPCrypt}
+	families := []catalog.Family{"", catalog.FamilyKernelL3, catalog.FamilyKernelL2, catalog.FamilyUDPCrypt, catalog.FamilyReverseL4}
 	var methods []catalog.MethodSpec
 	var opts []MenuOpt
 	for _, m := range catalog.Methods {
 		if m.Family == families[fam] && !(reverse && m.IPv6Underlay) {
 			methods = append(methods, m)
 			title, desc := m.Name, m.Title
-			if reverse {
+			if reverse && !m.L4() {
 				if m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
 					title = "frp+" + m.Name
 					desc = "TCP carrier (8 streams, TLS-shaped) + " + m.Title
@@ -175,10 +176,14 @@ func setupWizard(role string) {
 		remPrompt := "Remote server IP"
 		if tc.Reverse && role == "iran" {
 			remPrompt = "Remote server IP (optional in reverse mode, Enter = Kharej dials in)"
+		} else if role == "kharej" {
+			remPrompt = "Iran server IP"
 		}
 		tc.RemoteIP = Ask(remPrompt, "")
 	}
-	tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
+	if !m.L4() {
+		tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
+	}
 	tc.Name = Ask("Tunnel name (max 10: a-z 0-9 -, Enter = ir-<port> or kh-<port>)", "")
 	for {
 		prompt := "Secret token, same on both servers (Enter = random)"
@@ -196,7 +201,7 @@ func setupWizard(role string) {
 		tc.Token = in
 		break
 	}
-	if !tunnel.IPv6Only(m.Name) {
+	if !tunnel.IPv6Only(m.Name) && !m.L4() {
 		defIran := fmt.Sprintf("10.77.%d.1", tc.Index)
 		defKharej := fmt.Sprintf("10.77.%d.2", tc.Index)
 		iranTun := Ask("Iran local tunnel IPv4", defIran)
@@ -216,6 +221,10 @@ func setupWizard(role string) {
 		return
 	}
 	switch {
+	case m.L4() && role == "kharej":
+		tc.Port = askInt("Tunnel port (the same as on the Iran server)", probe.Port)
+	case m.L4():
+		tc.Port = askInt("Tunnel port (TCP; Kharej dials it)", probe.Port)
 	case tc.Reverse && !m.NeedsPort:
 		tc.Port = askInt("Reverse carrier TCP port (Iran listens, Kharej dials)", probe.Port)
 	case m.NeedsPort:
@@ -232,14 +241,22 @@ func setupWizard(role string) {
 	if m.Family == catalog.FamilyUDPCrypt {
 		tc.Padding = askInt("Random padding bytes 1-64", probe.Padding)
 	}
+	if m.L4() && strings.HasPrefix(m.Name, "ws") {
+		tc.SNI = Ask("Host / SNI (Enter = the Iran IP)", "")
+	}
 	if role == "iran" && !tunnel.IPv6Only(m.Name) {
 		Subtle("Ports users connect to on this server, sent to the kharej server.")
 		Subtle("Example: 443, 8080, 2053=8443 (listen=target)")
+		if m.L4() {
+			Subtle("TCP and UDP; the target is a port on the kharej server's 127.0.0.1.")
+		}
 		tc.Ports = tunnel.ParsePorts(Ask("Forward ports (blank = none)", ""))
 	}
-	probe.Port, probe.Padding = tc.Port, tc.Padding
-	tc.MTU = askInt("Tunnel MTU", tunnel.DefaultMTU(m, tc.Port, probe.Padding))
-	tc.RateMbps = askInt("Rate limit Mbit/s (0 = none)", 0)
+	if !m.L4() {
+		probe.Port, probe.Padding = tc.Port, tc.Padding
+		tc.MTU = askInt("Tunnel MTU", tunnel.DefaultMTU(m, tc.Port, probe.Padding))
+		tc.RateMbps = askInt("Rate limit Mbit/s (0 = none)", 0)
+	}
 
 	if err := tunnel.Create(st, &tc); err != nil {
 		Err(err.Error())
@@ -280,7 +297,11 @@ func setupKharejLink(raw string) {
 	KV("Method", tc.Method)
 	KV("Peer", tc.RemoteIP)
 	KV("This server", tc.LocalIP)
-	KV("Tunnel IPv4", tc.TunLocal4+" -> "+tc.TunRemote4)
+	if catalog.IsL4(tc.Method) {
+		KV("Tunnel port", strconv.Itoa(tc.Port))
+	} else {
+		KV("Tunnel IPv4", tc.TunLocal4+" -> "+tc.TunRemote4)
+	}
 	if old, exists := st.Find(tc.Name); exists && old.RemoteIP != tc.RemoteIP {
 		tc.Name = Ask("Name "+tc.Name+" is taken here, new local name", "")
 	}
@@ -365,7 +386,7 @@ func printStatusTable(st *catalog.Store) {
 }
 
 func methodLabel(t catalog.TunnelConfig) string {
-	if !t.Reverse {
+	if !t.Reverse || catalog.IsL4(t.Method) {
 		return t.Method
 	}
 	if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
