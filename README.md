@@ -275,8 +275,20 @@ The panel has four sections in the dock — **Overview**, **Connection test**, *
 
 - **Tunnels**: each card shows its state, live rate and history, and has Start/Stop, Restart, Live log, Setup link, Edit and Delete.
 - **Live log**: the tunnel's journal, coloured by level, filterable, following new lines.
-- **Manage**: health check (the same checks as the CLI, with a fix for each problem), kernel tuning, restart all, backup download and restore, panel settings and update check.
+- **Manage**: health check (the same checks as the CLI, with a fix for each problem), tunnel benchmark, auto restart, built-in proxy, kernel tuning, restart all, backup download and restore, panel settings and update check.
+- **Tunnel benchmark**: download, upload, ping, jitter and loss of every running tunnel, measured through the tunnel one at a time, with the fastest marked. The other server answers through `ctunnel-agent` (C-Tunnel 1.0 or newer).
+- **Auto restart**: restart every tunnel every 1-48 hours, shown on a 24-hour dial with a countdown. It is the same schedule as **Manage → Auto Refresh** in the terminal menu.
+- **Built-in proxy**: turn the SOCKS5 or HTTP proxy on, with or without a login, and see the forward to make on the Iran server.
+- **Appearance**: Auto, Dark or Light, in Mono or one of six colours (Ocean, Emerald, Violet, Amber, Rose, Red), kept in the browser.
 - **Backup**: one JSON file with every tunnel's settings and secret token. Restore adds the tunnels a server does not have and starts them. Keep the file private.
+
+### Failover
+
+A tunnel can have a **backup method** (tunnel form, or a setup link from a server that has one). `ctunnel-agent` on both servers pings the other end through the tunnel. When it gets no answer for 45 seconds, both servers switch to the method the clock picks for that two-minute window, so they meet on the same method without contacting each other. At the top of every hour a tunnel on its backup tries its primary again, and goes back within a minute if the primary still does not answer. Both servers need roughly correct time (NTP). Editing a tunnel puts it back on its primary method; a stopped tunnel is never switched. The card and the health check show which method runs.
+
+### Built-in proxy through a tunnel
+
+The proxy listens on 127.0.0.1 and on the tunnel IP of every tunnel on the server, never on its public address. On the Iran server forward the proxy's port through the tunnel, the same number on both ends for SOCKS5 UDP: for a proxy on port 10800 use `10800` or `10800=10800`. In `A=B` the first port is Iran's and the second is the Kharej server's.
 
 Traffic totals on the cards and in the CLI count from when the tunnel was created and survive restarts and reboots. New tunnels are named `ir-<port>` on Iran and `kh-<port>` on Kharej unless you give a name.
 
@@ -305,6 +317,7 @@ The screenshots use synthetic demonstration data and are generated from the actu
 | `ctunnel optimize` | BBR + fq, 64 MB socket buffers, IP forwarding |
 | `ctunnel restart-all` | Restart every tunnel (Manage → Auto Refresh runs this from cron) |
 | `ctunnel proxy-serve` | The built-in SOCKS5/HTTP proxy (Manage → Built-in Proxy sets it up) |
+| `ctunnel agent` | Failover and the tunnel benchmark responder (`ctunnel-agent.service` runs it) |
 | `ctunnel panel` | Run the web panel in the foreground |
 | `ctunnel catalog` | List all methods |
 | `ctunnel version` | Show the version |
@@ -320,6 +333,8 @@ The screenshots use synthetic demonstration data and are generated from the actu
 | `ctunnel@NAME.service` | Kernel tunnels |
 | `ctunnel-engine@NAME.service` | UDP-Crypt, EoIP and EtherIP |
 | `ctunnel-panel.service` | Web panel |
+| `ctunnel-agent.service` | Failover and the tunnel benchmark responder (TCP 7719 on the tunnel IPs) |
+| `/etc/ctunnel/failover/NAME` | Present while the tunnel runs on its backup method |
 
 Logs:
 

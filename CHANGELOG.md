@@ -1,12 +1,30 @@
 # Changelog
 
-## [Unreleased]
+## [1.0.0]
 
-Planned for 1.0.
+### Added
+- Automatic failover. A tunnel can have a backup method; the new `ctunnel-agent` service on both servers switches both ends to it when the tunnel stops answering for 45 seconds, and tries the primary again every hour. The two ends agree through the clock, without talking to each other. Needs roughly correct time on both servers (NTP), as UDP-Crypt already does.
+- Tunnel benchmark (Manage): download, upload, ping, jitter and loss of every running tunnel, measured through the tunnel, fastest marked. The other server answers on TCP 7719 of its tunnel IP (`ctunnel-agent`).
+- Auto restart in the panel, with a 24-hour dial and a countdown, as in BackPack. Same schedule as the terminal menu's Auto Refresh.
+- Built-in proxy card in the panel: turn the SOCKS5/HTTP proxy on or off, set the port and login, and see the forward to make on the Iran server.
+- Colour themes: Ocean, Emerald, Violet, Amber, Rose and Red next to Mono, each light and dark.
+- armv7 (32-bit ARM) servers: release binaries and building from source.
+- The health check dials the Kharej end of every forwarded port through the tunnel, and says when nothing listens there or a forward is written the wrong way round.
 
 ### Changed
-- Faster UDP-Crypt engine: packets move through the kernel in batches (one `recvmmsg` / `sendmmsg` for up to 32 packets) and the UDP socket gets an 8 MiB buffer even before Optimize raises the system limit. Measured between two network namespaces on 2 CPUs: about +10% for one TCP flow and +20% for four (dtls-1.3, 1-3 runs each; the numbers vary by about 15%).
-- Optimize also sets `net.ipv4.tcp_slow_start_after_idle = 0`, so the reverse carrier's TCP streams keep their speed after a pause.
+- Much faster UDP-Crypt. The TUN device now uses segmentation and receive offload: the kernel hands the engine TCP data in blocks of up to 64 KiB, which are cut into packets before encryption and merged again after decryption, so the device costs one system call per block instead of one per packet. Packets also move through the UDP socket in batches (`sendmmsg` / `recvmmsg`, UDP GSO and GRO) with an 8 MiB socket buffer. Between two network namespaces on 2 CPUs (dtls-1.3, MTU 1400, iperf3): one flow 1630 to 4470 Mbps, four flows 2185 to 4898 Mbps, compared with 0.4. Nothing changes on the wire, so 1.0 and 0.4 servers still work together; both servers need 1.0 for the full speed.
+- Kernel tunnels: RPS is set on the network card that reaches the other server when the card has no mask of its own, so a one-queue VPS card no longer decapsulates every tunnel packet on one CPU. Optimize raises `net.core.netdev_budget` and the UDP socket minimums, and sets `net.ipv4.tcp_slow_start_after_idle = 0`, so the reverse carrier's TCP streams keep their speed after a pause.
+
+### Fixed
+- The connection test stopped with "the iran responder does not answer on UDP" when that UDP port was closed or filtered on the Iran server. It now marks the UDP and IP-protocol methods as skipped with the reason and still tests the TCP (frp+) methods.
+- The built-in proxy could not be reached through a tunnel. A forwarded port arrives at the Kharej server's tunnel IP, but the proxy listened only on 127.0.0.1, so the connection was refused. It now also listens on the local tunnel IP of every tunnel on the server (added or removed tunnels are picked up within 5 seconds), and still never on a public address.
+- SOCKS5 UDP through the built-in proxy did not work through a forwarded port: the relay sat on a port the forward does not carry. It now uses the proxy's own port, so forward the same port on both ends (for example `10800=10800`).
+- The Built-in Proxy menu says which side of a forward is which: `443=<proxy port>` means Iran port 443 reaches the proxy.
+
+### Upgrade note
+- Update both servers to use failover and the benchmark: the agent runs only on 1.0 or newer.
+
+[1.0.0]: https://github.com/CIAUB/C-Tunnel/compare/v0.4.1...v1.0.0
 
 ## [0.4.1] - 2026-11-02
 

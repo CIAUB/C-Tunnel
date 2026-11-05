@@ -32,6 +32,8 @@ flowchart LR
 | `pkg/sysinfo` | CPU, memory, disk, network numbers for the panel |
 | `pkg/webpanel` | HTTPS panel, session cookie + CSRF, login rate limit, tunnel start/stop/logs, backup/restore |
 | `pkg/health` | health check shared by the CLI and the panel |
+| `pkg/agent` | `ctunnel agent`: failover between a tunnel's two methods, benchmark responder on the tunnel IPs |
+| `pkg/tunlisten` | listeners on 127.0.0.1 and every local tunnel IP, never a public address (proxy, agent) |
 | `cmd/ctunnel-engine` | userspace data plane: TUN ⇄ UDP (UDP-Crypt) or TAP ⇄ raw IP (EoIP, EtherIP) |
 | `scripts/ctunnel-kernel.sh` | builds and removes interfaces, MSS clamp, port forwards, IPsec |
 
