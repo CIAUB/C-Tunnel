@@ -204,8 +204,27 @@ In REVERSE mode the kharej server dials in and the iran server only listens, so 
 | UDP-Crypt (`rev+dtls-1.3`, `rev+quic-v1`…) | kharej sends UDP to iran, same packets as DIRECT | lossy or high-latency links |
 | WireGuard (`rev+wireguard`) | kharej is the WireGuard client | MikroTik and standard clients |
 | Kernel L3/L2 (`frp+gre`, `frp+vxlan`…) | inside 8 parallel TCP streams that look like TLS records | clean links where only TCP gets through |
+| Layer 4 (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`) | port forwarding as in BackPack: each user connection or UDP flow has its own stream, no tunnel IP | TCP services (VLESS, Trojan…) without TCP-in-TCP, and links that pass only WebSocket or TLS |
 
 Every inner connection stays on one TCP stream, so it is never reordered, and each stream has its own queue. In our test this roughly doubled the speed of the TCP carrier compared with 0.1.5 (about 390 → 690 Mbit/s on an 800 Mbit/s link). The Connection Test measures every reverse option too: a `rev+` row for each UDP method and independent `frp+METHOD` rows with fresh TCP streams, method-specific payloads, verified echoes and separate speeds for every supported FRP-style option. These are carrier/encapsulation shape tests, not kernel tunnel integration tests. Best Settings names the fastest reverse option.
+
+### Layer-4 reverse tunnels
+
+The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP. The Kharej server dials out to the tunnel port and sends each user connection to the target port on its own 127.0.0.1. There is no tunnel interface or tunnel IP, so failover, the tunnel benchmark and the connection test do not apply to them.
+
+| Method | Between the servers |
+|---|---|
+| `tcp` | one TCP connection per user connection, from a pool of 16 the Kharej server keeps open |
+| `tcpmux` | smux streams over 4 TCP connections |
+| `pck` | smux streams over KCP inside TCP segments built by hand through a packet socket (no kernel TCP state on either side); AES-encrypted |
+| `ws` | as `tcp`, each connection a WebSocket |
+| `wsmux` | as `tcpmux`, over WebSockets |
+| `wss` | as `ws`, inside TLS |
+| `wssmux` | as `wsmux`, inside TLS |
+
+Both servers prove they know the tunnel secret when each connection opens. Past that, `tcp` and `ws` carry the users' bytes unchanged, as in BackPack; use `wss`, `wssmux` or `pck` when the link between the servers must be encrypted. The WebSocket methods take an optional Host / SNI. On the Kharej server a tunnel can be added from the setup link or by hand with the Iran server's IP, the method, the tunnel port and the secret.
+
+Between two network namespaces on 2 CPUs (iperf3, one TCP flow through a forwarded port): `tcp` about 12.7 Gbps, `ws` 10.8, `tcpmux` 7.6, `wsmux` 6.9, `wss` 6.6, `wssmux` 4.4 and `pck` 0.8 Gbps.
 
 ## All methods
 
@@ -258,6 +277,21 @@ Every inner connection stays on one TCP stream, so it is never reordered, and ea
 | `dnscrypt-udp` | DNS responses |
 | `ntp-direct` | NTPv4 server packets |
 | `openvpn-dco` | OpenVPN `P_DATA_V2` |
+
+</details>
+
+<details>
+<summary><b>Reverse-L4</b>: 7 methods, port forwarding</summary>
+
+| Method | Description |
+|---|---|
+| `tcp` | TCP, a pooled connection per user connection |
+| `tcpmux` | TCP + MUX |
+| `pck` | TCP + PCK: KCP in hand-built TCP segments, raw socket |
+| `ws` | WebSocket |
+| `wsmux` | WebSocket + MUX |
+| `wss` | WebSocket in TLS |
+| `wssmux` | WebSocket in TLS + MUX |
 
 </details>
 

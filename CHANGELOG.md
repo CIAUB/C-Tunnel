@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+Planned for 2.0.
+
+### Added
+- Layer-4 reverse tunnels after BackPack's reverse engine: `tcp`, `tcpmux`, `pck` (TCP + PCK), `ws`, `wsmux`, `wss` and `wssmux`. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own 127.0.0.1, on a stream of its own, so TCP never runs inside TCP. Each connection between the servers opens with a handshake in which both prove they know the secret; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI. No tunnel interface or IP: failover, the tunnel benchmark and the connection test do not apply to them. `pck` comes from BackPack (pkg/pck) and needs root.
+- The panel and the terminal menu build these tunnels on both servers. On Kharej the panel form asks for the Iran server's IP and the secret outside Advanced, so any tunnel can be built by hand as well as from the setup link.
+
+### Changed
+- C-Tunnel now has Go module dependencies (smux, kcp-go, gorilla/websocket, golang.org/x). Building from source fetches them through the Go module proxy.
+
 ## [1.0.0]
 
 ### Added
