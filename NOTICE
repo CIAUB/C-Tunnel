@@ -42,6 +42,10 @@ adapted to C-Tunnel. BackPack's IP Spoofing Tester is not included.
 The ported files say so at the top: pkg/cli/manage.go, pkg/cli/health.go,
 pkg/socks, pkg/localproxy, pkg/schedule and pkg/netscore.
 
+The layer-4 reverse transports (tcp, tcpmux, pck, ws, wsmux, wss, wssmux in
+pkg/l4) follow BackPack's reverse engine, and pkg/pck, the TCP + PCK packet
+carrier, is taken from BackPack's internal/utils/network.
+
 BackPack's NOTICE requires this line to stay visible and unaltered:
 
   Based on BackPack by Amin Mohammadi (AminMGMT)

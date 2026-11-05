@@ -25,6 +25,7 @@ type config struct {
 	tunnelID          uint16
 	padding           uint8
 	reverse           bool
+	forwards, sni     string // layer-4 transports only
 }
 
 func (c config) isPassive() bool {
@@ -58,6 +59,8 @@ func main() {
 	log.Printf("ctunnel-engine %s: %s tunnel %s, role %s, peer %s", version.Version, cfg.kind, cfg.dev, cfg.role, cfg.remoteIP)
 
 	switch {
+	case catalog.IsL4(cfg.kind):
+		err = runL4(cfg)
 	case cfg.reverse && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard":
 		err = runReverseCarrier(cfg)
 	case cfg.kind == "eoip" || cfg.kind == "etherip":
@@ -93,12 +96,14 @@ func loadConfig(path string) (config, error) {
 		secret:   env["SECRET"],
 		tunnelID: uint16(tid),
 		padding:  uint8(min(max(pad, 0), 255)),
-		reverse:  rev,
+		reverse:  rev || m.L4(),
+		forwards: env["FORWARDS"],
+		sni:      env["SNI"],
 	}
 	if cfg.dev == "" || (cfg.remoteIP == "" && !cfg.isPassive()) || (cfg.role != "iran" && cfg.role != "kharej") {
 		return config{}, fmt.Errorf("%s: DEV, REMOTE_IP and ROLE are required", path)
 	}
-	if (m.Family == catalog.FamilyUDPCrypt || cfg.reverse) && (cfg.secret == "" || cfg.port <= 0) {
+	if (m.Family == catalog.FamilyUDPCrypt || cfg.reverse || m.L4()) && (cfg.secret == "" || cfg.port <= 0) {
 		return config{}, fmt.Errorf("%s: SECRET and PORT are required for %s", path, m.Name)
 	}
 	return cfg, nil

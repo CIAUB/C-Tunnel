@@ -27,11 +27,13 @@ const (
 	minMTUIPv6  = 1280
 	baseUDPPort = 24000
 	baseWGPort  = 51820
+	baseL4Port  = 3080
 )
 
 var (
 	nameRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 	tokenRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	sniRe   = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$`)
 )
 
 // Dev is the Linux interface name of a tunnel.
@@ -130,6 +132,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	}
 	if err := checkIP("this server IP", tc.LocalIP, m.IPv6Underlay); err != nil {
 		return err
+	}
+	if m.L4() {
+		tc.Reverse = true // Kharej always dials Iran
 	}
 	if tc.Reverse && m.IPv6Underlay {
 		return fmt.Errorf("%s needs an IPv6 path; REVERSE mode works with the IPv4 methods (gre, ipip, vxlan, UDP-Crypt...)", m.Name)
@@ -252,14 +257,27 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		tc.Padding = 0
 	}
 
+	tc.SNI = strings.TrimSpace(tc.SNI)
+	if m.L4() {
+		if tc.SNI != "" && !sniRe.MatchString(tc.SNI) {
+			return fmt.Errorf("SNI %q is not a host name", tc.SNI)
+		}
+		if !strings.HasPrefix(tc.Method, "ws") {
+			tc.SNI = ""
+		}
+		tc.MTU, tc.RateMbps, tc.Lanes = 0, 0, 1
+	} else {
+		tc.SNI = ""
+	}
+
 	floor := minMTU
 	if m.IPv6Underlay || strings.HasPrefix(m.Name, "6to4") || m.Name == "sit" {
 		floor = minMTUIPv6
 	}
-	if tc.MTU == 0 {
+	if tc.MTU == 0 && !m.L4() {
 		tc.MTU = DefaultMTU(m, tc.Port, tc.Padding)
 	}
-	if tc.MTU < floor || tc.MTU > 9000 {
+	if !m.L4() && (tc.MTU < floor || tc.MTU > 9000) {
 		return fmt.Errorf("MTU must be %d-9000", floor)
 	}
 	if tc.RateMbps < 0 {
@@ -273,6 +291,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		bm, ok := catalog.LookupMethod(tc.BackupMethod)
 		if !ok {
 			return fmt.Errorf("unknown backup method %q", tc.BackupMethod)
+		}
+		if m.L4() || bm.L4() {
+			return fmt.Errorf("failover needs a tunnel IP; %s tunnels have none", catalog.FamilyReverseL4)
 		}
 		tc.BackupMethod = bm.Name
 		if bm.Name == m.Name {
@@ -297,6 +318,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 			return err
 		}
 		listen := strings.SplitN(norm, "=", 2)[0]
+		if m.L4() && listen == strconv.Itoa(tc.Port) {
+			return fmt.Errorf("port %s is the tunnel port; forward other ports", listen)
+		}
 		if seenForward[listen] {
 			return fmt.Errorf("port %s is forwarded twice", listen)
 		}
@@ -362,6 +386,9 @@ func defaultPort(m catalog.MethodSpec, index int) int {
 		return 5555
 	case "gue-ipip":
 		return 5556
+	}
+	if m.L4() {
+		return baseL4Port + index
 	}
 	return baseUDPPort + index
 }

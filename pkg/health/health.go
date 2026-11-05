@@ -65,7 +65,7 @@ func HumanBytes(n uint64) string {
 
 // MethodLabel names the transport as the menus show it: frp+ or rev+ for reverse tunnels.
 func MethodLabel(t catalog.TunnelConfig) string {
-	if !t.Reverse {
+	if !t.Reverse || catalog.IsL4(t.Method) {
 		return t.Method
 	}
 	if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
@@ -243,7 +243,13 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 	g := "Tunnel: " + t.Name + " (" + MethodLabel(t) + ", " + t.Role + ")"
 	var out []Check
 	s := tunnel.GetStatus(t)
+	l4 := catalog.IsL4(t.Method)
 	switch {
+	case l4 && s.Up():
+		out = append(out, Check{Group: g, Name: "State", Level: OK, Detail: fmt.Sprintf("running, %d connection(s) to the other server", tunnel.L4Links(t.Name))})
+	case l4 && s.Service == "active":
+		out = append(out, Check{Group: g, Name: "State", Level: Fail, Detail: "service runs but the other server is not connected",
+			Fix: "check that both servers use the same transport, port and token, and that the Iran port is open; Live Log shows the Kharej server's errors"})
 	case s.Up():
 		out = append(out, Check{Group: g, Name: "State", Level: OK, Detail: "running, interface up"})
 	case s.Service == "active":
@@ -262,7 +268,7 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		out = append(out, Check{Group: g, Name: "Secret token", Level: Fail, Detail: "missing", Fix: "Edit → Secret Token"})
 	}
 
-	if s.Up() {
+	if s.Up() && !l4 {
 		if b, err := os.ReadFile("/sys/class/net/" + tunnel.Dev(t.Name) + "/mtu"); err == nil {
 			mtu := strings.TrimSpace(string(b))
 			if mtu != strconv.Itoa(t.MTU) {
@@ -282,7 +288,8 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		if t.Reverse && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
 			network = "tcp"
 		}
-		if t.Role == "iran" || !t.Reverse {
+		// pck reads its segments off the wire; no socket holds the port.
+		if (t.Role == "iran" || !t.Reverse) && t.Method != "pck" {
 			if listening(t.Port, network) {
 				out = append(out, Check{Group: g, Name: "Tunnel port", Level: OK, Detail: fmt.Sprintf("%d/%s bound", t.Port, network)})
 			} else if t.Reverse {
@@ -308,7 +315,9 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 			out = append(out, Check{Group: g, Name: "Forwarded ports", Level: Info, Detail: "none"})
 		} else {
 			out = append(out, Check{Group: g, Name: "Forwarded ports", Level: OK, Detail: strings.Join(t.Ports, ", ")})
-			if s.Service == "active" && t.TunRemote4 != "" {
+			if l4 && s.Service == "active" {
+				out = append(out, l4ForwardChecks(g, t)...)
+			} else if s.Service == "active" && t.TunRemote4 != "" {
 				out = append(out, forwardChecks(g, t)...)
 			}
 		}
@@ -347,6 +356,22 @@ func forwardChecks(g string, t catalog.TunnelConfig) []Check {
 			out = append(out, Check{Group: g, Name: name, Level: Warn, Detail: "nothing listens on Kharej port " + dst, Fix: fix})
 		default:
 			out = append(out, Check{Group: g, Name: name, Level: Warn, Detail: "Kharej port " + dst + " does not answer", Fix: "a firewall on the Kharej server may drop it, or its service is slow to accept"})
+		}
+	}
+	return out
+}
+
+// l4ForwardChecks checks that the engine of a layer-4 tunnel holds every
+// forwarded port; the Kharej end is only reachable through the tunnel itself.
+func l4ForwardChecks(g string, t catalog.TunnelConfig) []Check {
+	var out []Check
+	for _, entry := range t.Ports {
+		src, _, _ := strings.Cut(entry, "=")
+		port, _ := strconv.Atoi(src)
+		if listening(port, "tcp") {
+			out = append(out, Check{Group: g, Name: "Forward " + entry, Level: OK, Detail: "port " + src + "/tcp bound"})
+		} else {
+			out = append(out, Check{Group: g, Name: "Forward " + entry, Level: Fail, Detail: "port " + src + "/tcp not bound", Fix: "Live Log — another program may hold the port"})
 		}
 	}
 	return out

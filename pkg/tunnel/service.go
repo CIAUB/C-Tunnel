@@ -251,7 +251,10 @@ func statusFor(tc catalog.TunnelConfig, state string) Status {
 	if s.Service = strings.TrimSpace(s.Service); s.Service == "" || len(s.Service) > 16 || strings.ContainsAny(s.Service, " \n") {
 		s.Service = "unknown"
 	}
-	if ifc, err := net.InterfaceByName(Dev(tc.Name)); err == nil {
+	if catalog.IsL4(tc.Method) {
+		// No interface: the link is up while the servers hold a connection.
+		s.LinkUp = s.Service == "active" && L4Links(tc.Name) > 0
+	} else if ifc, err := net.InterfaceByName(Dev(tc.Name)); err == nil {
 		s.LinkUp = ifc.Flags&net.FlagUp != 0
 	}
 	s.RxBytes, s.TxBytes = TrafficTotal(tc.Name)

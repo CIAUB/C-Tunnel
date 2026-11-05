@@ -9,6 +9,7 @@ CT_DIR="${CT_DIR:-/etc/ctunnel}"
 CT_TUNNELS_DIR="${CT_DIR}/tunnels"
 CT_TRAFFIC_DIR="${CT_TRAFFIC_DIR:-${CT_DIR}/traffic}"
 CT_SYSFS="${CT_SYSFS:-/sys}"
+CT_L4_DIR="${CT_L4_DIR:-/run/ctunnel/l4}"
 CT_BOOT_ID="${CT_BOOT_ID:-/proc/sys/kernel/random/boot_id}"
 CT_SYSCTL="${CT_SYSCTL:-/etc/sysctl.d/99-ctunnel.conf}"
 
@@ -60,6 +61,15 @@ fou_args() {
 uses_fou() {
     case "${KIND}" in
         6to4|6to4-gre|sit|ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|gue-ipip) return 0 ;;
+    esac
+    return 1
+}
+
+# Layer-4 reverse transports: ctunnel-engine listens and forwards by itself,
+# with no interface, routes or firewall rules here.
+is_l4() {
+    case "${KIND}" in
+        tcp|tcpmux|pck|ws|wsmux|wss|wssmux) return 0 ;;
     esac
     return 1
 }
@@ -221,6 +231,12 @@ gre_up() {
 
 cmd_up() {
     load_env "$1"
+    if is_l4; then
+        links_down
+        fw_clear
+        log "${NAME} (${KIND}) is served by ctunnel-engine on port ${PORT}"
+        return 0
+    fi
     # Fail before deleting a working interface or its firewall rules.
     if [[ "$KIND" == wireguard ]]; then
         command -v wg >/dev/null 2>&1 || die "wireguard-tools is not installed; run: apt-get update && apt-get install -y wireguard-tools"
@@ -352,6 +368,8 @@ cmd_up() {
 traffic_checkpoint() {
     local dir="${CT_SYSFS}/class/net/${DEV}" f="${CT_TRAFFIC_DIR}/${NAME}"
     local key rx tx brx=0 btx=0 skey="" srx=0 stx=0 tmp
+    # A layer-4 tunnel's engine keeps the same files under CT_L4_DIR.
+    [[ -r "${dir}/ifindex" ]] || dir="${CT_L4_DIR}/${DEV}"
     [[ -r "${dir}/ifindex" ]] || return 0
     key="$(tr -d '[:space:]' < "${CT_BOOT_ID}" 2>/dev/null || true):$(tr -d '[:space:]' < "${dir}/ifindex")"
     rx="$(cat "${dir}/statistics/rx_bytes")"; tx="$(cat "${dir}/statistics/tx_bytes")"

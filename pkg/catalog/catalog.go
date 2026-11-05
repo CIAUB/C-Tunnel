@@ -24,6 +24,9 @@ const (
 	FamilyKernelL3 Family = "L3-Direct"
 	FamilyKernelL2 Family = "L2-Direct"
 	FamilyUDPCrypt Family = "UDP-Crypt"
+	// FamilyReverseL4 tunnels forward ports, not packets: Kharej dials Iran and
+	// each user connection rides its own stream (pkg/l4). No tunnel interface.
+	FamilyReverseL4 Family = "Reverse-L4"
 )
 
 type MethodSpec struct {
@@ -71,6 +74,24 @@ var Methods = []MethodSpec{
 	{ID: 26, Name: "dnscrypt-udp", Title: "DNS response framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true},
 	{ID: 27, Name: "ntp-direct", Title: "NTPv4 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
 	{ID: 28, Name: "openvpn-dco", Title: "OpenVPN P_DATA_V2 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
+
+	{ID: 29, Name: "tcp", Title: "TCP (a pooled connection per user connection)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 30, Name: "tcpmux", Title: "TCP + MUX (streams over a few connections)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 31, Name: "pck", Title: "TCP + PCK (KCP in hand-built TCP segments, raw socket)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 32, Name: "ws", Title: "WebSocket", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 33, Name: "wsmux", Title: "WebSocket + MUX", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 34, Name: "wss", Title: "WebSocket in TLS", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 35, Name: "wssmux", Title: "WebSocket in TLS + MUX", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+}
+
+// L4 reports whether m is a layer-4 reverse transport: always reverse, no
+// tunnel interface or tunnel IP, forwarded ports served by the engine itself.
+func (m MethodSpec) L4() bool { return m.Family == FamilyReverseL4 }
+
+// IsL4 reports whether method names a layer-4 reverse transport.
+func IsL4(method string) bool {
+	m, ok := LookupMethod(method)
+	return ok && m.L4()
 }
 
 func LookupMethod(nameOrID string) (MethodSpec, bool) {
@@ -106,6 +127,9 @@ type TunnelConfig struct {
 	Padding        int      `json:"padding,omitempty"`
 	Reverse        bool     `json:"reverse,omitempty"` // kharej initiates the connection to iran
 	Ports          []string `json:"ports,omitempty"`   // forwarded on the iran side: "443" or "2053=8443"
+	// SNI is the TLS server name and WebSocket Host of the ws/wss transports;
+	// empty means the Iran IP.
+	SNI string `json:"sni,omitempty"`
 	// BackupMethod is the method both servers switch to when this one stops
 	// carrying traffic (ctunnel agent); empty means no failover. BackupPort is
 	// its port, 0 for the method's default.

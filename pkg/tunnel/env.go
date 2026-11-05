@@ -53,6 +53,9 @@ func Env(tc catalog.TunnelConfig) string {
 		put("REVERSE", 0)
 	}
 	put("FORWARDS", strings.Join(tc.Ports, " "))
+	if tc.SNI != "" {
+		put("SNI", tc.SNI)
+	}
 	switch tc.Method {
 	case "wireguard":
 		priv, _ := WireGuardKeys(tc.Token, tc.Role)

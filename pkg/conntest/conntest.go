@@ -197,6 +197,9 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 		return i, ok && row.Skipped == ""
 	}
 	for _, m := range catalog.Methods {
+		if m.L4() {
+			continue
+		}
 		if i, ok := add(m, m.Name, "DIRECT"); ok {
 			dir[i] = len(rows) - 1
 		}
@@ -217,7 +220,7 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 }
 
 func frpMethod(m catalog.MethodSpec) bool {
-	return !m.IPv6Underlay && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard"
+	return !m.IPv6Underlay && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" && !m.L4()
 }
 
 func (r *Responder) notifyLocked() {
@@ -714,6 +717,9 @@ func probes() []probe {
 	var out []probe
 	for _, m := range catalog.Methods {
 		m := m
+		if m.L4() {
+			continue
+		}
 		var p probe
 		p.method = m.Name
 		switch m.Name {

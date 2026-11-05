@@ -22,6 +22,10 @@ import (
 // after a reboot a new interface can get the old number.
 var (
 	TrafficDir = "/etc/ctunnel/traffic"
+	// L4Dir holds the counters of layer-4 tunnels, which have no interface:
+	// ctunnel-engine writes <L4Dir>/<dev>/ifindex, links and statistics/*
+	// in the layout of /sys/class/net/<dev>.
+	L4Dir = "/run/ctunnel/l4"
 	sysfsRoot  = "/sys"
 	bootIDPath = "/proc/sys/kernel/random/boot_id"
 )
@@ -65,7 +69,10 @@ func readInterface(dev string) ifCounters {
 	dir := filepath.Join(sysfsRoot, "class/net", dev)
 	idx, err := os.ReadFile(filepath.Join(dir, "ifindex"))
 	if err != nil {
-		return ifCounters{}
+		dir = filepath.Join(L4Dir, dev)
+		if idx, err = os.ReadFile(filepath.Join(dir, "ifindex")); err != nil {
+			return ifCounters{}
+		}
 	}
 	boot, _ := os.ReadFile(bootIDPath)
 	return ifCounters{
@@ -169,4 +176,15 @@ func forgetTraffic(name string) {
 
 func validName(name string) bool {
 	return name != "" && len(name) <= MaxNameLen && nameRe.MatchString(name)
+}
+
+// L4Links is how many connections or sessions a layer-4 tunnel holds to the
+// other server; 0 when its engine is not running.
+func L4Links(name string) int {
+	b, err := os.ReadFile(filepath.Join(L4Dir, Dev(name), "links"))
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return n
 }
