@@ -111,22 +111,22 @@ func workerCount(kind string) int {
 	return min(max(runtime.NumCPU(), 2), 8)
 }
 
-func openDevice(cfg config) (*os.File, error) {
-	f, err := openTun(cfg.dev, cfg.kind == "eoip" || cfg.kind == "etherip")
+func openDevice(cfg config, vnet bool) (*os.File, error) {
+	f, err := openTun(cfg.dev, cfg.kind == "eoip" || cfg.kind == "etherip", vnet)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w (is the interface created by ctunnel-kernel?)", cfg.dev, err)
 	}
 	return f, nil
 }
 
-func openDevices(cfg config, n int) ([]*os.File, func(), error) {
-	first, err := openDevice(cfg)
+func openDevices(cfg config, n int, vnet bool) ([]*os.File, func(), error) {
+	first, err := openDevice(cfg, vnet)
 	if err != nil {
 		return nil, nil, err
 	}
 	devs := []*os.File{first}
 	for i := 1; i < n; i++ {
-		f, err := openDevice(cfg)
+		f, err := openDevice(cfg, vnet)
 		if err != nil {
 			break
 		}

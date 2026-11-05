@@ -28,6 +28,9 @@ type udpTunnel struct {
 	framer *dpi.Framer
 	peer   atomic.Pointer[net.UDPAddr]
 	fec    bool
+	// offload is true when the TUN device does TSO/GRO with virtio_net_hdr
+	// (offload.go); only the batched path uses it.
+	offload bool
 }
 
 func runUDPCrypt(cfg config) error {
@@ -61,7 +64,17 @@ func runUDPCrypt(cfg config) error {
 	forceBuffers(t.conn, socketBuffer)
 
 	workers := workerCount(cfg.kind)
-	devs, closeDevs, err := openDevices(cfg, workers)
+	batched := batching && !t.fec
+	devs, closeDevs, err := openDevices(cfg, workers, batched)
+	if err == nil && batched {
+		if oerr := enableOffload(devs[0]); oerr == nil {
+			t.offload = true
+		} else {
+			log.Printf("TUN offload not available, one packet per read: %v", oerr)
+			closeDevs()
+			devs, closeDevs, err = openDevices(cfg, workers, false)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -75,7 +88,7 @@ func runUDPCrypt(cfg config) error {
 
 	errc := make(chan error, workers*2)
 	toNet, toDev := t.deviceToNet, t.netToDevice
-	if batching && !t.fec {
+	if batched {
 		toNet, toDev = t.deviceToNetBatch, t.netToDeviceBatch
 	}
 	for i := 0; i < workers; i++ {
@@ -126,7 +139,8 @@ const batchPacket = 9216
 
 // deviceToNetBatch is deviceToNet for many packets at a time: it takes all
 // the TUN queue holds (up to batchSize), seals each, and sends them with one
-// sendmmsg.
+// sendmmsg. With offload a read may be a TCP super-packet, which is cut into
+// segments first.
 func (t *udpTunnel) deviceToNetBatch(dev *os.File) error {
 	rd, err := newDevBatchReader(dev)
 	if err != nil {
@@ -137,13 +151,29 @@ func (t *udpTunnel) deviceToNetBatch(dev *os.File) error {
 		return err
 	}
 	hlen := t.framer.HeaderLen()
+	readSize := batchPacket
+	if t.offload {
+		readSize = offloadPacket
+	}
 	in := make([][]byte, batchSize)
 	out := make([][]byte, batchSize)
 	wire := make([][]byte, 0, batchSize)
 	sizes := make([]int, batchSize)
 	for i := range in {
-		in[i] = make([]byte, batchPacket)
+		in[i] = make([]byte, readSize)
 		out[i] = make([]byte, hlen+batchPacket+512)
+	}
+	seg := make([]byte, batchPacket)
+	var dst netip.AddrPort
+	seal := func(p []byte) {
+		o := out[len(wire)]
+		ct := t.tx.Seal(o[hlen:hlen], p, t.cfg.padding)
+		t.framer.PutHeader(o[:hlen], len(ct))
+		wire = append(wire, o[:hlen+len(ct)])
+		if len(wire) == len(out) {
+			_ = ub.send(wire, dst)
+			wire = wire[:0]
+		}
 	}
 	for {
 		n, err := rd.read(in, sizes)
@@ -154,13 +184,19 @@ func (t *udpTunnel) deviceToNetBatch(dev *os.File) error {
 		if peer == nil {
 			continue
 		}
-		wire = wire[:0]
+		dst = addrPort(peer)
 		for i := 0; i < n; i++ {
-			ct := t.tx.Seal(out[i][hlen:hlen], in[i][:sizes[i]], t.cfg.padding)
-			t.framer.PutHeader(out[i][:hlen], len(ct))
-			wire = append(wire, out[i][:hlen+len(ct)])
+			p := in[i][:sizes[i]]
+			if !t.offload {
+				seal(p)
+			} else if len(p) > vnetHdrLen {
+				segment(p[vnetHdrLen:], parseVnetHdr(p), seg, seal)
+			}
 		}
-		_ = ub.send(wire, addrPort(peer))
+		if len(wire) > 0 {
+			_ = ub.send(wire, dst)
+			wire = wire[:0]
+		}
 	}
 }
 
@@ -183,6 +219,10 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
 	segs := make([]int, batchSize)
 	srcs := make([]netip.AddrPort, batchSize)
 	plainBuf := make([]byte, maxPacket)
+	var gro *coalescer
+	if t.offload {
+		gro = newCoalescer(func(b []byte) { _, _ = dev.Write(b) })
+	}
 	for {
 		n, err := ub.recv(bufs, sizes, segs, srcs)
 		if err != nil {
@@ -199,10 +239,24 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
 			for len(data) > 0 {
 				d := data[:min(seg, len(data))]
 				data = data[len(d):]
-				if ct, err := t.framer.Unwrap(d); err == nil {
+				ct, err := t.framer.Unwrap(d)
+				if err != nil {
+					continue
+				}
+				if gro == nil {
 					t.deliver(ct, srcs[i], plainBuf, dev)
+					continue
+				}
+				// Open behind room for the vnet header, so a packet that is not
+				// merged is written without a copy.
+				if p := t.open(ct, srcs[i], plainBuf[vnetHdrLen:]); len(p) > 0 {
+					off := cap(plainBuf) - cap(p)
+					gro.add(plainBuf[:off+len(p)], off)
 				}
 			}
+		}
+		if gro != nil {
+			gro.flushAll()
 		}
 	}
 }
@@ -277,16 +331,22 @@ func (t *udpTunnel) netToDevice(dev *os.File) error {
 // deliver authenticates one sealed packet, follows the peer if its address changed,
 // and writes the inner packet to the device. Keepalives are empty and not written.
 func (t *udpTunnel) deliver(ct []byte, src netip.AddrPort, plainBuf []byte, dev *os.File) {
+	if plain := t.open(ct, src, plainBuf); len(plain) > 0 {
+		_, _ = dev.Write(plain)
+	}
+}
+
+// open authenticates one sealed packet into plainBuf, follows the peer if its
+// address changed, and returns the inner packet (empty for a keepalive).
+func (t *udpTunnel) open(ct []byte, src netip.AddrPort, plainBuf []byte) []byte {
 	plain, err := t.rx.Open(plainBuf, ct)
 	if err != nil {
-		return
+		return nil
 	}
 	src = netip.AddrPortFrom(src.Addr().Unmap(), src.Port())
 	if cur := t.peer.Load(); src.IsValid() && (cur == nil || addrPort(cur) != src) {
 		log.Printf("peer address active: %s", src)
 		t.peer.Store(net.UDPAddrFromAddrPort(src))
 	}
-	if len(plain) > 0 {
-		_, _ = dev.Write(plain)
-	}
+	return plain
 }

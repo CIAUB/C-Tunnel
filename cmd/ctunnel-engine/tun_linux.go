@@ -13,8 +13,13 @@ const (
 	cIFFTAP        = 0x0002
 	cIFFMULTIQUEUE = 0x0100
 	cIFFNOPI       = 0x1000
+	cIFFVNETHDR    = 0x4000
 	cTUNSETIFF     = 0x400454ca
 	cTUNSETSNDBUF  = 0x400454d4
+	cTUNSETOFFLOAD = 0x400454d0
+	cTUNFCSUM      = 0x01
+	cTUNFTSO4      = 0x02
+	cTUNFTSO6      = 0x04
 )
 
 type ifReq struct {
@@ -23,10 +28,16 @@ type ifReq struct {
 	pad   [22]byte
 }
 
-func openTun(name string, isTap bool) (*os.File, error) {
+// openTun attaches one queue of the device name. With vnet every packet read
+// or written carries a virtio_net_hdr (see offload.go); all queues of a device
+// must agree on it.
+func openTun(name string, isTap, vnet bool) (*os.File, error) {
 	base := uint16(cIFFTUN | cIFFNOPI)
 	if isTap {
 		base = cIFFTAP | cIFFNOPI
+	}
+	if vnet {
+		base |= cIFFVNETHDR
 	}
 	for _, flags := range []uint16{base | cIFFMULTIQUEUE, base} {
 		// TUNSETIFF must run before os.NewFile registers the descriptor with
@@ -63,4 +74,23 @@ func openTun(name string, isTap bool) (*os.File, error) {
 		return f, nil
 	}
 	return nil, syscall.EINVAL
+}
+
+// enableOffload turns on checksum offload and TCP segmentation offload on the
+// device behind f, which must have been opened with vnet.
+func enableOffload(f *os.File) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var errno syscall.Errno
+	if err := rc.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, cTUNSETOFFLOAD, cTUNFCSUM|cTUNFTSO4|cTUNFTSO6)
+	}); err != nil {
+		return err
+	}
+	if errno != 0 {
+		return errno
+	}
+	return nil
 }

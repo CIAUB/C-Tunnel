@@ -7,6 +7,8 @@ import (
 	"os"
 )
 
-func openTun(name string, isTap bool) (*os.File, error) {
+func openTun(name string, isTap, vnet bool) (*os.File, error) {
 	return nil, errors.New("linux /dev/net/tun only available on linux")
 }
+
+func enableOffload(*os.File) error { return errors.ErrUnsupported }

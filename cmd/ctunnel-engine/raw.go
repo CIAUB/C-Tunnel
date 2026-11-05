@@ -30,7 +30,7 @@ func runRawBridge(cfg config) error {
 	forceBuffers(conn, socketBuffer)
 
 	workers := workerCount(cfg.kind)
-	devs, closeDevs, err := openDevices(cfg, workers)
+	devs, closeDevs, err := openDevices(cfg, workers, false)
 	if err != nil {
 		return err
 	}
