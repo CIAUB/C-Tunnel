@@ -911,7 +911,14 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		f(&rows[i])
 		rowsMu.Unlock()
 	}
+	// udpOpen is false when the iran responder's UDP port does not answer (closed or
+	// filtered). The UDP and IP-protocol phases need it, so they are skipped and the
+	// TCP (frp+) rows are still measured.
+	udpOpen := true
 	push := func(i int) {
+		if !udpOpen {
+			return
+		}
 		rowsMu.Lock()
 		r := rows[i]
 		rowsMu.Unlock()
@@ -930,9 +937,19 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	var nonce [4]byte
 	_, _ = rand.Read(nonce[:])
 	if _, ok := s.controlMsg(ctx, ctlPing, 0, uint16(s.ping.LocalAddr().(*net.UDPAddr).Port), nonce, nil); !ok {
-		return nil, errors.New("the iran responder does not answer on UDP " + strconv.Itoa(l.UDPPort))
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		udpOpen = false
+		why := "UDP " + strconv.Itoa(l.UDPPort) + " closed on the iran server"
+		for i := range rows {
+			if !strings.HasPrefix(rows[i].Method, "frp+") && rows[i].Skipped == "" {
+				set(i, func(r *Result) { r.Skipped, r.Phase = why, "" })
+			}
+		}
+		notify()
 	}
-	for step := 1; step <= Probes; step++ {
+	for step := 1; udpOpen && step <= Probes; step++ {
 		for i := range s.ps {
 			if usable(i) {
 				set(dirRow[i], func(r *Result) { r.Phase, r.Sent = "echo", step })
@@ -943,10 +960,13 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 			return nil, ctx.Err()
 		}
 	}
-	if !sleep(ctx, replyWait) {
-		return nil, ctx.Err()
-	}
 	for i := range s.ps {
+		if !udpOpen {
+			break
+		}
+		if i == 0 && !sleep(ctx, replyWait) {
+			return nil, ctx.Err()
+		}
 		if !usable(i) {
 			continue
 		}
@@ -977,7 +997,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		}
 	})
 	body := make([]byte, bodyLen)
-	for seq := 0; seq < Probes; seq++ {
+	for seq := 0; udpOpen && seq < Probes; seq++ {
 		for i := range s.ps {
 			if revRow[i] < 0 {
 				continue
@@ -991,12 +1011,12 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 			return nil, ctx.Err()
 		}
 	}
-	if !sleep(ctx, replyWait) {
+	if udpOpen && !sleep(ctx, replyWait) {
 		return nil, ctx.Err()
 	}
 	s.setHandler(nil)
 	for i := range s.ps {
-		if revRow[i] >= 0 {
+		if udpOpen && revRow[i] >= 0 {
 			set(revRow[i], func(r *Result) { finish(r, rtts[i]) })
 			push(revRow[i])
 		}
@@ -1006,6 +1026,9 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	// Phase 3: speed, once per method that passed in either direction. The packets
 	// are the same both ways, so the speed goes to every row of the method that passed.
 	for i := range s.ps {
+		if !udpOpen {
+			break
+		}
 		var targets []int
 		for _, ri := range []int{dirRow[i], revRow[i]} {
 			if usable(i) && ri >= 0 && rows[ri].Skipped == "" && rows[ri].Status() == "ok" {
