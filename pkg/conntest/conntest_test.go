@@ -232,3 +232,45 @@ func TestInvalidLinkAndNetworkResultsRejected(t *testing.T) {
 		t.Fatal("impossible echo count accepted")
 	}
 }
+
+func TestClosedUDPPortSkipsUDPAndStillTestsTCP(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	tcpAddr, stopTCP, err := speedtest.StartServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopTCP()
+	_, tport, _ := net.SplitHostPort(tcpAddr)
+	closed, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, uport, _ := net.SplitHostPort(closed.LocalAddr().String())
+	_ = closed.Close()
+	l := Link{Host: "127.0.0.1", UDPPort: atoi(uport), TCPPort: atoi(tport), TokenHex: NewToken()}
+
+	rows, err := Run(ctx, l, nil)
+	if err != nil {
+		t.Fatalf("closed UDP port stopped the test: %v", err)
+	}
+	var frp int
+	for _, r := range rows {
+		if strings.HasPrefix(r.Method, "frp+") {
+			if r.Status() != "ok" || r.DownMbps <= 0 {
+				t.Fatalf("TCP row not measured with UDP closed: %+v", r)
+			}
+			frp++
+			continue
+		}
+		if r.Mode == "DIRECT" && r.Status() != "skipped" {
+			t.Fatalf("DIRECT row should be skipped with UDP closed: %+v", r)
+		}
+		if r.Status() == "testing" {
+			t.Fatalf("row left in testing: %+v", r)
+		}
+	}
+	if frp == 0 {
+		t.Fatal("no frp+ rows")
+	}
+}
