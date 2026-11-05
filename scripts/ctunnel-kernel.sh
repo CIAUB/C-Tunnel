@@ -140,6 +140,20 @@ tune_dev() {
     for q in /sys/class/net/"${d}"/queues/rx-*/rps_cpus /sys/class/net/"${d}"/queues/tx-*/xps_cpus; do
         if [[ -w "${q}" ]]; then echo "${mask}" > "${q}" 2>/dev/null || true; fi
     done
+    tune_underlay "${mask}"
+}
+
+# Kernel tunnels are decapsulated in the softirq of the network card that
+# receives them. A VPS card often has one queue, so every tunnel packet lands on
+# one CPU. RPS on that card spreads them; a card with its own RPS mask is left alone.
+tune_underlay() {
+    local mask="$1" u q
+    [[ "${mask}" == "1" || "${REMOTE_IP}" == *:* || "${REMOTE_IP}" == "0.0.0.0" ]] && return 0
+    u="$(ip -4 route get "${REMOTE_IP}" 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n1 || true)"
+    [[ -n "${u}" && -d /sys/class/net/"${u}"/queues ]] || return 0
+    for q in /sys/class/net/"${u}"/queues/rx-*/rps_cpus; do
+        if [[ -w "${q}" ]] && [[ "$(tr -d '0,\n' < "${q}")" == "" ]]; then echo "${mask}" > "${q}" 2>/dev/null || true; fi
+    done
 }
 
 addr4() { ip addr add "${TUN_LOCAL4}" peer "${TUN_REMOTE4}/32" dev "$1"; }
@@ -383,11 +397,15 @@ net.core.wmem_max = 67108864
 net.core.rmem_default = 212992
 net.core.wmem_default = 212992
 net.core.netdev_max_backlog = 16384
+net.core.netdev_budget = 600
+net.core.netdev_budget_usecs = 8000
 net.core.somaxconn = 16384
 net.ipv4.tcp_rmem = 4096 131072 33554432
 net.ipv4.tcp_wmem = 4096 65536 33554432
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
 EOF
