@@ -206,6 +206,7 @@ func tuneKCP(s *kcp.UDPSession) {
 type kcpListener struct {
 	ln   *kcp.Listener
 	conn net.PacketConn
+	once sync.Once
 }
 
 func listenPCK(cfg *Config) (listener, error) {
@@ -234,9 +235,14 @@ func (k *kcpListener) Accept() (net.Conn, error) {
 	return s, nil
 }
 
+// Close removes the carrier's firewall rules before it returns, also to a
+// second caller, so the process does not exit halfway through.
 func (k *kcpListener) Close() error {
-	err := k.ln.Close()
-	_ = k.conn.Close()
+	var err error
+	k.once.Do(func() {
+		err = k.ln.Close()
+		_ = k.conn.Close()
+	})
 	return err
 }
 
