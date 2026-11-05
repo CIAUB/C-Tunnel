@@ -562,34 +562,40 @@ details[open] summary{margin-bottom:12px}
       <div><label for="f-role">This server is</label><select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
       <div><label for="f-reverse">Tunnel mode</label><select id="f-reverse"><option value="0">DIRECT</option><option value="1">REVERSE — kharej dials in</option></select></div>
     </div>
+    <p id="kharej-hint" class="hint" hidden>Fill in what the Iran server shows for this tunnel: its IP, method, port and secret. Or close this and use Add from link.</p>
     <div class="grid2">
       <div><label for="f-method">Method</label><select id="f-method"></select></div>
-      <div><label for="f-remote">Remote server IP</label><input id="f-remote" class="num" required></div>
+      <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
     </div>
-    <div><label for="f-backup">Backup method (failover)</label><select id="f-backup"><option value="">None</option></select>
+    <div id="l4-wrap" class="grid2" hidden>
+      <div><label for="f-l4port">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
+      <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="the Iran IP"></div>
+    </div>
+    <div id="token-slot"></div>
+    <div id="backup-wrap"><label for="f-backup">Backup method (failover)</label><select id="f-backup"><option value="">None</option></select>
       <p class="hint">If the method stops carrying traffic, both servers switch to this one within about a minute and try the first again every hour. Set it on both servers, or create the other end from the setup link.</p></div>
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
       <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
-      <p class="hint">listen=target. Leave empty to forward nothing.</p></div>
+      <p class="hint" id="fwd-hint">listen=target. Leave empty to forward nothing.</p></div>
     <details>
       <summary>Advanced — empty fields are set automatically</summary>
-      <div class="stack">
+      <div class="stack" id="adv-stack">
         <div class="grid2">
           <div><label for="f-name">Name (max 10)</label><input id="f-name" maxlength="10" placeholder="ir-&lt;port&gt;" pattern="[a-z0-9][a-z0-9-]*"></div>
           <div><label for="f-local">This server IP</label><input id="f-local" class="num"></div>
         </div>
         <div class="grid2">
           <div><label for="f-index">Subnet index (10.77.N.0/30)</label><input id="f-index" type="number" min="1" max="250" placeholder="next free"></div>
-          <div><label for="f-port">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
+          <div id="port-wrap"><label for="f-port">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
         </div>
-        <div><label for="f-token">Secret token (same on both servers)</label>
+        <div id="token-wrap"><label for="f-token">Secret token (same on both servers)</label>
           <input id="f-token" class="num" autocomplete="off" placeholder="empty = random; required on kharej without a link">
           <p class="hint">64 hex characters, or any phrase of 8+ characters.</p></div>
-        <div class="grid2">
+        <div class="grid2" id="tunip-wrap">
           <div><label for="f-tun-iran">Iran local tunnel IPv4</label><input id="f-tun-iran" class="num" placeholder="10.77.N.1"></div>
           <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
         </div>
-        <div class="grid3">
+        <div class="grid3" id="mtu-wrap">
           <div><label for="f-mtu">MTU</label><input id="f-mtu" type="number" min="576" max="9000"></div>
           <div><label for="f-rate">Rate limit (Mbit/s)</label><input id="f-rate" type="number" min="0"></div>
           <div id="pad-wrap"><label for="f-padding">Random padding (bytes)</label><input id="f-padding" type="number" min="0" max="64" placeholder="default"></div>
@@ -949,7 +955,7 @@ function tunnelState(t) {
   }
 }
 function methodLabel(t) {
-  if (!t.reverse) return t.method;
+  if (!t.reverse || t.family === "Reverse-L4") return t.method;
   return (t.family === "UDP-Crypt" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
 }
 function smallButton(label, iconID, onClick, cls) {
@@ -1037,7 +1043,7 @@ function updateTunnel(c, t) {
     t.backup_method && !onBackup ? "backup " + t.backup_method : ""].filter(Boolean).join(" · ");
   c.state.textContent = st.label + (onBackup ? " · on backup" : "");
   c.peer.textContent = (t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any (dials in)") + (t.port ? " :" + t.port : "");
-  c.tunnelIP.textContent = t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
+  c.tunnelIP.textContent = t.family === "Reverse-L4" ? "none (layer 4)" : t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   c.forwards.textContent = (t.ports || []).join(", ") || "—";
   c.io.textContent = bytes(t.status && t.status.rx_bytes) + " / " + bytes(t.status && t.status.tx_bytes);
   const s = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
@@ -1233,7 +1239,8 @@ function fillMethods(list) {
   for (const sel of [$("f-method"), $("f-backup")]) {
     const groups = {};
     for (const m of methods) {
-      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family; sel.appendChild(groups[m.Family]); }
+      if (sel.id === "f-backup" && m.Family === "Reverse-L4") continue; // failover needs a tunnel IP
+      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family === "Reverse-L4" ? "Reverse-L4 — port forwarding, like BackPack" : m.Family; sel.appendChild(groups[m.Family]); }
       const o = el("option", "", m.Name + " — " + m.Title);
       o.value = m.Name;
       groups[m.Family].appendChild(o);
@@ -1241,7 +1248,11 @@ function fillMethods(list) {
   }
   syncForm();
 }
+function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && mm.Family === "Reverse-L4"); }
 function syncForm() {
+  const l4 = isL4($("f-method").value);
+  if (l4) $("f-reverse").value = "1";
+  $("f-reverse").disabled = l4;
   const rev = $("f-reverse").value === "1";
   for (const o of $("f-method").options) {
     const mm = methods.find(x => x.Name === o.value);
@@ -1253,10 +1264,25 @@ function syncForm() {
     o.hidden = o.disabled = !!o.value && (o.value === $("f-method").value || (rev && !!(mm && mm.IPv6Underlay)));
   }
   if ($("f-backup").selectedOptions[0] && $("f-backup").selectedOptions[0].disabled) $("f-backup").value = "";
-  $("bport-wrap").hidden = !$("f-backup").value;
+  $("bport-wrap").hidden = !$("f-backup").value || l4;
   const m = methods.find(x => x.Name === $("f-method").value);
   const iran = $("f-role").value === "iran", revIran = rev && iran;
   $("f-remote").required = !revIran;
+  // Kharej is built by hand here as easily as from a link: the secret moves
+  // out of Advanced, and the port is asked for where it must match Iran's.
+  $("kharej-hint").hidden = iran;
+  ($("f-role").value === "kharej" ? $("token-slot") : $("adv-stack")).prepend($("token-wrap"));
+  $("f-token").placeholder = iran ? "empty = random; required on kharej without a link" : "the secret the Iran server shows for this tunnel";
+  $("f-remote-l").textContent = iran ? "Remote server IP" : "Iran server IP";
+  $("l4-wrap").hidden = !l4;
+  $("sni-wrap").hidden = !(l4 && $("f-method").value.startsWith("ws"));
+  $("f-l4port").required = l4 && !iran;
+  $("f-l4port").placeholder = iran ? "3080 + index" : "the Iran tunnel port";
+  $("port-wrap").hidden = l4;
+  $("backup-wrap").hidden = l4;
+  $("tunip-wrap").hidden = l4;
+  $("mtu-wrap").hidden = l4;
+  $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";
   $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes($("f-method").value);
   $("pad-wrap").hidden = !(m && m.Family === "UDP-Crypt");
   $("lanes-wrap").hidden = !(m && m.SupportsLanes);
@@ -1280,6 +1306,7 @@ function openCreate(t) {
     $("f-remote").value = t.remote_ip === "0.0.0.0" || t.remote_ip === "::" ? "" : (t.remote_ip || "");
     $("f-local").value = t.local_ip || ""; $("f-name").value = t.name;
     $("f-index").value = t.index || ""; $("f-port").value = t.port || ""; $("f-token").value = t.token || "";
+    $("f-l4port").value = t.port || ""; $("f-sni").value = t.sni || "";
     $("f-mtu").value = t.mtu || ""; $("f-rate").value = t.rate_mbps || ""; $("f-padding").value = t.padding || "";
     $("f-lanes").value = t.lanes || ""; $("f-tid").value = t.tunnel_id || "";
     $("f-ports").value = (t.ports || []).join(", ");
@@ -1345,11 +1372,12 @@ $("create-form").addEventListener("submit", async e => {
     role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").value === "1",
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
-    index: num("f-index"), port: num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
+    index: num("f-index"), port: isL4($("f-method").value) ? num("f-l4port") : num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
+    sni: isL4($("f-method").value) ? $("f-sni").value.trim() : "",
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : [],
     backup_method: $("f-backup").value, backup_port: $("f-backup").value ? num("f-bport") : 0
   };
-  if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or add the tunnel from its setup link."); $("f-token").closest("details").open = true; return; }
+  if (!iran && !body.token) { formError("create-error", "Enter the Iran tunnel secret, or add the tunnel from its setup link."); $("f-token").focus(); return; }
   const form = e.currentTarget;
   await saveTunnel(form, e.submitter || form.querySelector('[type="submit"]'), body, form.edit ? tunnelURL(form.edit) : "/api/tunnels", "dlg-new", "create-error");
 });
