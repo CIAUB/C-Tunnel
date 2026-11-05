@@ -74,7 +74,7 @@ func runReverseCarrier(cfg config) error {
 		carrierCfg.dev = cfg.dev + "-r"
 		carrierCfg.kind = "dtls-1.3" // carrier device is always L3 TUN
 	}
-	dev, err := openDevice(carrierCfg)
+	dev, err := openDevice(carrierCfg, false)
 	if err != nil {
 		return err
 	}
