@@ -1240,7 +1240,7 @@ function fillMethods(list) {
     const groups = {};
     for (const m of methods) {
       if (sel.id === "f-backup" && m.Family === "Reverse-L4") continue; // failover needs a tunnel IP
-      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family === "Reverse-L4" ? "Reverse-L4 — port forwarding, like BackPack" : m.Family; sel.appendChild(groups[m.Family]); }
+      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family === "Reverse-L4" ? "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux)" : m.Family; sel.appendChild(groups[m.Family]); }
       const o = el("option", "", m.Name + " — " + m.Title);
       o.value = m.Name;
       groups[m.Family].appendChild(o);

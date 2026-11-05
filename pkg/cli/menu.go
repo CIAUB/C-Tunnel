@@ -79,61 +79,144 @@ func RunInteractiveMenu() {
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
+// methodGroup is one step of the method menu: a family is split into a few
+// groups of related methods, so no list is long enough to get lost in.
+type methodGroup struct {
+	title, desc string
+	methods     []string
+}
+
+type methodFamily struct {
+	family          catalog.Family
+	title           string
+	direct, reverse string // description in each mode; empty = not offered
+	groups          []methodGroup
+}
+
+var methodMenu = []methodFamily{
+	{catalog.FamilyKernelL3, "L3 kernel",
+		"gre, ipip, 6to4, wireguard, ipsec... fastest, no anti-DPI",
+		"gre, ipip, 6to4, sit... inside the 8-stream TCP carrier; wireguard rides UDP",
+		[]methodGroup{
+			{"GRE", "gre, fou-gre, ecmp-lanes, xfrm-ipsec", []string{"gre", "fou-gre", "ecmp-lanes", "xfrm-ipsec"}},
+			{"IPIP / 6to4", "ipip, gue-ipip, 6to4, 6to4-gre, sit", []string{"ipip", "gue-ipip", "6to4", "6to4-gre", "sit"}},
+			{"IPv6 underlay", "ip6gre, ipip6, ip6ip6: both servers need IPv6", []string{"ip6gre", "ipip6", "ip6ip6"}},
+			{"WireGuard", "kernel WireGuard, keys from the setup link", []string{"wireguard"}},
+		}},
+	{catalog.FamilyKernelL2, "L2 kernel",
+		"eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip",
+		"eoip, gretap, vxlan, geneve, l2tpv3, etherip inside the 8-stream TCP carrier",
+		[]methodGroup{
+			{"MikroTik / raw IP", "eoip, etherip, l2tpv3", []string{"eoip", "etherip", "l2tpv3"}},
+			{"GRE", "gretap, ip6gretap", []string{"gretap", "ip6gretap"}},
+			{"UDP", "vxlan, geneve", []string{"vxlan", "geneve"}},
+		}},
+	{catalog.FamilyUDPCrypt, "UDP-Crypt",
+		"encrypted UDP that looks like DTLS, QUIC, RTP, DNS...",
+		"kharej dials UDP to iran; best on lossy or high-latency links (no TCP-in-TCP)",
+		[]methodGroup{
+			{"Web / VPN look", "dtls-1.3, quic-v1, openvpn-dco, wg-stealth", []string{"dtls-1.3", "quic-v1", "openvpn-dco", "wg-stealth"}},
+			{"Service look", "srtp-direct, dnscrypt-udp, ntp-direct", []string{"srtp-direct", "dnscrypt-udp", "ntp-direct"}},
+			{"Lossy links", "rudp-fec: parity packets rebuild losses", []string{"rudp-fec"}},
+		}},
+	{catalog.FamilyReverseL4, "Layer 4",
+		"",
+		"port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux; no tunnel IP",
+		[]methodGroup{
+			{"TCP", "tcp, tcpmux, pck", []string{"tcp", "tcpmux", "pck"}},
+			{"WS", "ws, wsmux, wss, wssmux: WebSocket, with TLS in wss", []string{"ws", "wsmux", "wss", "wssmux"}},
+		}},
+}
+
+// methodOpt is how a method is listed in the given mode.
+func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
+	if !reverse || m.L4() {
+		return MenuOpt{Title: m.Name, Desc: m.Title}
+	}
+	if m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+		return MenuOpt{Title: "frp+" + m.Name, Desc: "TCP carrier (8 streams, TLS-shaped) + " + m.Title}
+	}
+	return MenuOpt{Title: "rev+" + m.Name, Desc: "Reverse " + m.Title + " (Kharej dials into Iran)"}
+}
+
+// chooseMethod asks for the mode, then the family, then a group, then the
+// method; a step with a single choice is skipped.
 func chooseMethod() (catalog.MethodSpec, bool, bool) {
+	none := func() (catalog.MethodSpec, bool, bool) { return catalog.MethodSpec{}, false, false }
 	mode := ChooseOpt("Tunnel Mode", []MenuOpt{
 		{"DIRECT", "Standard tunnel (Iran connects directly to Kharej)"},
 		{"REVERSE", "Anti-DPI Reverse (Kharej dials into Iran; hides Kharej IP)"},
 	})
 	if mode == 0 {
-		return catalog.MethodSpec{}, false, false
+		return none()
 	}
-	reverse := (mode == 2)
-	Header()
-	var fam int
+	reverse := mode == 2
+	label := "DIRECT"
 	if reverse {
-		fam = ChooseOpt("Tunnel Layer (REVERSE)", []MenuOpt{
-			{"L3 kernel", "gre, 6to4, ipip, sit... inside the 8-stream TCP carrier; wireguard rides UDP"},
-			{"L2 kernel", "eoip, gretap, vxlan, geneve, l2tpv3, etherip inside the 8-stream TCP carrier"},
-			{"UDP-Crypt", "kharej dials UDP to iran; best on lossy or high-latency links (no TCP-in-TCP)"},
-			{"Layer 4 (BackPack-style)", "port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux; no tunnel IP"},
-		})
-	} else {
-		fam = ChooseOpt("Tunnel Layer (DIRECT)", []MenuOpt{
-			{"L3 kernel", "6to4, gre, ipip, wireguard, ipsec... fastest, no anti-DPI"},
-			{"L2 kernel", "eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip"},
-			{"UDP-Crypt", "encrypted UDP that looks like DTLS, QUIC, RTP, DNS..."},
-		})
+		label = "REVERSE"
 	}
-	if fam == 0 {
-		return catalog.MethodSpec{}, false, false
+	usable := func(name string) (catalog.MethodSpec, bool) {
+		m, ok := catalog.LookupMethod(name)
+		return m, ok && !(reverse && m.IPv6Underlay)
 	}
-	families := []catalog.Family{"", catalog.FamilyKernelL3, catalog.FamilyKernelL2, catalog.FamilyUDPCrypt, catalog.FamilyReverseL4}
-	var methods []catalog.MethodSpec
-	var opts []MenuOpt
-	for _, m := range catalog.Methods {
-		if m.Family == families[fam] && !(reverse && m.IPv6Underlay) {
-			methods = append(methods, m)
-			title, desc := m.Name, m.Title
-			if reverse && !m.L4() {
-				if m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
-					title = "frp+" + m.Name
-					desc = "TCP carrier (8 streams, TLS-shaped) + " + m.Title
-				} else {
-					title = "rev+" + m.Name
-					desc = "Reverse " + m.Title + " (Kharej dials into Iran)"
-				}
-			}
-			opts = append(opts, MenuOpt{Title: title, Desc: desc})
+
+	var fams []methodFamily
+	var famOpts []MenuOpt
+	for _, f := range methodMenu {
+		desc := f.direct
+		if reverse {
+			desc = f.reverse
+		}
+		if desc != "" {
+			fams = append(fams, f)
+			famOpts = append(famOpts, MenuOpt{Title: f.title, Desc: desc})
 		}
 	}
 	Header()
-	methodTitle := "Method (DIRECT)"
-	if reverse {
-		methodTitle = "Method (REVERSE)"
+	fi := ChooseOpt("Tunnel Layer ("+label+")", famOpts)
+	if fi == 0 {
+		return none()
 	}
-	i := ChooseOpt(methodTitle, opts)
+	fam := fams[fi-1]
+
+	var groups []methodGroup
+	var groupOpts []MenuOpt
+	for _, g := range fam.groups {
+		var names []string
+		for _, n := range g.methods {
+			if _, ok := usable(n); ok {
+				names = append(names, n)
+			}
+		}
+		if len(names) > 0 {
+			groups = append(groups, methodGroup{g.title, g.desc, names})
+			groupOpts = append(groupOpts, MenuOpt{Title: g.title, Desc: g.desc})
+		}
+	}
+	group := groups[0]
+	if len(groups) > 1 {
+		Header()
+		gi := ChooseOpt(fam.title+" ("+label+")", groupOpts)
+		if gi == 0 {
+			return none()
+		}
+		group = groups[gi-1]
+	}
+
+	var methods []catalog.MethodSpec
+	var opts []MenuOpt
+	for _, n := range group.methods {
+		m, _ := usable(n)
+		methods = append(methods, m)
+		opts = append(opts, methodOpt(m, reverse))
+	}
+	if len(methods) == 1 {
+		return methods[0], reverse, true
+	}
+	Header()
+	i := ChooseOpt(fam.title+" · "+group.title+" ("+label+")", opts)
 	if i == 0 {
-		return catalog.MethodSpec{}, false, false
+		return none()
 	}
 	return methods[i-1], reverse, true
 }
@@ -179,7 +262,10 @@ func setupWizard(role string) {
 		} else if role == "kharej" {
 			remPrompt = "Iran server IP"
 		}
-		tc.RemoteIP = Ask(remPrompt, "")
+		// A layer-4 Iran end never uses the Kharej address.
+		if !(m.L4() && role == "iran") {
+			tc.RemoteIP = Ask(remPrompt, "")
+		}
 	}
 	if !m.L4() {
 		tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
@@ -264,7 +350,11 @@ func setupWizard(role string) {
 		return
 	}
 	applyAndReport(tc)
-	showLink(tc)
+	// Kharej built by hand joins an Iran end that already exists; the link
+	// is for building the other end, so only Iran prints it.
+	if role == "iran" {
+		showLink(tc)
+	}
 	Pause()
 }
 
