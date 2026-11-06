@@ -65,7 +65,8 @@ func (c *client) connect(ctx context.Context) (net.Conn, bool) {
 }
 
 // poolWorker keeps one idle connection open at Iran. When Iran pairs it with a
-// user it is handed off and the worker opens the next one.
+// user it is handed off and the worker opens the next one. A connection counts
+// as a link until the user's stream on it ends.
 func (c *client) poolWorker(ctx context.Context) {
 	for ctx.Err() == nil {
 		conn, ok := c.connect(ctx)
@@ -74,6 +75,7 @@ func (c *client) poolWorker(ctx context.Context) {
 		}
 		c.st.Links.Add(1)
 		stop := context.AfterFunc(ctx, func() { conn.Close() })
+		handed := false
 		for {
 			_ = conn.SetReadDeadline(time.Now().Add(idleRead))
 			kind, port, err := readHeader(conn)
@@ -86,11 +88,17 @@ func (c *client) poolWorker(ctx context.Context) {
 			}
 			_ = conn.SetReadDeadline(time.Time{})
 			stop()
-			go c.serve(conn, kind, port)
+			handed = true
+			go func() {
+				c.serve(conn, kind, port)
+				c.st.Links.Add(-1)
+			}()
 			break
 		}
-		stop()
-		c.st.Links.Add(-1)
+		if !handed {
+			stop()
+			c.st.Links.Add(-1)
+		}
 	}
 }
 

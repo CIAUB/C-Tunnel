@@ -186,6 +186,8 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 		row := Result{Method: name, Family: string(m.Family), Mode: mode, Sent: Probes}
 		i, ok := byName[m.Name]
 		switch {
+		case !ok && untested(m):
+			row.Skipped = "not part of the test: build the tunnel to try it"
 		case !ok:
 			row.Skipped = "needs IPv6 on both servers"
 		case !usable(i):
@@ -205,7 +207,7 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 		}
 	}
 	for _, m := range catalog.Methods {
-		if m.Family == catalog.FamilyUDPCrypt || m.Name == "wireguard" {
+		if (m.Crypt() && !untested(m)) || m.Name == "wireguard" {
 			if i, ok := add(m, "rev+"+m.Name, "REVERSE"); ok {
 				rev[i] = len(rows) - 1
 			}
@@ -220,8 +222,12 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 }
 
 func frpMethod(m catalog.MethodSpec) bool {
-	return !m.IPv6Underlay && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" && !m.L4()
+	return !m.IPv6Underlay && !m.Crypt() && m.Name != "wireguard" && !m.L4()
 }
+
+// untested methods have no probe: faketcp needs a raw TCP flow and icmp the
+// kernel's own echo, neither of which the responder's sockets can stand in for.
+func untested(m catalog.MethodSpec) bool { return m.Name == "faketcp" || m.Name == "icmp" }
 
 func (r *Responder) notifyLocked() {
 	if r.onUpdate == nil || len(r.rows) == 0 {
@@ -618,7 +624,7 @@ type Result struct {
 func validResult(r Result) bool {
 	base := strings.TrimPrefix(strings.TrimPrefix(r.Method, "frp+"), "rev+")
 	m, ok := catalog.LookupMethod(base)
-	if !ok || base != m.Name || (strings.HasPrefix(r.Method, "frp+") && !frpMethod(m)) || (strings.HasPrefix(r.Method, "rev+") && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard") {
+	if !ok || base != m.Name || (strings.HasPrefix(r.Method, "frp+") && !frpMethod(m)) || (strings.HasPrefix(r.Method, "rev+") && !m.Crypt() && m.Name != "wireguard") {
 		return false
 	}
 	if r.Sent < 0 || r.Sent > Probes || r.Received < 0 || r.Received > r.Sent {
@@ -758,10 +764,14 @@ func probes() []probe {
 		case "gue-ipip":
 			p.header = func() []byte { return append([]byte{0, 4, 0, 0}, ipv4Inner(bodyLen)...) }
 		default:
-			if m.Family != catalog.FamilyUDPCrypt {
-				continue // IPv6-underlay methods are reported as skipped
+			if !m.Crypt() || untested(m) {
+				continue // reported as skipped: IPv6-underlay methods, faketcp, icmp
 			}
-			f, _ := dpi.NewFramer(dpi.Profile(m.Name), frameSecret)
+			profile := dpi.Profile(m.Name)
+			if m.Name == "udp-hop" {
+				profile = dpi.ProfileQUICv1 // its packets are framed as QUIC
+			}
+			f, _ := dpi.NewFramer(profile, frameSecret)
 			p.header = func() []byte {
 				w := f.Wrap(make([]byte, bodyLen+trailerLen))
 				return w[:len(w)-bodyLen-trailerLen]

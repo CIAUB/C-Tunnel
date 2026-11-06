@@ -34,7 +34,9 @@ flowchart LR
 | `pkg/health` | health check shared by the CLI and the panel |
 | `pkg/agent` | `ctunnel agent`: failover between a tunnel's two methods, benchmark responder on the tunnel IPs |
 | `pkg/tunlisten` | listeners on 127.0.0.1 and every local tunnel IP, never a public address (proxy, agent) |
-| `cmd/ctunnel-engine` | userspace data plane: TUN ⇄ UDP (UDP-Crypt) or TAP ⇄ raw IP (EoIP, EtherIP) |
+| `pkg/l4` | layer-4 reverse tunnels: handshake, pool and mux transports (tcp, ws, wss, smux, KCP) |
+| `pkg/pck` | hand-built TCP segments through a packet socket (BackPack's pck), for `pck` and `faketcp` |
+| `cmd/ctunnel-engine` | userspace data plane: TUN ⇄ UDP (UDP-Crypt, udp-hop), TUN ⇄ pck (faketcp), TUN ⇄ ICMP echo (icmp), TAP ⇄ raw IP (EoIP, EtherIP), and the layer-4 tunnels |
 | `scripts/ctunnel-kernel.sh` | builds and removes interfaces, MSS clamp, port forwards, IPsec |
 
 ## One iran, many kharej
@@ -57,3 +59,12 @@ removes exactly those, so stopping one tunnel never touches another.
 Each direction (`iran>kharej`, `kharej>iran`) has its own key. The engine follows the
 peer's address after any authenticated packet and sends an empty keepalive every 10 s,
 so either side may be behind NAT.
+
+The Stealth methods seal packets the same way and differ in the carrier
+(`cmd/ctunnel-engine/carrier*.go`): `udp-hop` sends QUIC-framed UDP to one of 16
+ports chosen per 30-second slot from the secret, and the listener answers from the
+socket that last heard the peer; `faketcp` puts a TLS record header in front and sends
+through `pkg/pck`; `icmp` fills an 8-byte echo header, the listener replying with the
+peer's identifier and latest sequence while an iptables rule (mark + `u32` on the
+identifier) drops the kernel's own replies. The side that sends first is Iran in
+DIRECT mode and Kharej in REVERSE mode; the other learns it from what arrives.

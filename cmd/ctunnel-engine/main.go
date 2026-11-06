@@ -19,6 +19,7 @@ import (
 
 type config struct {
 	kind, role, dev   string
+	name              string
 	localIP, remoteIP string
 	port              int
 	secret            string
@@ -88,6 +89,7 @@ func loadConfig(path string) (config, error) {
 	pad, _ := strconv.Atoi(env["PADDING"])
 	cfg := config{
 		kind:     m.Name,
+		name:     env["NAME"],
 		role:     env["ROLE"],
 		dev:      env["DEV"],
 		localIP:  env["LOCAL_IP"],
@@ -103,8 +105,11 @@ func loadConfig(path string) (config, error) {
 	if cfg.dev == "" || (cfg.remoteIP == "" && !cfg.isPassive()) || (cfg.role != "iran" && cfg.role != "kharej") {
 		return config{}, fmt.Errorf("%s: DEV, REMOTE_IP and ROLE are required", path)
 	}
-	if (m.Family == catalog.FamilyUDPCrypt || cfg.reverse || m.L4()) && (cfg.secret == "" || cfg.port <= 0) {
+	if (m.Crypt() || cfg.reverse || m.L4()) && (cfg.secret == "" || (cfg.port <= 0 && m.NeedsPort)) {
 		return config{}, fmt.Errorf("%s: SECRET and PORT are required for %s", path, m.Name)
+	}
+	if cfg.name == "" {
+		cfg.name = cfg.dev
 	}
 	return cfg, nil
 }

@@ -125,7 +125,7 @@ func (r *revCarrier) shutdown() {
 
 func isUDPCrypt(kind string) bool {
 	m, ok := catalog.LookupMethod(kind)
-	return ok && m.Family == catalog.FamilyUDPCrypt
+	return ok && m.Crypt()
 }
 
 func newRevCarrier(cfg config) (*revCarrier, error) {

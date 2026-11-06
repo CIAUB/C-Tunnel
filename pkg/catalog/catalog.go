@@ -24,6 +24,10 @@ const (
 	FamilyKernelL3 Family = "L3-Direct"
 	FamilyKernelL2 Family = "L2-Direct"
 	FamilyUDPCrypt Family = "UDP-Crypt"
+	// FamilyStealth are encrypted layer-3 tunnels like UDP-Crypt whose packets
+	// do not travel as plain UDP: hand-built TCP segments (faketcp), ICMP echo
+	// (icmp), or UDP across a range of ports (udp-hop).
+	FamilyStealth Family = "Stealth"
 	// FamilyReverseL4 tunnels forward ports, not packets: Kharej dials Iran and
 	// each user connection rides its own stream (pkg/l4). No tunnel interface.
 	FamilyReverseL4 Family = "Reverse-L4"
@@ -75,6 +79,10 @@ var Methods = []MethodSpec{
 	{ID: 27, Name: "ntp-direct", Title: "NTPv4 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
 	{ID: 28, Name: "openvpn-dco", Title: "OpenVPN P_DATA_V2 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
 
+	{ID: 36, Name: "udp-hop", Title: "UDP across 16 ports, hopping every 30 s + AES-256-GCM", Family: FamilyStealth, Overhead: 64, NeedsPort: true, Userspace: true},
+	{ID: 37, Name: "faketcp", Title: "Hand-built TCP segments with TLS records + AES-256-GCM", Family: FamilyStealth, Overhead: 82, NeedsPort: true, Userspace: true},
+	{ID: 38, Name: "icmp", Title: "ICMP echo (ping) + AES-256-GCM", Family: FamilyStealth, Overhead: 53, Userspace: true},
+
 	{ID: 29, Name: "tcp", Title: "TCP (a pooled connection per user connection)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 30, Name: "tcpmux", Title: "TCP + MUX (streams over a few connections)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 31, Name: "pck", Title: "TCP + PCK (KCP in hand-built TCP segments, raw socket)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
@@ -87,6 +95,10 @@ var Methods = []MethodSpec{
 // L4 reports whether m is a layer-4 reverse transport: always reverse, no
 // tunnel interface or tunnel IP, forwarded ports served by the engine itself.
 func (m MethodSpec) L4() bool { return m.Family == FamilyReverseL4 }
+
+// Crypt reports whether m is an encrypted layer-3 tunnel run by the engine
+// with the tunnel secret: the UDP-Crypt and Stealth families.
+func (m MethodSpec) Crypt() bool { return m.Family == FamilyUDPCrypt || m.Family == FamilyStealth }
 
 // IsL4 reports whether method names a layer-4 reverse transport.
 func IsL4(method string) bool {

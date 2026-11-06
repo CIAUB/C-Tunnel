@@ -119,6 +119,12 @@ var methodMenu = []methodFamily{
 			{"Service look", "srtp-direct, dnscrypt-udp, ntp-direct", []string{"srtp-direct", "dnscrypt-udp", "ntp-direct"}},
 			{"Lossy links", "rudp-fec: parity packets rebuild losses", []string{"rudp-fec"}},
 		}},
+	{catalog.FamilyStealth, "Stealth",
+		"encrypted like UDP-Crypt, not plain UDP: udp-hop, faketcp, icmp",
+		"kharej sends, iran answers: udp-hop, faketcp, icmp",
+		[]methodGroup{
+			{"Stealth", "port hopping, TCP look, ping", []string{"udp-hop", "faketcp", "icmp"}},
+		}},
 	{catalog.FamilyReverseL4, "Layer 4",
 		"",
 		"port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux; no tunnel IP",
@@ -133,7 +139,7 @@ func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
 	if !reverse || m.L4() {
 		return MenuOpt{Title: m.Name, Desc: m.Title}
 	}
-	if m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+	if !m.Crypt() && m.Name != "wireguard" {
 		return MenuOpt{Title: "frp+" + m.Name, Desc: "TCP carrier (8 streams, TLS-shaped) + " + m.Title}
 	}
 	return MenuOpt{Title: "rev+" + m.Name, Desc: "Reverse " + m.Title + " (Kharej dials into Iran)"}
@@ -307,6 +313,10 @@ func setupWizard(role string) {
 		return
 	}
 	switch {
+	case m.Name == "icmp":
+		// no port: the echo identifier comes from the secret
+	case m.Name == "udp-hop":
+		tc.Port = askInt(fmt.Sprintf("First UDP port (%d ports from it, the same on both servers)", tunnel.HopPorts), probe.Port)
 	case m.L4() && role == "kharej":
 		tc.Port = askInt("Tunnel port (the same as on the Iran server)", probe.Port)
 	case m.L4():
@@ -324,7 +334,7 @@ func setupWizard(role string) {
 	if m.SupportsLanes {
 		tc.Lanes = askInt("Parallel lanes 1-8 (same count on both servers)", probe.Lanes)
 	}
-	if m.Family == catalog.FamilyUDPCrypt {
+	if m.Crypt() {
 		tc.Padding = askInt("Random padding bytes 1-64", probe.Padding)
 	}
 	if m.L4() && strings.HasPrefix(m.Name, "ws") {
@@ -479,7 +489,7 @@ func methodLabel(t catalog.TunnelConfig) string {
 	if !t.Reverse || catalog.IsL4(t.Method) {
 		return t.Method
 	}
-	if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+	if m, ok := catalog.LookupMethod(t.Method); ok && !m.Crypt() && m.Name != "wireguard" {
 		return "frp+" + t.Method
 	}
 	return "rev+" + t.Method

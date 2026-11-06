@@ -234,7 +234,7 @@ func tunnelMTU(method string, pathMTU int) int {
 		return 1500 - m.Overhead // the carrier is TCP: no path MTU limit
 	case pathMTU <= 0:
 		return 0
-	case m.Family == catalog.FamilyUDPCrypt:
+	case m.Crypt():
 		return pathMTU - m.Overhead - 16
 	default:
 		return pathMTU - m.Overhead

@@ -164,6 +164,9 @@ To add another kharej server, repeat step 1 with its IP. It gets `10.77.2.0/30`,
 | GRE / IPIP not filtered | `gre`, `6to4`, `ipip`: kernel speed, lowest CPU |
 | Raw IP protocols filtered | `dtls-1.3`, `quic-v1`, `wireguard`, or `gre` with a FOU port |
 | Lossy or unstable route | `rudp-fec` |
+| Long UDP flows throttled or cut after a while | `udp-hop` |
+| UDP blocked, TCP open | `faketcp` |
+| Only ping gets through | `icmp` |
 | Encryption at kernel speed | `xfrm-ipsec`, `wireguard` |
 | MikroTik on the other side | `gre`, `ipip`, `eoip`, `vxlan`, `wireguard` |
 
@@ -208,6 +211,18 @@ In REVERSE mode the kharej server dials in and the iran server only listens, so 
 
 Every inner connection stays on one TCP stream, so it is never reordered, and each stream has its own queue. In our test this roughly doubled the speed of the TCP carrier compared with 0.1.5 (about 390 → 690 Mbit/s on an 800 Mbit/s link). The Connection Test measures every reverse option too: a `rev+` row for each UDP method and independent `frp+METHOD` rows with fresh TCP streams, method-specific payloads, verified echoes and separate speeds for every supported FRP-style option. These are carrier/encapsulation shape tests, not kernel tunnel integration tests. Best Settings names the fastest reverse option.
 
+### Stealth methods
+
+Three layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, random padding) whose packets do not travel as one plain UDP flow. They work in DIRECT mode (Iran sends first) and in REVERSE mode (Kharej sends first).
+
+| Method | Between the servers | Use when |
+|---|---|---|
+| `udp-hop` | QUIC-shaped UDP to 16 consecutive ports; the sending side moves to another port every 30 seconds in an order derived from the secret, and the other side answers from the port it was reached on | long UDP flows are throttled or cut after a while |
+| `faketcp` | TLS records inside TCP segments built by hand and read through a packet socket (the `pck` carrier from BackPack). Middleboxes see one TCP connection with consistent sequence numbers; nothing is retransmitted inside it, so there is no TCP-in-TCP and the tunnel runs at UDP speed | UDP is blocked or shaped and TCP is not |
+| `icmp` | ICMP echo: requests one way, replies the other, with an identifier from the secret. The answering server's kernel would reply to each request itself; an iptables rule drops those replies and keeps the tunnel's own | only ping gets through |
+
+`udp-hop` needs the 16 ports (first port + 15) open on the answering server: Kharej in DIRECT mode, Iran in REVERSE. `faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test measures `udp-hop` with QUIC-shaped probes; `faketcp` and `icmp` are not part of it, so build the tunnel to try them.
+
 ### Layer-4 reverse tunnels
 
 The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP. The Kharej server dials out to the tunnel port and sends each user connection to the target port on its own 127.0.0.1. There is no tunnel interface or tunnel IP, so failover, the tunnel benchmark and the connection test do not apply to them.
@@ -225,6 +240,8 @@ The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens
 Both servers prove they know the tunnel secret when each connection opens. Past that, `tcp` and `ws` carry the users' bytes unchanged, as in BackPack; use `wss`, `wssmux` or `pck` when the link between the servers must be encrypted. The WebSocket methods take an optional Host / SNI. On the Kharej server a tunnel can be added from the setup link or by hand with the Iran server's IP, the method, the tunnel port and the secret.
 
 Between two network namespaces on 2 CPUs (iperf3, one TCP flow through a forwarded port): `tcp` about 12.7 Gbps, `ws` 10.8, `tcpmux` 7.6, `wsmux` 6.9, `wss` 6.6, `wssmux` 4.4 and `pck` 0.8 Gbps.
+
+Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; iperf3, one flow): `tcp`, `ws` and `wss` about 425 Mbit/s, `tcpmux` 373, `wsmux` 397, `wssmux` 359 and `pck` 185. The Stealth methods on the same path: `udp-hop` 394, `faketcp` 370 and `icmp` 377 Mbit/s upload, against 380 for `quic-v1`.
 
 ## All methods
 
@@ -277,6 +294,17 @@ Between two network namespaces on 2 CPUs (iperf3, one TCP flow through a forward
 | `dnscrypt-udp` | DNS responses |
 | `ntp-direct` | NTPv4 server packets |
 | `openvpn-dco` | OpenVPN `P_DATA_V2` |
+
+</details>
+
+<details>
+<summary><b>Stealth</b>: 3 methods, AES-256-GCM</summary>
+
+| Method | Packets travel as |
+|---|---|
+| `udp-hop` | QUIC-shaped UDP across 16 ports, a new port every 30 s |
+| `faketcp` | TLS records in hand-built TCP segments (no TCP state, no retransmission) |
+| `icmp` | ICMP echo requests and replies |
 
 </details>
 

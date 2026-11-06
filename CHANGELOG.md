@@ -7,9 +7,16 @@ Planned for 2.0.
 ### Added
 - Layer-4 reverse tunnels after BackPack's reverse engine: `tcp`, `tcpmux`, `pck` (TCP + PCK), `ws`, `wsmux`, `wss` and `wssmux`. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own 127.0.0.1, on a stream of its own, so TCP never runs inside TCP. Each connection between the servers opens with a handshake in which both prove they know the secret; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI. No tunnel interface or IP: failover, the tunnel benchmark and the connection test do not apply to them. `pck` comes from BackPack (pkg/pck) and needs root.
 - The panel and the terminal menu build these tunnels on both servers. On Kharej the panel form asks for the Iran server's IP and the secret outside Advanced, so any tunnel can be built by hand as well as from the setup link.
+- Stealth methods, encrypted layer-3 tunnels like UDP-Crypt whose packets do not travel as one plain UDP flow, in DIRECT and REVERSE mode: `udp-hop` (QUIC-shaped UDP across 16 ports, moving to another every 30 seconds), `faketcp` (TLS records in hand-built TCP segments through the `pck` carrier: looks like TCP, runs at UDP speed) and `icmp` (ICMP echo; the answering kernel's own replies are dropped by an iptables rule).
+- The terminal menu asks for the mode, then the family, then a group, then the method, instead of one long list.
 
 ### Changed
 - C-Tunnel now has Go module dependencies (smux, kcp-go, gorilla/websocket, golang.org/x). Building from source fetches them through the Go module proxy.
+- Faster layer-4 tunnels on long paths: a mux stream may have 16 MiB in flight instead of 4 MiB, frames are up to 64 KiB, and a `pck` session keeps 4096 KCP segments in flight instead of 1024. Between the servers the `tcp` transport splices the bytes in the kernel instead of copying them through the process.
+
+### Fixed
+- A layer-4 tunnel whose pool connections were all carrying users showed as down on the Iran server, and the health check said the Kharej server was not connected. Busy connections now count as links on both servers.
+- A `pck` or `faketcp` server with no default route could pick a tunnel interface as its way out; point-to-point interfaces are now skipped.
 
 ## [1.0.0]
 

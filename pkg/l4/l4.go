@@ -276,19 +276,23 @@ func pipe(a, b net.Conn, ab, ba *atomic.Int64) {
 
 var copyBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
 
+// copyChunk bounds one io.Copy call, so the counters move while a long
+// transfer runs.
+const copyChunk = 1 << 20
+
+// copyCounted copies src to dst until either ends. It goes through io.Copy in
+// chunks rather than a read/write loop so that between two TCP sockets (the
+// tcp transport, at both ends) the kernel splices the bytes and they never
+// enter this process.
 func copyCounted(dst io.Writer, src io.Reader, n *atomic.Int64) {
 	bp := copyBufs.Get().(*[]byte)
 	defer copyBufs.Put(bp)
-	buf := *bp
+	lr := &io.LimitedReader{R: src}
 	for {
-		r, err := src.Read(buf)
-		if r > 0 {
-			if _, werr := dst.Write(buf[:r]); werr != nil {
-				return
-			}
-			n.Add(int64(r))
-		}
-		if err != nil {
+		lr.N = copyChunk
+		m, err := io.CopyBuffer(dst, lr, *bp)
+		n.Add(m)
+		if err != nil || m < copyChunk {
 			return
 		}
 	}

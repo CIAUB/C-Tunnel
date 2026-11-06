@@ -23,15 +23,30 @@ const (
 
 type udpTunnel struct {
 	cfg    config
-	conn   *net.UDPConn
+	conn   *net.UDPConn // the UDP socket, for the per-packet path and wg-stealth's junk
 	tx, rx *crypto.FastAEAD
-	framer *dpi.Framer
+	framer framer
 	peer   atomic.Pointer[net.UDPAddr]
 	fec    bool
 	// offload is true when the TUN device does TSO/GRO with virtio_net_hdr
 	// (offload.go); only the batched path uses it.
 	offload bool
+
+	// openSend opens a carrier for one sending goroutine; readers lists the
+	// carriers to receive from, each served by its own goroutine (the UDP
+	// socket by several).
+	openSend func() (carrier, error)
+	readers  []func() (carrier, error)
+	// heard, when set, is told which reader authenticated a packet: the
+	// udp-hop listener answers from the port the peer last reached.
+	heard func(reader int)
+	// hopping is set on the udp-hop dialer, whose peer keeps its address and
+	// changes its port; a new port is not a new peer.
+	hopping bool
 }
+
+// stealth reports whether kind is one of the carriers that are not plain UDP.
+func stealth(kind string) bool { return kind == "faketcp" || kind == "icmp" }
 
 func runUDPCrypt(cfg config) error {
 	t := &udpTunnel{cfg: cfg, fec: cfg.kind == string(dpi.ProfileRUDPFEC)}
@@ -44,24 +59,37 @@ func runUDPCrypt(cfg config) error {
 	if t.rx, err = crypto.NewFastAEAD(cfg.secret, peerRole+">"+cfg.role); err != nil {
 		return err
 	}
-	if t.framer, err = dpi.NewFramer(dpi.Profile(cfg.kind), cfg.secret); err != nil {
+	// The dialer sends first; the listener learns it from what arrives. The
+	// UDP-Crypt methods have both ends send to each other unless one is passive.
+	dialer := (cfg.role == "iran") != cfg.reverse
+	switch cfg.kind {
+	case "faketcp":
+		t.framer = tlsFramer{}
+	case "icmp":
+		t.framer = icmpFramer{}
+	case "udp-hop":
+		t.framer, err = dpi.NewFramer(dpi.ProfileQUICv1, cfg.secret)
+	default:
+		t.framer, err = dpi.NewFramer(dpi.Profile(cfg.kind), cfg.secret)
+	}
+	if err != nil {
 		return err
 	}
-	var peer *net.UDPAddr
-	if !cfg.isPassive() && cfg.remoteIP != "" && cfg.remoteIP != "0.0.0.0" {
-		peer, err = net.ResolveUDPAddr("udp4", net.JoinHostPort(cfg.remoteIP, fmt.Sprint(cfg.port)))
-		if err != nil {
-			return err
+	learns := cfg.isPassive() || ((stealth(cfg.kind) || cfg.kind == "udp-hop") && !dialer)
+	if !learns && validPeer(cfg.remoteIP) {
+		port := cfg.port
+		if cfg.kind == "icmp" {
+			port = int(icmpID(cfg.secret))
 		}
-		t.peer.Store(peer)
+		t.peer.Store(&net.UDPAddr{IP: net.ParseIP(cfg.remoteIP).To4(), Port: port})
 	}
 
-	t.conn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: cfg.port})
+	closeCarrier, err := t.openCarriers(dialer)
 	if err != nil {
-		return fmt.Errorf("listen udp :%d: %w", cfg.port, err)
+		return err
 	}
-	defer t.conn.Close()
-	forceBuffers(t.conn, socketBuffer)
+	stopOnSignal(closeCarrier)
+	defer closeCarrier()
 
 	workers := workerCount(cfg.kind)
 	batched := batching && !t.fec
@@ -80,25 +108,142 @@ func runUDPCrypt(cfg config) error {
 	}
 	defer closeDevs()
 
-	if peer != nil && cfg.kind == string(dpi.ProfileWGStealth) {
+	if peer := t.peer.Load(); peer != nil && cfg.kind == string(dpi.ProfileWGStealth) {
 		for _, junk := range dpi.GenerateJunkBurst(4, 64, 192) {
 			_, _ = t.conn.WriteToUDP(junk, peer)
 		}
 	}
 
-	errc := make(chan error, workers*2)
-	toNet, toDev := t.deviceToNet, t.netToDevice
-	if batched {
-		toNet, toDev = t.deviceToNetBatch, t.netToDeviceBatch
-	}
-	for i := 0; i < workers; i++ {
-		d := devs[i%len(devs)]
-		go func(dev *os.File) { errc <- toNet(dev) }(d)
-		go func(dev *os.File) { errc <- toDev(dev) }(d)
+	errc := make(chan error, 2*workers+len(t.readers))
+	if !batched && t.conn != nil && !t.hopping && len(t.readers) == 1 {
+		// UDP one packet at a time: rudp-fec, or no batch calls on this platform.
+		for i := 0; i < workers; i++ {
+			go func(dev *os.File) { errc <- t.deviceToNet(dev) }(devs[i%len(devs)])
+			go func(dev *os.File) { errc <- t.netToDevice(dev) }(devs[i%len(devs)])
+		}
+	} else {
+		for i := 0; i < workers; i++ {
+			go func(dev *os.File) { errc <- t.deviceToNetBatch(dev) }(devs[i%len(devs)])
+		}
+		// The UDP socket takes a reader per worker; a carrier of its own (a
+		// packet socket, a raw socket, one of the udp-hop ports) takes one.
+		n := len(t.readers)
+		if n == 1 && t.conn != nil {
+			n = workers
+		}
+		for i := 0; i < n; i++ {
+			r := i % len(t.readers)
+			go func(dev *os.File) { errc <- t.netToDeviceBatch(dev, r) }(devs[i%len(devs)])
+		}
 	}
 	go t.keepalive()
 	return <-errc
 }
+
+// openCarriers opens the sockets for cfg.kind and sets openSend and readers.
+// It returns what closes them.
+func (t *udpTunnel) openCarriers(dialer bool) (func(), error) {
+	cfg := t.cfg
+	if stealth(cfg.kind) {
+		return openStealth(t, dialer)
+	}
+	if cfg.kind == "udp-hop" && !dialer {
+		return t.openHopListener()
+	}
+	var err error
+	t.conn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: cfg.port})
+	if err != nil {
+		return nil, fmt.Errorf("listen udp :%d: %w", cfg.port, err)
+	}
+	forceBuffers(t.conn, socketBuffer)
+	conn := t.conn
+	t.openSend = func() (carrier, error) { return newUDPBatch(conn) }
+	t.readers = []func() (carrier, error){t.openSend}
+	if cfg.kind == "udp-hop" {
+		h := newHopper(cfg.secret, cfg.port)
+		t.hopping = true
+		t.openSend = func() (carrier, error) {
+			b, err := newUDPBatch(conn)
+			if err != nil {
+				return nil, err
+			}
+			return hopCarrier{b, h}, nil
+		}
+	}
+	return func() { conn.Close() }, nil
+}
+
+// openHopListener listens on all hopPorts ports from cfg.port up and answers
+// through the one the dialer used last.
+func (t *udpTunnel) openHopListener() (func(), error) {
+	conns := make([]*net.UDPConn, hopPorts)
+	closeAll := func() {
+		for _, c := range conns {
+			if c != nil {
+				c.Close()
+			}
+		}
+	}
+	for i := range conns {
+		c, err := net.ListenUDP("udp4", &net.UDPAddr{Port: t.cfg.port + i})
+		if err != nil {
+			closeAll()
+			return nil, fmt.Errorf("listen udp :%d: %w", t.cfg.port+i, err)
+		}
+		forceBuffers(c, socketBuffer)
+		conns[i] = c
+	}
+	var active atomic.Int32
+	t.heard = func(r int) {
+		if active.Load() != int32(r) {
+			active.Store(int32(r))
+		}
+	}
+	for _, c := range conns {
+		c := c
+		t.readers = append(t.readers, func() (carrier, error) {
+			b, err := newUDPBatch(c)
+			if err != nil {
+				return nil, err
+			}
+			return noGRO{b}, nil
+		})
+	}
+	t.openSend = func() (carrier, error) {
+		bs := make([]carrier, len(conns))
+		for i, c := range conns {
+			b, err := newUDPBatch(c)
+			if err != nil {
+				return nil, err
+			}
+			bs[i] = b
+		}
+		return hopReply{bs, &active}, nil
+	}
+	return closeAll, nil
+}
+
+// noGRO keeps a socket off UDP GRO: the 16 udp-hop sockets each have a reader,
+// and GRO's 64 KiB buffers would multiply by 16 for one stream's worth of use.
+type noGRO struct{ carrier }
+
+func (noGRO) enableGRO() bool { return false }
+
+// hopReply sends from the udp-hop port the dialer last reached.
+type hopReply struct {
+	bs     []carrier
+	active *atomic.Int32
+}
+
+func (h hopReply) send(pkts [][]byte, peer netip.AddrPort) error {
+	return h.bs[h.active.Load()].send(pkts, peer)
+}
+
+func (h hopReply) recv([][]byte, []int, []int, []netip.AddrPort) (int, error) {
+	return 0, errors.New("hopReply only sends")
+}
+
+func (hopReply) enableGRO() bool { return false }
 
 // deviceToNet seals packets read from the TUN device and sends them to the peer.
 // Header room is reserved in front of the ciphertext so nothing is copied or allocated.
@@ -146,7 +291,7 @@ func (t *udpTunnel) deviceToNetBatch(dev *os.File) error {
 	if err != nil {
 		return err
 	}
-	ub, err := newUDPBatch(t.conn)
+	ub, err := t.openSend()
 	if err != nil {
 		return err
 	}
@@ -200,9 +345,10 @@ func (t *udpTunnel) deviceToNetBatch(dev *os.File) error {
 	}
 }
 
-// netToDeviceBatch is netToDevice with one recvmmsg per batch of datagrams.
-func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
-	ub, err := newUDPBatch(t.conn)
+// netToDeviceBatch receives from reader r in batches and writes what
+// authenticates to dev.
+func (t *udpTunnel) netToDeviceBatch(dev *os.File, r int) error {
+	ub, err := t.readers[r]()
 	if err != nil {
 		return err
 	}
@@ -223,6 +369,7 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
 	if t.offload {
 		gro = newCoalescer(func(b []byte) { _, _ = dev.Write(b) })
 	}
+	heard := false
 	for {
 		n, err := ub.recv(bufs, sizes, segs, srcs)
 		if err != nil {
@@ -243,21 +390,31 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File) error {
 				if err != nil {
 					continue
 				}
-				if gro == nil {
-					t.deliver(ct, srcs[i], plainBuf, dev)
-					continue
-				}
 				// Open behind room for the vnet header, so a packet that is not
 				// merged is written without a copy.
-				if p := t.open(ct, srcs[i], plainBuf[vnetHdrLen:]); len(p) > 0 {
-					off := cap(plainBuf) - cap(p)
-					gro.add(plainBuf[:off+len(p)], off)
+				p := t.open(ct, srcs[i], plainBuf[vnetHdrLen:])
+				if p == nil {
+					continue
 				}
+				heard = true
+				if len(p) == 0 {
+					continue
+				}
+				if gro == nil {
+					_, _ = dev.Write(p)
+					continue
+				}
+				off := cap(plainBuf) - cap(p)
+				gro.add(plainBuf[:off+len(p)], off)
 			}
 		}
 		if gro != nil {
 			gro.flushAll()
 		}
+		if heard && t.heard != nil {
+			t.heard(r)
+		}
+		heard = false
 	}
 }
 
@@ -270,6 +427,11 @@ func addrPort(u *net.UDPAddr) netip.AddrPort {
 
 // keepalive keeps NAT mappings open and lets the other side learn our address.
 func (t *udpTunnel) keepalive() {
+	c, err := t.openSend()
+	if err != nil {
+		log.Printf("keepalive: %v", err)
+		return
+	}
 	hlen := t.framer.HeaderLen()
 	out := make([]byte, hlen+512)
 	interval := keepaliveInterval
@@ -284,7 +446,7 @@ func (t *udpTunnel) keepalive() {
 			} else {
 				t.framer.PutHeader(out[:hlen], len(ct))
 			}
-			_, _ = t.conn.WriteToUDP(out[:hlen+len(ct)], peer)
+			_ = c.send([][]byte{out[:hlen+len(ct)]}, addrPort(peer))
 		}
 		time.Sleep(interval)
 	}
@@ -344,7 +506,11 @@ func (t *udpTunnel) open(ct []byte, src netip.AddrPort, plainBuf []byte) []byte 
 		return nil
 	}
 	src = netip.AddrPortFrom(src.Addr().Unmap(), src.Port())
-	if cur := t.peer.Load(); src.IsValid() && (cur == nil || addrPort(cur) != src) {
+	cur := t.peer.Load()
+	if t.hopping && cur != nil && addrPort(cur).Addr() == src.Addr() {
+		return plain // the reply came from another of the hop ports
+	}
+	if src.IsValid() && (cur == nil || addrPort(cur) != src) {
 		log.Printf("peer address active: %s", src)
 		t.peer.Store(net.UDPAddrFromAddrPort(src))
 	}

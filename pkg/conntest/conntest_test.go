@@ -32,7 +32,7 @@ func TestEveryIPv4MethodHasAProbe(t *testing.T) {
 		}
 	}
 	for _, m := range catalog.Methods {
-		if !m.IPv6Underlay && !m.L4() && !have[m.Name] {
+		if !m.IPv6Underlay && !m.L4() && !untested(m) && !have[m.Name] {
 			t.Errorf("no probe for %s", m.Name)
 		}
 	}

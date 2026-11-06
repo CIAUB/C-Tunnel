@@ -100,7 +100,7 @@ func TestReverseEndToEndIranTrafficToKharej(t *testing.T) {
 
 	// Now user traffic arrives at Iran -> Iran encrypts and sends it to the learned Kharej endpoint -> Kharej receives it.
 	userTraffic := []byte("user-tcp-syn-to-443-from-iran-to-kharej")
-	wireFromIran := iranTun.framer.Wrap(iranTun.tx.Seal(nil, userTraffic, 16))
+	wireFromIran := iranTun.framer.(*dpi.Framer).Wrap(iranTun.tx.Seal(nil, userTraffic, 16))
 	if _, err := iranConn.WriteToUDP(wireFromIran, iranTun.peer.Load()); err != nil {
 		t.Fatal(err)
 	}

@@ -348,7 +348,7 @@ cmd_up() {
             ip tuntap add dev "${DEV}" mode tap multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tap
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
-        dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco)
+        dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco|udp-hop|faketcp|icmp)
             ip tuntap add dev "${DEV}" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tun
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;

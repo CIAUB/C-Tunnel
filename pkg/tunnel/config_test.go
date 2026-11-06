@@ -493,3 +493,43 @@ func TestNormalizeLayer4(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeStealth(t *testing.T) {
+	ping := catalog.TunnelConfig{Role: "iran", Method: "icmp", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5", Port: 5000}
+	if err := Normalize(&ping, nil); err != nil {
+		t.Fatal(err)
+	}
+	if ping.Port != 0 || ping.Padding != DefaultPad || ping.MTU != 1500-53-DefaultPad {
+		t.Fatalf("icmp: port %d padding %d mtu %d", ping.Port, ping.Padding, ping.MTU)
+	}
+	rev := catalog.TunnelConfig{Role: "iran", Method: "icmp", LocalIP: "198.51.100.1", Reverse: true}
+	if err := Normalize(&rev, nil); err != nil || rev.Port != 0 {
+		t.Fatalf("icmp reverse: port %d, %v", rev.Port, err)
+	}
+
+	hop := catalog.TunnelConfig{Role: "kharej", Method: "udp-hop", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.1", Index: 3}
+	if err := Normalize(&hop, nil); err != nil {
+		t.Fatal(err)
+	}
+	if hop.Port != 25048 || PortSpan(hop) != 16 {
+		t.Fatalf("udp-hop: port %d span %d", hop.Port, PortSpan(hop))
+	}
+	// A second tunnel inside the range is refused, one past it is not.
+	inside := catalog.TunnelConfig{Role: "kharej", Method: "dtls-1.3", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.2", Port: 25063}
+	if err := Normalize(&inside, []catalog.TunnelConfig{hop}); err == nil || !strings.Contains(err.Error(), "overlap") {
+		t.Fatalf("port inside the hop range: %v", err)
+	}
+	past := catalog.TunnelConfig{Role: "kharej", Method: "dtls-1.3", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.2", Port: 25064}
+	if err := Normalize(&past, []catalog.TunnelConfig{hop}); err != nil {
+		t.Fatalf("port past the hop range: %v", err)
+	}
+	high := catalog.TunnelConfig{Role: "kharej", Method: "udp-hop", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.1", Port: 65530}
+	if err := Normalize(&high, nil); err == nil {
+		t.Fatal("a hop range past 65535 was accepted")
+	}
+
+	fake := catalog.TunnelConfig{Role: "iran", Method: "faketcp", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5", Padding: 64}
+	if err := Normalize(&fake, nil); err != nil || fake.Port == 0 || fake.Padding != 64 {
+		t.Fatalf("faketcp: %+v %v", fake, err)
+	}
+}

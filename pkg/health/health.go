@@ -68,7 +68,7 @@ func MethodLabel(t catalog.TunnelConfig) string {
 	if !t.Reverse || catalog.IsL4(t.Method) {
 		return t.Method
 	}
-	if m, ok := catalog.LookupMethod(t.Method); ok && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+	if m, ok := catalog.LookupMethod(t.Method); ok && !m.Crypt() && m.Name != "wireguard" {
 		return "frp+" + t.Method
 	}
 	return "rev+" + t.Method
@@ -285,11 +285,15 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 	// A passive side (reverse iran, or any engine method) must hold its port.
 	if m, ok := catalog.LookupMethod(t.Method); ok && t.Port > 0 && s.Service == "active" {
 		network := "udp"
-		if t.Reverse && m.Family != catalog.FamilyUDPCrypt && m.Name != "wireguard" {
+		if (t.Reverse && !m.Crypt() && m.Name != "wireguard") || t.Method == "faketcp" {
 			network = "tcp"
 		}
-		// pck reads its segments off the wire; no socket holds the port.
-		if (t.Role == "iran" || !t.Reverse) && t.Method != "pck" {
+		ports := strconv.Itoa(t.Port)
+		if span := tunnel.PortSpan(t); span > 1 {
+			ports += "-" + strconv.Itoa(t.Port+span-1)
+		}
+		// pck and faketcp read their segments off the wire; no socket listens.
+		if (t.Role == "iran" || !t.Reverse) && t.Method != "pck" && t.Method != "faketcp" {
 			if listening(t.Port, network) {
 				out = append(out, Check{Group: g, Name: "Tunnel port", Level: OK, Detail: fmt.Sprintf("%d/%s bound", t.Port, network)})
 			} else if t.Reverse {
@@ -297,7 +301,7 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 			}
 		}
 		if t.Role == "iran" && t.Reverse {
-			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("kharej dials in: %d/%s must be open here", t.Port, network)})
+			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("kharej dials in: %s/%s must be open here", ports, network)})
 		}
 	}
 

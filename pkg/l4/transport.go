@@ -193,10 +193,12 @@ func kcpBlock(token string) (kcp.BlockCrypt, error) {
 }
 
 // tuneKCP is the fast profile: no delay, 10 ms tick, fast resend, no
-// congestion window, large windows, stream mode for full segments.
+// congestion window, large windows, stream mode for full segments. A session
+// has at most a window of segments in flight, so 4096 of about 1.3 KB allow
+// some 400 Mbit/s at 100 ms where 1024 stopped near 100.
 func tuneKCP(s *kcp.UDPSession) {
 	s.SetNoDelay(1, 10, 2, 1)
-	s.SetWindowSize(1024, 1024)
+	s.SetWindowSize(4096, 4096)
 	s.SetMtu(1350 - pck.PckOverhead())
 	s.SetStreamMode(true)
 	s.SetWriteDelay(false)

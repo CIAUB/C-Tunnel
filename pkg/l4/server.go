@@ -33,9 +33,11 @@ func smuxConfig() *smux.Config {
 	c.Version = 2
 	c.KeepAliveInterval = 10 * time.Second
 	c.KeepAliveTimeout = 30 * time.Second
-	c.MaxFrameSize = 32768
-	c.MaxReceiveBuffer = 16 << 20
-	c.MaxStreamBuffer = 4 << 20
+	c.MaxFrameSize = 65535
+	// A stream sends at most MaxStreamBuffer per round trip: 16 MiB is about
+	// 1.3 Gbit/s at 100 ms. Memory is only used while a reader falls behind.
+	c.MaxReceiveBuffer = 64 << 20
+	c.MaxStreamBuffer = 16 << 20
 	return c
 }
 
@@ -62,6 +64,30 @@ type server struct {
 	sessions []*smux.Session // mux transports
 	next     int
 	ready    chan struct{} // closed and replaced when a link arrives
+	// busy counts pool connections carrying a user (tcp, ws, wss). With the
+	// idle ones they are the links to Kharej: a pool emptied by traffic is
+	// a busy tunnel, not a broken one.
+	busy atomic.Int64
+}
+
+// countLinks publishes the pool transports' links: idle plus busy.
+func (s *server) countLinks() {
+	if !Mux(s.cfg.Transport) {
+		s.st.Links.Store(int64(len(s.pool)) + s.busy.Load())
+	}
+}
+
+// carry runs fn on a stream from the pool, counting it as a link meanwhile.
+func (s *server) carry(fn func()) {
+	if Mux(s.cfg.Transport) {
+		fn()
+		return
+	}
+	s.busy.Add(1)
+	s.countLinks()
+	fn()
+	s.busy.Add(-1)
+	s.countLinks()
 }
 
 func (s *server) run(ctx context.Context) error {
@@ -127,7 +153,7 @@ func (s *server) admit(ctx context.Context, c net.Conn) {
 	if !Mux(s.cfg.Transport) {
 		select {
 		case s.pool <- c:
-			s.st.Links.Store(int64(len(s.pool)))
+			s.countLinks()
 			s.signal()
 		default:
 			c.Close()
@@ -212,7 +238,7 @@ func (s *server) keepPool(ctx context.Context) {
 				c.Close()
 			}
 		}
-		s.st.Links.Store(int64(alive))
+		s.countLinks()
 	}
 }
 
@@ -247,7 +273,7 @@ func (s *server) take() net.Conn {
 	if !Mux(s.cfg.Transport) {
 		select {
 		case c := <-s.pool:
-			s.st.Links.Store(int64(len(s.pool)))
+			s.countLinks()
 			return c
 		default:
 			return nil
@@ -281,7 +307,7 @@ func (s *server) serveTCP(ctx context.Context, ln net.Listener, target int) {
 				u.Close()
 				return
 			}
-			pipe(u, st, &s.st.Down, &s.st.Up)
+			s.carry(func() { pipe(u, st, &s.st.Down, &s.st.Up) })
 		}()
 	}
 }
@@ -345,17 +371,19 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 				flows[key] = f
 				mu.Unlock()
 				f.send(first, s.st)
-				rbuf := make([]byte, 65535)
-				for {
-					p, err := readDatagram(st, rbuf)
-					if err != nil {
-						break
+				s.carry(func() {
+					rbuf := make([]byte, 65535)
+					for {
+						p, err := readDatagram(st, rbuf)
+						if err != nil {
+							break
+						}
+						f.last.Store(time.Now().UnixNano())
+						s.st.Up.Add(int64(len(p)))
+						_, _ = pc.WriteToUDPAddrPort(p, addr)
 					}
-					f.last.Store(time.Now().UnixNano())
-					s.st.Up.Add(int64(len(p)))
-					_, _ = pc.WriteToUDPAddrPort(p, addr)
-				}
-				st.Close()
+					st.Close()
+				})
 				mu.Lock()
 				if flows[key] == f {
 					delete(flows, key)

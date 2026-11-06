@@ -586,7 +586,7 @@ details[open] summary{margin-bottom:12px}
         </div>
         <div class="grid2">
           <div><label for="f-index">Subnet index (10.77.N.0/30)</label><input id="f-index" type="number" min="1" max="250" placeholder="next free"></div>
-          <div id="port-wrap"><label for="f-port">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
+          <div id="port-wrap"><label for="f-port" id="f-port-l">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
         </div>
         <div id="token-wrap"><label for="f-token">Secret token (same on both servers)</label>
           <input id="f-token" class="num" autocomplete="off" placeholder="empty = random; required on kharej without a link">
@@ -956,7 +956,7 @@ function tunnelState(t) {
 }
 function methodLabel(t) {
   if (!t.reverse || t.family === "Reverse-L4") return t.method;
-  return (t.family === "UDP-Crypt" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
+  return (t.family === "UDP-Crypt" || t.family === "Stealth" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
 }
 function smallButton(label, iconID, onClick, cls) {
   const b = el("button", "btn sm " + (cls || ""));
@@ -1240,7 +1240,7 @@ function fillMethods(list) {
     const groups = {};
     for (const m of methods) {
       if (sel.id === "f-backup" && m.Family === "Reverse-L4") continue; // failover needs a tunnel IP
-      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = m.Family === "Reverse-L4" ? "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux)" : m.Family; sel.appendChild(groups[m.Family]); }
+      if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = familyLabel[m.Family] || m.Family; sel.appendChild(groups[m.Family]); }
       const o = el("option", "", m.Name + " — " + m.Title);
       o.value = m.Name;
       groups[m.Family].appendChild(o);
@@ -1248,6 +1248,10 @@ function fillMethods(list) {
   }
   syncForm();
 }
+const familyLabel = {
+  "Stealth": "Stealth — udp-hop (port hopping), faketcp (TCP look), icmp (ping)",
+  "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux)",
+};
 function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && mm.Family === "Reverse-L4"); }
 function syncForm() {
   const l4 = isL4($("f-method").value);
@@ -1278,13 +1282,15 @@ function syncForm() {
   $("sni-wrap").hidden = !(l4 && $("f-method").value.startsWith("ws"));
   $("f-l4port").required = l4 && !iran;
   $("f-l4port").placeholder = iran ? "3080 + index" : "the Iran tunnel port";
-  $("port-wrap").hidden = l4;
+  const method = $("f-method").value;
+  $("port-wrap").hidden = l4 || method === "icmp";
+  $("f-port-l").textContent = method === "udp-hop" ? "First UDP port (16 ports from it)" : method === "faketcp" ? "Port (TCP look)" : "Port (UDP or Reverse TCP)";
   $("backup-wrap").hidden = l4;
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;
   $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";
   $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes($("f-method").value);
-  $("pad-wrap").hidden = !(m && m.Family === "UDP-Crypt");
+  $("pad-wrap").hidden = !(m && (m.Family === "UDP-Crypt" || m.Family === "Stealth"));
   $("lanes-wrap").hidden = !(m && m.SupportsLanes);
   $("tid-wrap").hidden = !(m && ["eoip", "l2tpv3"].includes(m.Name));
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");

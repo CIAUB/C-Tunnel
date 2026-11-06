@@ -127,7 +127,9 @@ func firstUsableIface() string {
 		return ""
 	}
 	for _, in := range ifaces {
-		if in.Flags&net.FlagUp == 0 || in.Flags&net.FlagLoopback != 0 {
+		// A point-to-point interface is a tunnel (a layer-3 C-Tunnel device
+		// among them), never the way out to the peer.
+		if in.Flags&net.FlagUp == 0 || in.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
 			continue
 		}
 		if firstIPv4Of(&in) != nil {

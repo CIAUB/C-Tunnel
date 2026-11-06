@@ -44,9 +44,9 @@ func TestSetupLinkRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLookupAll35Methods(t *testing.T) {
-	if len(Methods) != 35 {
-		t.Fatalf("expected 35 methods, got %d", len(Methods))
+func TestLookupAll38Methods(t *testing.T) {
+	if len(Methods) != 38 {
+		t.Fatalf("expected 38 methods, got %d", len(Methods))
 	}
 	for _, m := range Methods {
 		got, ok := LookupMethod(m.Name)
