@@ -1,6 +1,7 @@
 package webpanel
 
 import (
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -10,7 +11,7 @@ import (
 
 func resetIPCache() {
 	ipCache.Lock()
-	ipCache.ip, ipCache.expires = "", time.Time{}
+	ipCache.ip, ipCache.expires, ipCache.retry = "", time.Time{}, time.Time{}
 	ipCache.Unlock()
 }
 
@@ -65,14 +66,44 @@ func TestDetectHostIPCachesTheAnswer(t *testing.T) {
 	}
 }
 
-func TestDetectHostIPEmptyWhenAllFail(t *testing.T) {
+func TestDetectHostIPEmptyWhenAllFailAndWaitsBeforeRetry(t *testing.T) {
+	var hits atomic.Int32
 	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer broken.Close()
 
 	withServices(t, broken.URL)
-	if got := publicIPv4(); got != "" {
-		t.Fatalf("publicIPv4() = %q, want empty", got)
+	for i := 0; i < 3; i++ {
+		if got := publicIPv4(); got != "" {
+			t.Fatalf("publicIPv4() = %q, want empty", got)
+		}
+	}
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("service asked %d times after a failure, want 1 until ipRetryAfter", n)
+	}
+}
+
+func TestTunnelDevicesAndBridgesAreNotOffered(t *testing.T) {
+	up := net.FlagUp | net.FlagBroadcast
+	for _, c := range []struct {
+		ifc  net.Interface
+		want bool
+	}{
+		{net.Interface{Name: "eth0", Flags: up}, true},
+		{net.Interface{Name: "ens3", Flags: up}, true},
+		{net.Interface{Name: "br0", Flags: up}, true},
+		{net.Interface{Name: "eth1", Flags: net.FlagBroadcast}, false},
+		{net.Interface{Name: "lo", Flags: net.FlagUp | net.FlagLoopback}, false},
+		{net.Interface{Name: "ct-ir-443", Flags: up}, false},
+		{net.Interface{Name: "wg0", Flags: net.FlagUp | net.FlagPointToPoint}, false},
+		{net.Interface{Name: "docker0", Flags: up}, false},
+		{net.Interface{Name: "br-1a2b3c", Flags: up}, false},
+		{net.Interface{Name: "veth12ab", Flags: up}, false},
+	} {
+		if got := usableForTunnels(c.ifc); got != c.want {
+			t.Errorf("usableForTunnels(%s) = %v, want %v", c.ifc.Name, got, c.want)
+		}
 	}
 }

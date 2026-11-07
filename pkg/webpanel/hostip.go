@@ -25,12 +25,16 @@ const (
 	ipAttemptTimeout = 3 * time.Second
 	ipTotalTimeout   = 6 * time.Second
 	ipCacheTTL       = 10 * time.Minute
+	// After every service failed, wait this long before asking again, so a
+	// server without internet does not stall each request for ipTotalTimeout.
+	ipRetryAfter = time.Minute
 )
 
 var ipCache struct {
 	sync.Mutex
 	ip      string
 	expires time.Time
+	retry   time.Time
 }
 
 // ipv4Client dials only IPv4, the same as curl -4, so an IPv6-only answer can
@@ -53,6 +57,9 @@ func publicIPv4() string {
 	if ipCache.ip != "" && time.Now().Before(ipCache.expires) {
 		return ipCache.ip
 	}
+	if time.Now().Before(ipCache.retry) {
+		return ""
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), ipTotalTimeout)
 	defer cancel()
 	for _, u := range ipServices {
@@ -65,6 +72,7 @@ func publicIPv4() string {
 			return ip
 		}
 	}
+	ipCache.retry = time.Now().Add(ipRetryAfter)
 	return ""
 }
 
@@ -97,31 +105,67 @@ func fetchIPv4(parent context.Context, url string) string {
 }
 
 // localIPv4 is the address this server uses for its own tunnels, the one the
-// engine binds to. It must be configured on a network interface, so it is taken
-// from the route to the internet (or the first usable interface address), and
-// it can be a private address behind NAT where publicIPv4 differs.
+// engine binds to. It must be configured on a network interface, so it is the
+// address on the route to the internet (or the first usable interface address),
+// and it can be a private address behind NAT where publicIPv4 differs.
 func localIPv4() string {
-	if conn, err := net.DialTimeout("udp4", "8.8.8.8:80", 600*time.Millisecond); err == nil {
-		defer conn.Close()
-		if a, ok := conn.LocalAddr().(*net.UDPAddr); ok && a.IP.To4() != nil {
-			return a.IP.String()
-		}
-	}
 	if list := localIPv4List(); len(list) > 0 {
 		return list[0]
 	}
 	return ""
 }
 
-// localIPv4List lists the IPv4 addresses of the up, non-loopback interfaces.
+// routeIPv4 is the source address the kernel picks for the internet. Dialing UDP
+// sends nothing; it only looks up the route.
+func routeIPv4() string {
+	conn, err := net.DialTimeout("udp4", "8.8.8.8:80", 600*time.Millisecond)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	if a, ok := conn.LocalAddr().(*net.UDPAddr); ok && a.IP.To4() != nil {
+		return a.IP.String()
+	}
+	return ""
+}
+
+// notForTunnels are interface name prefixes a tunnel cannot run over: this
+// program's own tunnel devices and container or VM bridges.
+var notForTunnels = []string{"ct-", "docker", "br-", "veth", "virbr", "lxc", "cni"}
+
+// usableForTunnels reports whether a tunnel can be bound to an address of ifc.
+func usableForTunnels(ifc net.Interface) bool {
+	if ifc.Flags&net.FlagUp == 0 || ifc.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
+		return false
+	}
+	for _, p := range notForTunnels {
+		if strings.HasPrefix(ifc.Name, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// localIPv4List lists the IPv4 addresses a tunnel can be bound to: the one on
+// the route to the internet first, then those of the other usable interfaces.
 func localIPv4List() []string {
-	var out []string
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(ip string) {
+		if ip != "" && !seen[ip] {
+			seen[ip] = true
+			out = append(out, ip)
+		}
+	}
 	ifaces, err := net.Interfaces()
 	if err != nil {
+		add(routeIPv4())
 		return out
 	}
+	usable := map[string]bool{}
+	var rest []string
 	for _, ifc := range ifaces {
-		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
+		if !usableForTunnels(ifc) {
 			continue
 		}
 		addrs, err := ifc.Addrs()
@@ -132,10 +176,19 @@ func localIPv4List() []string {
 			if ipnet, ok := a.(*net.IPNet); ok {
 				ip4 := ipnet.IP.To4()
 				if ip4 != nil && !ip4.IsLoopback() && !ip4.IsLinkLocalUnicast() {
-					out = append(out, ip4.String())
+					usable[ip4.String()] = true
+					rest = append(rest, ip4.String())
 				}
 			}
 		}
+	}
+	// The route's address goes first only when it is on a usable interface, so
+	// a default route through a tunnel does not offer the tunnel's own address.
+	if r := routeIPv4(); usable[r] {
+		add(r)
+	}
+	for _, ip := range rest {
+		add(ip)
 	}
 	return out
 }
@@ -143,11 +196,7 @@ func localIPv4List() []string {
 // handleHostIPs offers both addresses so the user picks the one the tunnel
 // should use: the public IPv4 and the addresses configured on this server.
 func (s *Server) handleHostIPs(w http.ResponseWriter, r *http.Request) {
-	local := localIPv4List()
-	if local == nil {
-		local = []string{}
-	}
-	body, _ := json.Marshal(map[string]any{"public": publicIPv4(), "local": local})
+	body, _ := json.Marshal(map[string]any{"public": publicIPv4(), "local": localIPv4List()})
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
 }

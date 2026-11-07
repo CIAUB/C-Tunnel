@@ -37,8 +37,10 @@ func ensureCertificate(dir string) (certFile, keyFile string, err error) {
 		DNSNames:     []string{"localhost"},
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
+	seen := map[string]bool{}
 	for _, addr := range []string{publicIPv4(), localIPv4()} {
-		if ip := net.ParseIP(addr); ip != nil {
+		if ip := net.ParseIP(addr); ip != nil && !seen[addr] {
+			seen[addr] = true
 			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
 		}
 	}
