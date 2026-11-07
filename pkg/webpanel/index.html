@@ -261,7 +261,7 @@ details[open] summary{margin-bottom:12px}
 .foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .foot-links a:hover{color:var(--tx)}
 .foot-links svg{width:15px;height:15px}
-.sponsor{display:flex;justify-content:center;margin:14px 0}
+.sponsor{display:flex;justify-content:center}
 .sponsor[hidden]{display:none}
 .sponsor img{display:block;max-width:100%;height:auto;border-radius:10px}
 .ip-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
@@ -361,6 +361,10 @@ details[open] summary{margin-bottom:12px}
     <a class="btn icon tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg></a>
     <button id="btn-logout" class="btn icon" type="button" aria-label="Log out"><svg aria-hidden="true"><use href="#i-exit"/></svg></button>
   </header>
+
+  <section class="sponsor" id="sponsor" hidden aria-label="Sponsor">
+    <a href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer"><img id="sponsor-img" alt="Sponsor" decoding="async"></a>
+  </section>
 
   <div class="rule">Server</div>
   <section class="card meters" aria-label="Resource usage">
@@ -553,9 +557,6 @@ details[open] summary{margin-bottom:12px}
     </div>
   </section>
 
-  <section class="sponsor" id="sponsor" hidden aria-label="Sponsor">
-    <a href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer"><img id="sponsor-img" alt="Sponsor C-Tunnel on GitHub" loading="lazy" decoding="async"></a>
-  </section>
   <footer class="foot-links">
     <a href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true"><use href="#i-gh"/></svg>GitHub</a>
     <a href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true"><use href="#i-tg"/></svg>Telegram</a>
@@ -1818,7 +1819,8 @@ $("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").valu
 /* ---------- sponsor ---------- */
 // The banner is read from GitHub again on every login: each login gets a new URL,
 // so the browser does not show the copy it kept from an earlier visit. If GitHub
-// cannot be reached, the section stays hidden.
+// cannot be reached, the section stays hidden. The image must not be lazy: it
+// sits in a hidden section, and a lazy image there is never fetched.
 const SPONSOR_URL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/assets/sponsor.png";
 function showSponsor() {
   const img = $("sponsor-img"), box = $("sponsor");
@@ -1839,15 +1841,19 @@ async function loadHostIPs() {
 }
 function renderHostIPs() {
   if (!hostIPs) return;
-  const options = [];
-  if (hostIPs.public) options.push(["Public", hostIPs.public]);
-  for (const ip of hostIPs.local || []) options.push(["Local", ip]);
+  const local = hostIPs.local || [], options = [];
+  if (hostIPs.public) {
+    const onServer = local.includes(hostIPs.public);
+    options.push([onServer ? "Public, on this server" : "Public", hostIPs.public,
+      onServer ? "The public address, set on this server" : "Not set on this server (NAT): a tunnel bound to it may not start. Prefer a Local address."]);
+  }
+  for (const ip of local) if (ip !== hostIPs.public) options.push(["Local", ip, "An address on this server"]);
   for (const [boxId, inputId] of [["f-ips", "f-local"], ["t-ips", "t-local"]]) {
     const box = $(boxId); if (!box) continue;
     box.replaceChildren();
-    for (const [label, ip] of options) {
+    for (const [label, ip, hint] of options) {
       const b = document.createElement("button"); b.type = "button"; b.className = "btn";
-      b.textContent = label + ": " + ip;
+      b.textContent = label + ": " + ip; b.title = hint;
       b.onclick = () => { $(inputId).value = ip; };
       box.append(b);
     }
