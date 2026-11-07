@@ -204,7 +204,10 @@ func (s *Server) handleTestServerStart(w http.ResponseWriter, r *http.Request) {
 	}
 	host := strings.TrimSpace(req.Host)
 	if host == "" {
-		host = detectHostIP()
+		host = publicIPv4()
+		if host == "" {
+			host = localIPv4()
+		}
 	}
 	if !validTestHost(host) {
 		writeError(w, http.StatusBadRequest, errors.New("enter a valid IPv4 address for the test link"))
@@ -352,7 +355,7 @@ func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conn
 	reverse, okReverse := chooseBestMode(rows, "REVERSE")
 	localIP := strings.TrimSpace(req.LocalIP)
 	if localIP == "" {
-		localIP = detectHostIP()
+		localIP = localIPv4()
 	}
 	deployments := map[string]linkTestDeployment{}
 	var deploymentErr string

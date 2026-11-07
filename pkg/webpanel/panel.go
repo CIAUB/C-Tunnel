@@ -105,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/backup", s.auth(s.handleBackup))
 	mux.HandleFunc("POST /api/backup/restore", s.auth(s.handleRestore))
 	mux.HandleFunc("POST /api/import", s.auth(s.handleImport))
+	mux.HandleFunc("GET /api/hostips", s.auth(s.handleHostIPs))
 	mux.HandleFunc("POST /api/linktest", s.auth(s.handleLinkTest))
 	mux.HandleFunc("POST /api/linktest/server/start", s.auth(s.handleTestServerStart))
 	mux.HandleFunc("GET /api/linktest/server", s.auth(s.handleTestServerStatus))
@@ -260,7 +261,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		if r.TLS != nil {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -435,7 +436,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(tc.LocalIP) == "" {
-		tc.LocalIP = detectHostIP()
+		tc.LocalIP = localIPv4()
 	}
 	if tc.Role == "kharej" && strings.TrimSpace(tc.Token) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a kharej tunnel needs the iran server's secret token (or use Add from link)"})
@@ -579,39 +580,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
-}
-
-func detectHostIP() string {
-	if conn, err := net.DialTimeout("udp4", "8.8.8.8:80", 600*time.Millisecond); err == nil {
-		defer conn.Close()
-		if a, ok := conn.LocalAddr().(*net.UDPAddr); ok && a.IP.To4() != nil {
-			return a.IP.String()
-		}
-	}
-	// No default IPv4 route: use the first routable interface address instead of
-	// failing every create with an empty local_ip.
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	for _, ifc := range ifaces {
-		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := ifc.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, a := range addrs {
-			if ipnet, ok := a.(*net.IPNet); ok {
-				ip4 := ipnet.IP.To4()
-				if ip4 != nil && !ip4.IsLoopback() && !ip4.IsLinkLocalUnicast() {
-					return ip4.String()
-				}
-			}
-		}
-	}
-	return ""
 }
 
 type failure struct {

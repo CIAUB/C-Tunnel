@@ -190,7 +190,7 @@ func (s *Server) handleDeployBest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(tc.LocalIP) == "" {
-		tc.LocalIP = detectHostIP()
+		tc.LocalIP = localIPv4()
 	}
 	st, err := s.store()
 	if err != nil {
