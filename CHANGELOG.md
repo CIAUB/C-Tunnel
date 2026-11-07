@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1]
+
+### Fixed
+- The sponsor banner never appeared: the image was lazy-loaded inside a hidden section, so the browser never fetched it. The banner now sits at the top of the panel, under the header, on every tab.
+- The address buttons in Create tunnel and Test link no longer list tunnel devices (`ct-*`), point-to-point links or container bridges. The public address is shown once, marked when it is also set on the server, and an address behind NAT carries a warning.
+- When every IPv4 service fails, the panel waits a minute before asking again instead of stalling each request for up to 6 seconds.
+
 ## [1.1.0]
 
 ### Added
