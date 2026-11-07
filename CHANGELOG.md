@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.0]
+
+### Added
+- Sponsor banner in the web panel. The image is `assets/sponsor.png` in the GitHub repository, read again from GitHub on every login, and the section stays hidden if GitHub cannot be reached.
+- The Create tunnel and Test link forms offer this server's public IPv4 and its own addresses as buttons. Nothing is filled in silently; the user picks the address a tunnel uses.
+
+### Changed
+- The public IPv4 comes from IPv4-only services (api4.ipify.org, ipv4.icanhazip.com, v4.ident.me, ifconfig.me), tried in order with a 3-second limit each and kept for 10 minutes. The server no longer reads its public address from the network interfaces.
+- An empty "This server IP" still uses the address the engine binds to, so tunnels behind NAT keep starting as before.
+- The panel certificate also lists the public and local addresses of the server.
+
 ## [1.0.0]
 
 ### Added
