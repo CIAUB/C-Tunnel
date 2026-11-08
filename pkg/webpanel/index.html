@@ -775,10 +775,21 @@ function uptime(s) {
   return (d ? d + "d " : "") + (d || h ? h + "h " : "") + m + "m";
 }
 async function copyText(text) {
-  if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return; }
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return; } catch (_) { /* fall back below */ }
+  }
+  // Without the Clipboard API (a panel on plain http://IP), copy through a
+  // selected textarea. It must sit inside the open modal dialog, if any:
+  // everything outside one is inert, so a textarea there cannot be selected and
+  // the copy comes out empty while execCommand still reports success.
+  const host = [...document.querySelectorAll("dialog[open]")].pop() || document.body;
+  const prev = document.activeElement;
   const ta = el("textarea"); ta.value = text; ta.setAttribute("readonly", ""); ta.className = "sr";
-  document.body.appendChild(ta); ta.select();
-  const ok = document.execCommand("copy"); ta.remove();
+  host.appendChild(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+  const selected = document.activeElement === ta && ta.selectionEnd - ta.selectionStart === text.length;
+  const ok = selected && document.execCommand("copy");
+  ta.remove();
+  if (prev && prev.focus) prev.focus({ preventScroll: true });
   if (!ok) throw new Error("copy blocked");
 }
 
