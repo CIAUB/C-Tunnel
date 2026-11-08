@@ -76,7 +76,9 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 | **Loss recovery** | `rudp-fec` adds one XOR parity packet per two data packets and rebuilds a lost packet without retransmission |
 | **MikroTik** | Ready-to-paste RouterOS 7 commands for `gre`, `ipip`, `6to4`, `eoip`, `vxlan` and `wireguard` |
 | **Web panel** | Dark responsive UI, HTTP by default, private base path, custom domain/TLS, live traffic, tunnel management and measured deployment |
-| **Connection test** | Sends real GRE, IPIP, SIT, ESP, WireGuard, VXLAN, QUIC, DTLS… packets between the two servers, shows which methods pass or are blocked, measures speed and recommends the best one |
+| **Connection test** | Sends real GRE, IPIP, SIT, ESP, WireGuard, VXLAN, QUIC, DTLS… packets between the two servers and runs a real tunnel for each layer-4 method, shows which methods pass or are blocked, measures speed and recommends the best one |
+| **Telegram alerts** | The Kharej servers report a tunnel down or back up, a failover switch, a restart or update, and a daily traffic report; each alert can be turned on or off in the panel or with the bot's buttons |
+| **One-click update** | Manage → Update now installs the latest release from the panel and shows the log |
 | **Persistent** | Every tunnel is a systemd unit, so it comes back after a reboot and is rebuilt cleanly on restart |
 
 ## Requirements
@@ -223,7 +225,7 @@ Two layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, 
 | `faketcp` | TLS records inside TCP segments built by hand and read through a packet socket (the `pck` carrier from BackPack). Middleboxes see one TCP connection with consistent sequence numbers; nothing is retransmitted inside it, so there is no TCP-in-TCP and the tunnel runs at UDP speed | UDP is blocked or shaped and TCP is not |
 | `icmp` | ICMP echo: requests one way, replies the other, with an identifier from the secret. The answering server's kernel would reply to each request itself; an iptables rule drops those replies and keeps the tunnel's own | only ping gets through |
 
-`faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test does not measure them, so build the tunnel to try them.
+`faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test pings the Iran server with tunnel-sized echo requests for `icmp`, and gives `faketcp` the result of the `pck` carrier it rides on.
 
 ### New look-alikes and BareUDP
 
@@ -233,7 +235,7 @@ Two layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, 
 
 ### Layer-4 reverse tunnels
 
-The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP. The Kharej server dials out to the tunnel port and sends each user connection to the target port on its own 127.0.0.1. There is no tunnel interface or tunnel IP, so failover, the tunnel benchmark and the connection test do not apply to them.
+The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP. The Kharej server dials out to the tunnel port and sends each user connection to the target port on its own 127.0.0.1. There is no tunnel interface or tunnel IP, so the tunnel benchmark does not apply to them. Failover does, to another layer-4 method: a tunnel is up while the Kharej server holds a connection to the Iran server. The connection test starts a real tunnel of each method on the Iran server's layer-4 test port (TCP and UDP 7714 from the terminal menu, or the next free port if it is taken; the menu prints the ports to open) and measures through it.
 
 | Method | Between the servers |
 |---|---|
@@ -251,7 +253,7 @@ Both servers prove they know the tunnel secret when each connection opens. Past 
 
 Between two network namespaces on 2 CPUs (iperf3, one TCP flow through a forwarded port): `tcp` about 12.7 Gbps, `ws` 10.8, `tcpmux` 7.6, `wsmux` 6.9, `wss` 6.6, `wssmux` 4.4 and `pck` 0.8 Gbps.
 
-Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; iperf3, one flow): `tcp`, `ws` and `wss` about 425 Mbit/s, `tcpmux` 373, `wsmux` 397, `wssmux` 359, `pck` 185, `udp` 188 and `udpmux` 188 (about 300 with four flows). The layer-3 methods on the same path, upload: `faketcp` 370, `icmp` 377, `stun-turn` 323, `gtp-u` 311 and `esp-udp` 307 Mbit/s, against 317 for `quic-v1`.
+Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; iperf3, one flow): `tcp`, `ws` and `wss` about 425 Mbit/s, `tcpmux` 373, `wsmux` 397, `wssmux` 359, `pck` 185, `udp` 188 and `udpmux` 188 (about 300 with four flows). Since KCP sends its acks once per 10 ms tick, `udp`, `udpmux` and `pck` run 1.6 to 2.5 times faster between namespaces, about 25% faster at 50 ms and 10-20% faster at 150 ms. The layer-3 methods on the same path, upload: `faketcp` 370, `icmp` 377, `stun-turn` 323, `gtp-u` 311 and `esp-udp` 307 Mbit/s, against 317 for `quic-v1`.
 
 ## All methods
 
@@ -352,7 +354,8 @@ The panel has four sections in the dock — **Overview**, **Connection test**, *
 
 - **Tunnels**: each card shows its state, live rate and history, and has Start/Stop, Restart, Live log, Setup link, Edit and Delete.
 - **Live log**: the tunnel's journal, coloured by level, filterable, following new lines.
-- **Manage**: health check (the same checks as the CLI, with a fix for each problem), tunnel benchmark, auto restart, built-in proxy, kernel tuning, restart all, backup download and restore, panel settings and update check.
+- **Manage**: health check (the same checks as the CLI, with a fix for each problem), tunnel benchmark, auto restart, built-in proxy, Telegram alerts, kernel tuning, restart all, backup download and restore, panel settings, update check and Update now.
+- **Update now**: runs the installer for the latest release in a systemd unit of its own (`ctunnel-update`), so the update finishes even though it restarts the panel; the dialog follows `/var/log/ctunnel-update.log` until it reports the result.
 - **Tunnel benchmark**: download, upload, ping, jitter and loss of every running tunnel, measured through the tunnel one at a time, with the fastest marked. The other server answers through `ctunnel-agent` (C-Tunnel 1.0 or newer).
 - **Auto restart**: restart every tunnel every 1-48 hours, shown on a 24-hour dial with a countdown. It is the same schedule as **Manage → Auto Refresh** in the terminal menu.
 - **Built-in proxy**: turn the SOCKS5 or HTTP proxy on, with or without a login, and see the forward to make on the Iran server.
@@ -361,7 +364,11 @@ The panel has four sections in the dock — **Overview**, **Connection test**, *
 
 ### Failover
 
-A tunnel can have a **backup method** (tunnel form, or a setup link from a server that has one). `ctunnel-agent` on both servers pings the other end through the tunnel. When it gets no answer for 45 seconds, both servers switch to the method the clock picks for that two-minute window, so they meet on the same method without contacting each other. At the top of every hour a tunnel on its backup tries its primary again, and goes back within a minute if the primary still does not answer. Both servers need roughly correct time (NTP). Editing a tunnel puts it back on its primary method; a stopped tunnel is never switched. The card and the health check show which method runs.
+A tunnel can have a **backup method** (tunnel form, or a setup link from a server that has one). `ctunnel-agent` on both servers pings the other end through the tunnel. When it gets no answer for 45 seconds, both servers switch to the method the clock picks for that two-minute window, so they meet on the same method without contacting each other. At the top of every hour a tunnel on its backup tries its primary again, and goes back within a minute if the primary still does not answer. Both servers need roughly correct time (NTP). Editing a tunnel puts it back on its primary method; a stopped tunnel is never switched. The card and the health check show which method runs. A layer-4 tunnel takes a layer-4 backup, and counts as down when the Kharej server holds no connection to the Iran server.
+
+### Telegram alerts
+
+Only the Kharej servers send, since Telegram is filtered in Iran. In **Manage → Telegram alerts** give a bot token from @BotFather and the chat ID (send `/start` to the bot to learn it), then **Send test**. Alerts: tunnel down for 45 seconds and back up, failover switch, restart or update (with the reason), and a daily report of each tunnel's state and traffic at a chosen time. `ctunnel-agent` sends them and answers the bot, only in the configured chat: `/status`, `/report` and `/settings`, whose buttons turn each alert on or off as the panel does. Settings are in `/etc/ctunnel/telegram.json`; the token is never shown again in the panel. Several Kharej servers can send alerts through one bot, but Telegram lets only one of them read the bot's messages, so give each server its own bot if each should answer the buttons.
 
 ### Built-in proxy through a tunnel
 
@@ -412,6 +419,8 @@ The screenshots use synthetic demonstration data and are generated from the actu
 | `ctunnel-panel.service` | Web panel |
 | `ctunnel-agent.service` | Failover and the tunnel benchmark responder (TCP 7719 on the tunnel IPs) |
 | `/etc/ctunnel/failover/NAME` | Present while the tunnel runs on its backup method |
+| `/etc/ctunnel/telegram.json` | Telegram alert settings (bot token, chat ID, alerts) |
+| `/var/log/ctunnel-update.log` | Log of the last update started from the panel |
 
 Logs:
 

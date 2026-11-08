@@ -222,14 +222,61 @@ func validL4(transport string) bool {
 // Set it before handing out the link.
 func (r *Responder) SetL4Port(port int) { r.l4Port.Store(int32(port)) }
 
-// FreeL4Port is a port free now for the layer-4 test tunnels, for a responder
-// whose other ports are chosen by the system too.
+// FreeL4Port is a port free now for both TCP and UDP, for the layer-4 test
+// tunnels of a responder whose other ports are chosen by the system too.
 func FreeL4Port() int {
-	p, err := freePort()
-	if err != nil {
-		return DefaultL4Port
+	for i := 0; i < 20; i++ {
+		p, err := freePort()
+		if err == nil && portFree("udp4", p) {
+			return p
+		}
 	}
-	return p
+	return DefaultL4Port
+}
+
+// Ports picks the responder's ports: the defaults when they are free, else
+// the next free ones above them, so a busy port does not stop the test. The
+// layer-4 port must be free for both TCP and UDP.
+func Ports() (udp, tcp, l4 int) {
+	taken := map[int]bool{}
+	pick := func(def int, nets ...string) int {
+		for p := def; p < def+500 && p <= 65535; p++ {
+			if taken[p] {
+				continue
+			}
+			ok := true
+			for _, n := range nets {
+				ok = ok && portFree(n, p)
+			}
+			if ok {
+				taken[p] = true
+				return p
+			}
+		}
+		return def // nothing free nearby: let the listener report the error
+	}
+	udp = pick(DefaultUDPPort, "udp4")
+	tcp = pick(speedtest.DefaultSpeedPort, "tcp4")
+	l4 = pick(DefaultL4Port, "tcp4", "udp4")
+	return udp, tcp, l4
+}
+
+func portFree(network string, port int) bool {
+	addr := ":" + strconv.Itoa(port)
+	if network == "udp4" {
+		c, err := net.ListenPacket(network, addr)
+		if err != nil {
+			return false
+		}
+		c.Close()
+		return true
+	}
+	ln, err := net.Listen(network, addr)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
 }
 
 func freePort() (int, error) {

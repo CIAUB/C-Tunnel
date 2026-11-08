@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -96,4 +97,34 @@ func atoiOr(s string) int {
 		n = n*10 + int(c-'0')
 	}
 	return n
+}
+
+// A busy default port moves the test to the next free one, and the layer-4
+// port has to be free for UDP as well as TCP.
+func TestPortsSkipBusyPorts(t *testing.T) {
+	udpBusy, err := net.ListenPacket("udp4", ":"+strconv.Itoa(DefaultUDPPort))
+	if err != nil {
+		t.Skip("default UDP port already in use here")
+	}
+	defer udpBusy.Close()
+	l4Busy, err := net.ListenPacket("udp4", ":"+strconv.Itoa(DefaultL4Port))
+	if err != nil {
+		t.Skip("default layer-4 port already in use here")
+	}
+	defer l4Busy.Close()
+	udp, tcp, l4 := Ports()
+	if udp == DefaultUDPPort || l4 == DefaultL4Port {
+		t.Fatalf("busy port picked: udp %d, l4 %d", udp, l4)
+	}
+	if udp == tcp || udp == l4 || tcp == l4 {
+		t.Fatalf("ports collide: %d %d %d", udp, tcp, l4)
+	}
+	for _, c := range []struct {
+		n string
+		p int
+	}{{"udp4", udp}, {"tcp4", tcp}, {"tcp4", l4}, {"udp4", l4}} {
+		if !portFree(c.n, c.p) {
+			t.Fatalf("%s %d is not free", c.n, c.p)
+		}
+	}
 }

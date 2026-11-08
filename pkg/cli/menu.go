@@ -520,7 +520,8 @@ func connTestIran() {
 	Header()
 	Title("Connection Test — Iran")
 	host := Ask("This server's public IP", detectIP("udp4", "8.8.8.8:80"))
-	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken(), L4Port: conntest.DefaultL4Port}
+	udpPort, tcpPort, l4Port := conntest.Ports()
+	link := conntest.Link{Host: host, UDPPort: udpPort, TCPPort: tcpPort, TokenHex: conntest.NewToken(), L4Port: l4Port}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
@@ -909,7 +910,8 @@ func ConnTestServer(host string) {
 	if host == "" {
 		host = detectIP("udp4", "8.8.8.8:80")
 	}
-	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken(), L4Port: conntest.DefaultL4Port}
+	udpPort, tcpPort, l4Port := conntest.Ports()
+	link := conntest.Link{Host: host, UDPPort: udpPort, TCPPort: tcpPort, TokenHex: conntest.NewToken(), L4Port: l4Port}
 	r, err := conntest.Serve(context.Background(), link.UDPPort, link.TokenHex)
 	if err != nil {
 		Err(err.Error())
@@ -920,7 +922,7 @@ func ConnTestServer(host string) {
 		Err(err.Error())
 		os.Exit(1)
 	}
-	fmt.Printf("responder ready: UDP %d, TCP %d, IP protocols %v\n", link.UDPPort, link.TCPPort, r.RawOpen)
+	fmt.Printf("responder ready: UDP %d, TCP %d, layer 4 TCP+UDP %d, IP protocols %v\n", link.UDPPort, link.TCPPort, link.L4Port, r.RawOpen)
 	fmt.Printf("on the kharej server run:\n  sudo ctunnel conntest '%s'\n\n", conntest.EncodeLink(link))
 	attachResponderUI(r, host)
 	select {}

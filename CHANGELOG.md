@@ -5,21 +5,50 @@
 Planned for 2.0.
 
 ### Added
-- Layer-4 reverse tunnels after BackPack's reverse engine: `tcp`, `tcpmux`, `pck` (TCP + PCK), `ws`, `wsmux`, `wss` and `wssmux`. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own 127.0.0.1, on a stream of its own, so TCP never runs inside TCP. Each connection between the servers opens with a handshake in which both prove they know the secret; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI. No tunnel interface or IP: failover, the tunnel benchmark and the connection test do not apply to them. `pck` comes from BackPack (pkg/pck) and needs root.
+- Layer-4 reverse tunnels after BackPack's reverse engine: `tcp`, `tcpmux`, `pck` (TCP + PCK), `ws`, `wsmux`, `wss` and `wssmux`. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own 127.0.0.1, on a stream of its own, so TCP never runs inside TCP. Each connection between the servers opens with a handshake in which both prove they know the secret; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI. No tunnel interface or IP, so the tunnel benchmark does not apply to them. `pck` comes from BackPack (pkg/pck) and needs root.
 - The panel and the terminal menu build these tunnels on both servers. On Kharej the panel form asks for the Iran server's IP and the secret outside Advanced, so any tunnel can be built by hand as well as from the setup link.
 - Layer-4 transports over UDP: `udp` (a KCP session per user connection, from a pool) and `udpmux` (smux streams over a few KCP sessions), both AES-encrypted. KCP resends lost packets itself, so they suit lossy links. Each `udp` stream travels in frames with an explicit end, since KCP has no FIN: a closed or half-closed connection reaches the other side at once.
 - Stealth methods, encrypted layer-3 tunnels like UDP-Crypt whose packets do not travel as UDP, in DIRECT and REVERSE mode: `faketcp` (TLS records in hand-built TCP segments through the `pck` carrier: looks like TCP, runs at UDP speed) and `icmp` (ICMP echo; the answering kernel's own replies are dropped by an iptables rule).
 - UDP-Crypt methods `stun-turn` (TURN ChannelData, as WebRTC call relays send), `gtp-u` (GTP-U G-PDU, the mobile core's user plane) and `esp-udp` (IPsec ESP in UDP, as NAT-T sends it). The first tunnel of each takes the real protocol's port (3478, 2152, 4500) when it is free.
 - Kernel method `bareudp`: IPv4 straight inside UDP, with no header and no encryption, for links where GRE and IPIP are filtered and plain UDP passes. Needs Linux 5.7+ with the `bareudp` module; takes port 6635 when it is free. An iptables rule lets only the other server reach the port, since bareudp itself takes UDP from any address.
 - The terminal menu asks for the mode, then the family, then a group, then the method, instead of one long list.
+- The connection test covers the layer-4 methods with real tunnels: for each one the Iran server starts a tunnel on its layer-4 test port (TCP and UDP 7714 from the terminal menu, a free port from the panel), the Kharej server dials it, and the Iran server measures through it to a speed server on the Kharej server's loopback. `icmp` is measured with tunnel-sized echo requests, and `faketcp` takes the result of the `pck` carrier. Both servers need this version for the layer-4 rows; an older Iran server gets them marked as skipped.
+- Failover for layer-4 tunnels, to a layer-4 backup method. A layer-4 tunnel counts as down when the Kharej server holds no connection to the Iran server.
+- Telegram alerts from the Kharej servers (Manage → Telegram alerts): a tunnel down for 45 seconds and back up, a failover switch, a restart or update with its reason, and a daily report of each tunnel's state and traffic. The bot answers `/status`, `/report` and `/settings` only in the configured chat, and its buttons turn each alert on or off, as the panel does. Iran servers refuse the setting, since Telegram is filtered there.
+- Update now (Manage): installs the latest release from the panel in a systemd unit of its own, so the update survives the panel restart, and shows its log until the result.
 
 ### Changed
 - C-Tunnel now has Go module dependencies (smux, kcp-go, gorilla/websocket, golang.org/x). Building from source fetches them through the Go module proxy.
 - Faster layer-4 tunnels on long paths: a mux stream may have 16 MiB in flight instead of 4 MiB, frames are up to 64 KiB, and a `pck` session keeps 4096 KCP segments in flight instead of 1024. Between the servers the `tcp` transport splices the bytes in the kernel instead of copying them through the process.
+- KCP sends its acks once per 10 ms tick instead of one packet per segment. `udp`, `udpmux` and `pck` ran 1.6 to 2.5 times faster between two namespaces, about 25% faster at 50 ms and 10-20% faster at 150 ms, with the same round-trip time.
 
 ### Fixed
+- The connection test in the terminal menu stopped when one of its ports (UDP 7712, TCP 7711, layer 4 7714) was taken by another program. Each now moves to the next free port, and the screen shows the ports in use.
 - A layer-4 tunnel whose pool connections were all carrying users showed as down on the Iran server, and the health check said the Kharej server was not connected. Busy connections now count as links on both servers.
 - A `pck` or `faketcp` server with no default route could pick a tunnel interface as its way out; point-to-point interfaces are now skipped.
+
+## [1.1.2]
+
+### Fixed
+- Copy buttons in the panel's dialogs (setup link, update command, live log) copied nothing when the panel was opened over plain HTTP, while saying the text was copied. They copy again, and a copy that fails says so.
+
+## [1.1.1]
+
+### Fixed
+- The sponsor banner never appeared: the image was lazy-loaded inside a hidden section, so the browser never fetched it. The banner now sits at the top of the panel, under the header, on every tab.
+- The address buttons in Create tunnel and Test link no longer list tunnel devices (`ct-*`), point-to-point links or container bridges. The public address is shown once, marked when it is also set on the server, and an address behind NAT carries a warning.
+- When every IPv4 service fails, the panel waits a minute before asking again instead of stalling each request for up to 6 seconds.
+
+## [1.1.0]
+
+### Added
+- Sponsor banner in the web panel. The image is `assets/sponsor.png` in the GitHub repository, read again from GitHub on every login, and the section stays hidden if GitHub cannot be reached.
+- The Create tunnel and Test link forms offer this server's public IPv4 and its own addresses as buttons. Nothing is filled in silently; the user picks the address a tunnel uses.
+
+### Changed
+- The public IPv4 comes from IPv4-only services (api4.ipify.org, ipv4.icanhazip.com, v4.ident.me, ifconfig.me), tried in order with a 3-second limit each and kept for 10 minutes. The server no longer reads its public address from the network interfaces.
+- An empty "This server IP" still uses the address the engine binds to, so tunnels behind NAT keep starting as before.
+- The panel certificate also lists the public and local addresses of the server.
 
 ## [1.0.0]
 
