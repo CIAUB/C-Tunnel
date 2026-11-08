@@ -1261,7 +1261,6 @@ function fillMethods(list) {
   for (const sel of [$("f-method"), $("f-backup")]) {
     const groups = {};
     for (const m of methods) {
-      if (sel.id === "f-backup" && m.Family === "Reverse-L4") continue; // failover needs a tunnel IP
       if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = familyLabel[m.Family] || m.Family; sel.appendChild(groups[m.Family]); }
       const o = el("option", "", m.Name + " — " + m.Title);
       o.value = m.Name;
@@ -1287,10 +1286,11 @@ function syncForm() {
   if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) { $("f-method").value = "gre"; return syncForm(); }
   for (const o of $("f-backup").options) {
     const mm = methods.find(x => x.Name === o.value);
-    o.hidden = o.disabled = !!o.value && (o.value === $("f-method").value || (rev && !!(mm && mm.IPv6Underlay)));
+    // The backup is of the same kind: port forwarding for a layer-4 tunnel, packets otherwise.
+    o.hidden = o.disabled = !!o.value && (o.value === $("f-method").value || (rev && !!(mm && mm.IPv6Underlay)) || isL4(o.value) !== l4);
   }
   if ($("f-backup").selectedOptions[0] && $("f-backup").selectedOptions[0].disabled) $("f-backup").value = "";
-  $("bport-wrap").hidden = !$("f-backup").value || l4;
+  $("bport-wrap").hidden = !$("f-backup").value;
   const m = methods.find(x => x.Name === $("f-method").value);
   const iran = $("f-role").value === "iran", revIran = rev && iran;
   $("f-remote").required = !revIran;
@@ -1308,7 +1308,6 @@ function syncForm() {
   $("port-wrap").hidden = l4 || method === "icmp";
   $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : "Port (UDP or Reverse TCP)";
   $("f-l4port-l").textContent = method === "udp" || method === "udpmux" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
-  $("backup-wrap").hidden = l4;
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;
   $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";

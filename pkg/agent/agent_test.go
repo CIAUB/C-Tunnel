@@ -30,9 +30,13 @@ func (l *link) up() bool {
 }
 
 func newLink(t *testing.T, start time.Time) *link {
+	return newLinkFor(t, start, catalog.TunnelConfig{Name: "t1", Role: "iran", Method: "gre", BackupMethod: "dtls-1.3", TunRemote4: "10.77.1.2"})
+}
+
+func newLinkFor(t *testing.T, start time.Time, tc catalog.TunnelConfig) *link {
 	dir := t.TempDir()
 	st, _ := catalog.LoadStore(dir)
-	st.Tunnels = []catalog.TunnelConfig{{Name: "t1", Role: "iran", Method: "gre", BackupMethod: "dtls-1.3", TunRemote4: "10.77.1.2"}}
+	st.Tunnels = []catalog.TunnelConfig{tc}
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +47,12 @@ func newLink(t *testing.T, start time.Time) *link {
 			StoreDir: dir,
 			Now:      func() time.Time { return l.now },
 			Probe:    func(string) bool { return l.up() },
+			Links: func(string) int {
+				if l.up() {
+					return 3
+				}
+				return 0
+			},
 			Enabled:  func(catalog.TunnelConfig) bool { return true },
 			OnBackup: func(string) bool { return l.backup[i] },
 			Switch: func(_ string, _ catalog.TunnelConfig, b bool) error {
@@ -145,5 +155,28 @@ func TestClockSkewBetweenTheEnds(t *testing.T) {
 	l.run(70 * time.Minute)
 	if l.backup != [2]bool{false, false} || !l.up() {
 		t.Fatalf("skewed ends did not return to the primary: %v", l.backup)
+	}
+}
+
+// A layer-4 tunnel has no tunnel IP: it is judged by its connections to the
+// other server, and moves to its layer-4 backup like any other.
+func TestLayer4TunnelFailsOverOnItsConnections(t *testing.T) {
+	l := newLinkFor(t, time.Date(2026, 11, 3, 10, 7, 0, 0, time.UTC),
+		catalog.TunnelConfig{Name: "t1", Role: "iran", Method: "wssmux", BackupMethod: "udpmux"})
+	for _, m := range l.monitors {
+		m.Probe = func(string) bool { t.Fatal("a layer-4 tunnel was pinged"); return false }
+	}
+	if down := l.run(30 * time.Minute); down != 0 || l.switches != 0 {
+		t.Fatalf("healthy: down %v, %d switches", down, l.switches)
+	}
+	l.primaryOK = false
+	l.run(6 * time.Minute)
+	if l.backup != [2]bool{true, true} || !l.up() {
+		t.Fatalf("not on udpmux together: %v", l.backup)
+	}
+	l.primaryOK = true
+	l.run(70 * time.Minute)
+	if l.backup != [2]bool{false, false} || !l.up() {
+		t.Fatalf("did not return to wssmux: %v", l.backup)
 	}
 }

@@ -294,8 +294,13 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		if !ok {
 			return fmt.Errorf("unknown backup method %q", tc.BackupMethod)
 		}
-		if m.L4() || bm.L4() {
-			return fmt.Errorf("failover needs a tunnel IP; %s tunnels have none", catalog.FamilyReverseL4)
+		// A layer-4 tunnel forwards ports and the others carry packets between
+		// tunnel IPs; failover swaps the transport, not what the tunnel is.
+		if m.L4() && !bm.L4() {
+			return fmt.Errorf("a %s tunnel needs a %s backup method (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)", catalog.FamilyReverseL4, catalog.FamilyReverseL4)
+		}
+		if !m.L4() && bm.L4() {
+			return fmt.Errorf("%s forwards ports without a tunnel IP; the backup of a %s tunnel must carry packets too", bm.Name, m.Name)
 		}
 		tc.BackupMethod = bm.Name
 		if bm.Name == m.Name {

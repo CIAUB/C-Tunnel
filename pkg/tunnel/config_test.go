@@ -525,3 +525,22 @@ func TestLookAlikesTakeTheRealPortWhenFree(t *testing.T) {
 		}
 	}
 }
+
+func TestLayer4FailoverNeedsALayer4Backup(t *testing.T) {
+	ok := catalog.TunnelConfig{Role: "iran", Method: "wssmux", LocalIP: "198.51.100.1", BackupMethod: "udpmux", Index: 2}
+	if err := Normalize(&ok, nil); err != nil {
+		t.Fatalf("wssmux with a udpmux backup: %v", err)
+	}
+	b, err := BackupConfig(ok)
+	if err != nil || b.Method != "udpmux" || b.Port == 0 || !b.Reverse {
+		t.Fatalf("backup config: %+v %v", b, err)
+	}
+	for _, bad := range []catalog.TunnelConfig{
+		{Role: "iran", Method: "tcp", LocalIP: "198.51.100.1", BackupMethod: "gre"},
+		{Role: "iran", Method: "gre", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5", BackupMethod: "udpmux"},
+	} {
+		if err := Normalize(&bad, nil); err == nil {
+			t.Fatalf("accepted %s with backup %s", bad.Method, bad.BackupMethod)
+		}
+	}
+}

@@ -41,6 +41,9 @@ type Monitor struct {
 	StoreDir string
 	Now      func() time.Time
 	Probe    func(ip string) bool
+	// Links is how many connections a layer-4 tunnel holds to the other
+	// server; such a tunnel has no tunnel IP to ping, and none means down.
+	Links    func(name string) int
 	Enabled  func(tc catalog.TunnelConfig) bool
 	OnBackup func(name string) bool
 	Switch   func(storeDir string, tc catalog.TunnelConfig, backup bool) error
@@ -59,6 +62,7 @@ func NewMonitor(storeDir string) *Monitor {
 		StoreDir: storeDir,
 		Now:      time.Now,
 		Probe:    ping,
+		Links:    tunnel.L4Links,
 		Enabled:  enabled,
 		OnBackup: tunnel.OnBackup,
 		Switch:   tunnel.SwitchMethod,
@@ -91,7 +95,8 @@ func (m *Monitor) Check() {
 	now := m.Now()
 	seen := map[string]bool{}
 	for _, tc := range st.Tunnels {
-		if tc.BackupMethod == "" || tc.TunRemote4 == "" {
+		l4 := layer4(tc.Method)
+		if tc.BackupMethod == "" || (!l4 && tc.TunRemote4 == "") {
 			continue
 		}
 		seen[tc.Name] = true
@@ -118,7 +123,7 @@ func (m *Monitor) Check() {
 			m.switchTo(tc, w, false, "hourly retry of the primary method")
 			continue
 		}
-		if m.Probe(tc.TunRemote4) {
+		if m.alive(tc, l4) {
 			w.lastOK = now
 			if w.retrying && now.Sub(w.lastSwitch) >= downAfter {
 				w.retrying = false
@@ -135,7 +140,11 @@ func (m *Monitor) Check() {
 			continue
 		}
 		if want := outageBackup(now); want != onBackup {
-			m.switchTo(tc, w, want, "no answer from "+tc.TunRemote4+" for "+now.Sub(w.lastOK).Round(time.Second).String())
+			what := "no answer from " + tc.TunRemote4
+			if l4 {
+				what = "no connection to the other server"
+			}
+			m.switchTo(tc, w, want, what+" for "+now.Sub(w.lastOK).Round(time.Second).String())
 		}
 	}
 	for name := range m.state {
@@ -143,6 +152,21 @@ func (m *Monitor) Check() {
 			delete(m.state, name)
 		}
 	}
+}
+
+// layer4 reports whether method forwards ports (pkg/l4) rather than packets.
+func layer4(method string) bool {
+	m, ok := catalog.LookupMethod(method)
+	return ok && m.L4()
+}
+
+// alive reports whether the tunnel carries traffic now: the other end answers
+// ping on its tunnel IP, or a layer-4 tunnel holds a connection to it.
+func (m *Monitor) alive(tc catalog.TunnelConfig, l4 bool) bool {
+	if l4 {
+		return m.Links(tc.Name) > 0
+	}
+	return m.Probe(tc.TunRemote4)
 }
 
 func (m *Monitor) switchTo(tc catalog.TunnelConfig, w *watch, backup bool, why string) {
