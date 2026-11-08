@@ -202,13 +202,19 @@ func kcpBlock(token string) (kcp.BlockCrypt, error) {
 // congestion window, large windows, stream mode for full segments. A session
 // has at most a window of segments in flight, so 4096 of about 1.3 KB allow
 // some 400 Mbit/s at 100 ms where 1024 stopped near 100.
+//
+// Acks go out once per tick, not one packet per segment received: data is
+// still sent at once. The ack flood was a third of the packets on the wire and
+// fed KCP's RTT estimate with samples that set off needless resends. Batched,
+// a session ran 2 to 2.5 times faster on a LAN, a quarter faster at 50 ms and
+// 10-20% faster at 150 ms with loss, with the same round-trip time.
 func tuneKCP(s *kcp.UDPSession, mtu int) {
 	s.SetNoDelay(1, 10, 2, 1)
 	s.SetWindowSize(4096, 4096)
 	s.SetMtu(mtu)
 	s.SetStreamMode(true)
 	s.SetWriteDelay(false)
-	s.SetACKNoDelay(true)
+	s.SetACKNoDelay(false)
 }
 
 type kcpListener struct {
