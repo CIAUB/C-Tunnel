@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/notify"
 	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunlisten"
 	"ctunnel/pkg/tunnel"
@@ -47,6 +48,8 @@ type Monitor struct {
 	Enabled  func(tc catalog.TunnelConfig) bool
 	OnBackup func(name string) bool
 	Switch   func(storeDir string, tc catalog.TunnelConfig, backup bool) error
+	// Switched, when set, hears of every switch made (Telegram alerts).
+	Switched func(tc catalog.TunnelConfig, backup bool, why string)
 
 	state map[string]*watch
 }
@@ -178,6 +181,10 @@ func (m *Monitor) switchTo(tc catalog.TunnelConfig, w *watch, backup bool, why s
 	w.lastSwitch = m.Now()
 	if err := m.Switch(m.StoreDir, tc, backup); err != nil {
 		log.Printf("%s: switch to %s failed: %v", tc.Name, to, err)
+		return
+	}
+	if m.Switched != nil {
+		m.Switched(tc, backup, why)
 	}
 }
 
@@ -194,6 +201,14 @@ func Run(ctx context.Context, storeDir string) {
 		}
 	}()
 	m := NewMonitor(storeDir)
+	n := notify.New(storeDir, func(tc catalog.TunnelConfig) bool {
+		if layer4(tc.Method) {
+			return tunnel.L4Links(tc.Name) > 0
+		}
+		return tc.TunRemote4 == "" || ping(tc.TunRemote4)
+	}, enabled)
+	m.Switched = n.Failover
+	go n.Run(ctx)
 	t := time.NewTicker(checkEvery)
 	defer t.Stop()
 	for {

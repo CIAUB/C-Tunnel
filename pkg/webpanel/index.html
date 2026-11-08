@@ -239,6 +239,9 @@ details[open] summary{margin-bottom:12px}
 .loghead select{width:auto;min-height:36px}
 .switch{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:12px;color:var(--tx2);cursor:pointer}
 .switch input{width:16px;min-height:16px;accent-color:var(--ac)}
+.tg-events{display:grid;grid-template-columns:1fr;gap:10px;align-items:center}
+.tg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tg-events .tg-time{width:auto;max-width:140px}
 .logs{list-style:none;height:min(58vh,520px);overflow:auto;padding:10px 0;background:var(--field);border:1px solid var(--ln);border-radius:var(--r);font:12px/1.65 var(--mono)}
 .logs li{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:1px 14px;border-left:2px solid transparent}
 .logs li .t{color:var(--dim)}
@@ -538,6 +541,11 @@ details[open] summary{margin-bottom:12px}
         <div class="acts"><button class="btn" type="button" data-go="#/proxy">Configure proxy</button></div>
       </article>
       <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-tg"/></svg></div><div><b>Telegram alerts</b><span>Tunnel down and back up, failover, restarts and a daily report, from the Kharej servers</span></div></div>
+        <div class="kv"><span>State</span><b id="tg-state">—</b></div>
+        <div class="acts"><button class="btn" type="button" data-go="#/telegram">Set up alerts</button></div>
+      </article>
+      <article class="card mcard">
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-box"/></svg></div><div><b>Backup &amp; restore</b><span>Every tunnel's settings and secret token in one JSON file. Keep it private.</span></div></div>
         <div class="acts">
           <a id="btn-backup" class="btn" download><svg aria-hidden="true"><use href="#i-down"/></svg>Download backup</a>
@@ -695,6 +703,25 @@ details[open] summary{margin-bottom:12px}
     <div class="grid2"><div><label for="px-user">Username</label><input id="px-user" autocomplete="off" placeholder="empty = no login"></div><div><label for="px-pass">Password</label><input id="px-pass" type="password" autocomplete="new-password"></div></div>
     <p class="hint" id="px-hint"></p>
     <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-telegram" aria-labelledby="tg-title">
+  <form id="tg-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="tg-title">Telegram alerts</h3><p>Sent by this server's agent. Create a bot with @BotFather, then send it /start to see your chat ID.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="tg-iran" class="form-error" role="note" hidden>This is an Iran server, where Telegram is filtered. Set up the alerts in the panel of each Kharej server; they report the tunnels from their side.</div>
+    <div id="tg-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+    <div class="grid2"><div><label for="tg-token">Bot token</label><input id="tg-token" class="mono" type="password" autocomplete="off" placeholder="123456789:AA…"></div><div><label for="tg-chat">Chat ID</label><input id="tg-chat" class="mono" autocomplete="off" placeholder="the number /start shows, or @channel"></div></div>
+    <div><label id="tg-ev-l">Send an alert when</label>
+      <div class="tg-events" role="group" aria-labelledby="tg-ev-l">
+        <label class="switch"><input id="tg-down" type="checkbox">a tunnel goes down or comes back</label>
+        <label class="switch"><input id="tg-failover" type="checkbox">failover switches a tunnel</label>
+        <label class="switch"><input id="tg-restart" type="checkbox">the server restarts or is updated</label>
+        <div class="tg-row"><label class="switch"><input id="tg-daily" type="checkbox">a daily report, at</label><input id="tg-daily-at" type="time" class="mono tg-time" value="09:00" aria-label="Daily report time"></div>
+      </div></div>
+    <p class="hint">The same switches are in the bot: send it /settings. /status lists the tunnels and /report sends the daily report now. Each Kharej server needs a bot of its own for the buttons; alerts work with a shared bot too.</p>
+    <p id="tg-status" class="note" aria-live="polite"></p>
+    <div class="dfoot"><button id="tg-remove" type="button" class="btn ghost">Remove</button><button id="tg-test" type="button" class="btn">Send test</button><button type="submit" class="btn primary">Save</button></div>
   </form>
 </dialog>
 
@@ -1166,7 +1193,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
    Sections are pages; everything else is a dialog over the section it belongs
    to, and closing it returns there. Every screen has its own hash. */
 const SECTIONS = { "": "overview", test: "test", tunnels: "tunnels", manage: "manage" };
-const DIALOG_ROUTES = { add: "tunnels", import: "tunnels", health: "manage", settings: "manage", update: "manage", proxy: "manage" };
+const DIALOG_ROUTES = { add: "tunnels", import: "tunnels", health: "manage", settings: "manage", update: "manage", proxy: "manage", telegram: "manage" };
 let routeDialog = null, pushedDialog = false;
 function navigate(hash) {
   if (location.hash === hash) { route(); return; }
@@ -1202,6 +1229,7 @@ function route() {
     else if (first === "health") openHealth();
     else if (first === "settings") openSettings();
     else if (first === "proxy") openProxy();
+    else if (first === "telegram") openTelegram();
     else if (first === "update") { if (versionInfo && versionInfo.update_available) openRouteDialog("dlg-update"); else history.replaceState(null, "", "#/manage"); }
     return;
   }
@@ -1584,7 +1612,64 @@ async function loadManageExtras() {
   api("/api/bench").then(renderBench).catch(() => {});
   try { autoRefresh = await api("/api/auto-refresh"); renderAutoRefresh(); } catch (err) { $("ar-label").textContent = err.message; }
   try { proxyInfo = await api("/api/proxy"); renderProxyCard(); } catch (err) { $("px-state").textContent = err.message; }
+  try { renderTelegramCard(await api("/api/telegram")); } catch (err) { $("tg-state").textContent = err.message; }
 }
+
+/* ---------- Telegram alerts ---------- */
+function telegramState(t) {
+  if (t.iran) return "Sent by the Kharej servers";
+  if (!t.chat_id || !t.token) return "Off";
+  const st = t.status || {};
+  if (st.last_error) return "Error: " + st.last_error;
+  if (st.state !== "on") return "Saved; the agent starts sending within a few seconds";
+  return st.last_sent ? "On · last alert " + new Date(st.last_sent).toLocaleString() : "On";
+}
+function renderTelegramCard(t) { $("tg-state").textContent = telegramState(t); }
+function fillTelegram(t) {
+  $("tg-token").value = ""; $("tg-token").placeholder = t.token ? t.token + " (unchanged)" : "123456789:AA…";
+  $("tg-chat").value = t.chat_id || "";
+  for (const k of ["down", "failover", "restart", "daily"]) $("tg-" + k).checked = !!t[k];
+  $("tg-daily-at").value = t.daily_at || "09:00";
+  $("tg-iran").hidden = !t.iran;
+  for (const i of $("tg-form").querySelectorAll("input, #tg-test, [type=submit]")) i.disabled = t.iran;
+  $("tg-remove").hidden = !t.token;
+  const st = t.status || {}, buttons = st.buttons && st.buttons !== "ok" ? " Bot buttons: " + st.buttons + "." : "";
+  $("tg-status").textContent = telegramState(t) + "." + buttons;
+  renderTelegramCard(t);
+}
+async function openTelegram() {
+  $("tg-error").hidden = true;
+  try { fillTelegram(await api("/api/telegram")); } catch (err) { toast(err.message); history.replaceState(null, "", "#/manage"); return; }
+  openRouteDialog("dlg-telegram");
+}
+function telegramBody() {
+  return { token: $("tg-token").value.trim(), chat_id: $("tg-chat").value.trim(), down: $("tg-down").checked, failover: $("tg-failover").checked,
+    restart: $("tg-restart").checked, daily: $("tg-daily").checked, daily_at: $("tg-daily-at").value || "09:00" };
+}
+async function saveTelegram(btn, body, done) {
+  const errBox = $("tg-error");
+  errBox.hidden = true; btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try { const t = await api("/api/telegram", { method: "POST", body: JSON.stringify(body) }); fillTelegram(t); if (done) done(t); return true; }
+  catch (err) { errBox.textContent = err.message; errBox.hidden = false; errBox.focus(); return false; }
+  finally { btn.disabled = false; btn.removeAttribute("aria-busy"); }
+}
+$("tg-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  await saveTelegram(e.submitter, telegramBody(), () => toast("Telegram alerts saved", true));
+});
+$("tg-test").onclick = async e => {
+  const btn = e.currentTarget;
+  // Save what is typed first, so the test uses it.
+  if (!(await saveTelegram(btn, telegramBody()))) return;
+  btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try { await api("/api/telegram/test", { method: "POST", timeout: 20000 }); toast("Test message sent", true); }
+  catch (err) { $("tg-error").textContent = err.message; $("tg-error").hidden = false; }
+  finally { btn.disabled = false; btn.removeAttribute("aria-busy"); }
+};
+$("tg-remove").onclick = async e => {
+  if (!(await confirmAction("Remove Telegram alerts?", "The bot token and chat ID are deleted from this server; no more alerts are sent from it.", "Remove"))) return;
+  await saveTelegram(e.currentTarget, { remove: true }, () => toast("Telegram alerts removed", true));
+};
 function drawDial(hours, now) {
   const svg = $("ar-dial"), ns = "http://www.w3.org/2000/svg";
   svg.replaceChildren();
