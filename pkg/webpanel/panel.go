@@ -63,6 +63,7 @@ type Server struct {
 	telemetryMu    sync.Mutex
 	telemetry      *telemetryState
 	versionMu      sync.Mutex
+	updateMu       sync.Mutex
 	versionCached  versionStatus
 	versionChecked time.Time
 	sampling       atomic.Bool // the background sampler feeds the charts
@@ -93,6 +94,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.auth(s.handleLogout))
 	mux.HandleFunc("GET /api/overview", s.auth(s.handleOverview))
 	mux.HandleFunc("GET /api/version", s.auth(s.handleVersion))
+	mux.HandleFunc("GET /api/self-update", s.auth(s.handleSelfUpdate))
+	mux.HandleFunc("POST /api/self-update", s.auth(s.handleSelfUpdate))
 	mux.HandleFunc("POST /api/tunnels", s.auth(s.handleCreate))
 	mux.HandleFunc("PUT /api/tunnels/{name}", s.auth(s.handleUpdate))
 	mux.HandleFunc("DELETE /api/tunnels/{name}", s.auth(s.handleDelete))

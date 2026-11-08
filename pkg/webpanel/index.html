@@ -713,7 +713,8 @@ details[open] summary{margin-bottom:12px}
     <div><label for="u-command">Run on the server</label>
       <div class="copy-row"><input id="u-command" class="mono" readonly value="sudo bash -c &quot;$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)&quot;"><button id="u-copy" class="btn" type="button">Copy</button></div></div>
     <p class="hint">The installer verifies the release checksum and restarts the panel. Update the Iran server before the Kharej servers.</p>
-    <div class="dfoot"><button class="btn ghost" type="button" data-close>Close</button><a id="u-link" class="btn primary" target="_blank" rel="noopener noreferrer" hidden>Open release</a></div>
+    <pre id="u-log" class="out" hidden></pre>
+    <div class="dfoot"><span id="u-state" class="note"></span><button class="btn ghost" type="button" data-close>Close</button><a id="u-link" class="btn" target="_blank" rel="noopener noreferrer" hidden>Open release</a><button id="u-run" class="btn primary" type="button">Update now</button></div>
   </div>
 </dialog>
 
@@ -1689,6 +1690,46 @@ $("proxy-form").addEventListener("submit", async e => {
   } catch (err) { errBox.textContent = err.message; errBox.hidden = false; errBox.focus(); }
   finally { btn.disabled = false; btn.removeAttribute("aria-busy"); }
 });
+/* ---------- one-click update ---------- */
+// The installer runs in a systemd unit of its own and restarts this panel, so
+// polling goes on through a few failed requests until the new panel answers.
+let updatePoll = null;
+function showUpdateLog(st) {
+  const box = $("u-log");
+  box.hidden = !st.log; box.textContent = st.log || "";
+  box.scrollTop = box.scrollHeight;
+}
+async function pollUpdate(from, startedAt) {
+  let st = null;
+  try { st = await api("/api/self-update", { timeout: 8000 }); } catch (_) { /* the panel is restarting */ }
+  if (st) {
+    showUpdateLog(st);
+    if (st.done) {
+      clearInterval(updatePoll); updatePoll = null;
+      $("u-run").disabled = false; $("u-run").removeAttribute("aria-busy");
+      if (st.ok) { $("u-state").textContent = "Updated. Reloading…"; toast("Updated", true); setTimeout(() => location.reload(), 2500); }
+      else { $("u-state").textContent = "The update failed; the installed version is unchanged."; toast("Update failed"); }
+      return;
+    }
+  }
+  $("u-state").textContent = st ? "Updating… " + Math.round((Date.now() - startedAt) / 1000) + " s" : "Waiting for the panel to restart…";
+  if (Date.now() - startedAt > 16 * 60 * 1000) { clearInterval(updatePoll); updatePoll = null; $("u-state").textContent = "No result after 16 minutes; see /var/log/ctunnel-update.log"; $("u-run").disabled = false; }
+}
+$("u-run").onclick = async () => {
+  if (!(await confirmAction("Update this server now?", "The latest release is installed here and the tunnels and the panel restart; traffic stops for a few seconds.", "Update now"))) return;
+  const btn = $("u-run");
+  btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try {
+    const r = await api("/api/self-update", { method: "POST" });
+    const startedAt = Date.now();
+    $("u-state").textContent = "Updating…";
+    clearInterval(updatePoll);
+    updatePoll = setInterval(() => pollUpdate(r.from, startedAt), 1500);
+  } catch (err) {
+    btn.disabled = false; btn.removeAttribute("aria-busy");
+    $("u-state").textContent = err.message; toast(err.message);
+  }
+};
 $("u-copy").onclick = async () => {
   try { await copyText($("u-command").value); toast("Update command copied", true); }
   catch (_) { $("u-command").select(); toast("Select the command and copy it by hand"); }
