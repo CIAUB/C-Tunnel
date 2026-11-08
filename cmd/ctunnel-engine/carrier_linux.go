@@ -204,7 +204,6 @@ func iptables(args ...string) ([]byte, error) {
 	return exec.Command("iptables", append([]string{"-w"}, args...)...).CombinedOutput()
 }
 
-
 type icmpCarrier struct{ s *icmpSocket }
 
 func (c icmpCarrier) enableGRO() bool { return false }

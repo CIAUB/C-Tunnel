@@ -44,9 +44,19 @@ func TestSetupLinkRoundTrip(t *testing.T) {
 	}
 }
 
-func TestLookupAll38Methods(t *testing.T) {
-	if len(Methods) != 38 {
-		t.Fatalf("expected 38 methods, got %d", len(Methods))
+func TestLookupAll43Methods(t *testing.T) {
+	if len(Methods) != 43 {
+		t.Fatalf("expected 43 methods, got %d", len(Methods))
+	}
+	ids := map[int]string{}
+	for _, m := range Methods {
+		if other, dup := ids[m.ID]; dup {
+			t.Fatalf("ID %d used by both %s and %s", m.ID, other, m.Name)
+		}
+		ids[m.ID] = m.Name
+	}
+	if _, ok := LookupMethod("udp-hop"); ok {
+		t.Fatal("udp-hop is still listed")
 	}
 	for _, m := range Methods {
 		got, ok := LookupMethod(m.Name)

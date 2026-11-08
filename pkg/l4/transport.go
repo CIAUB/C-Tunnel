@@ -41,6 +41,8 @@ func listen(cfg *Config) (listener, error) {
 		return listenWS(cfg, addr)
 	case "pck":
 		return listenPCK(cfg)
+	case "udp", "udpmux":
+		return listenKCP(cfg, addr)
 	}
 	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
 }
@@ -56,6 +58,8 @@ func dial(ctx context.Context, cfg *Config) (net.Conn, error) {
 		return dialWS(ctx, cfg, addr)
 	case "pck":
 		return dialPCK(cfg)
+	case "udp", "udpmux":
+		return dialKCP(cfg, addr)
 	}
 	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
 }
@@ -186,7 +190,9 @@ func selfSignedCert(sni string) (tls.Certificate, error) {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
 
-// pck: KCP sessions over pkg/pck, AES-encrypted with a key from the token.
+// pck, udp and udpmux: KCP sessions, AES-encrypted with a key from the token.
+// pck carries them in TCP segments built by hand (pkg/pck); udp and udpmux in
+// plain UDP datagrams.
 
 func kcpBlock(token string) (kcp.BlockCrypt, error) {
 	return kcp.NewAESBlockCrypt(pbkdf2.Key([]byte(token), []byte("ctunnel-l4-kcp-v1"), 4096, 32, sha256.New))
@@ -196,19 +202,21 @@ func kcpBlock(token string) (kcp.BlockCrypt, error) {
 // congestion window, large windows, stream mode for full segments. A session
 // has at most a window of segments in flight, so 4096 of about 1.3 KB allow
 // some 400 Mbit/s at 100 ms where 1024 stopped near 100.
-func tuneKCP(s *kcp.UDPSession) {
+func tuneKCP(s *kcp.UDPSession, mtu int) {
 	s.SetNoDelay(1, 10, 2, 1)
 	s.SetWindowSize(4096, 4096)
-	s.SetMtu(1350 - pck.PckOverhead())
+	s.SetMtu(mtu)
 	s.SetStreamMode(true)
 	s.SetWriteDelay(false)
 	s.SetACKNoDelay(true)
 }
 
 type kcpListener struct {
-	ln   *kcp.Listener
-	conn net.PacketConn
-	once sync.Once
+	ln    *kcp.Listener
+	conn  net.PacketConn // pck's packet socket; nil when ln owns a UDP socket
+	mtu   int
+	frame bool // udp: each session is one stream, framed by kcpConn
+	once  sync.Once
 }
 
 func listenPCK(cfg *Config) (listener, error) {
@@ -225,7 +233,21 @@ func listenPCK(cfg *Config) (listener, error) {
 		pc.Close()
 		return nil, err
 	}
-	return &kcpListener{ln: ln, conn: pc}, nil
+	return &kcpListener{ln: ln, conn: pc, mtu: 1350 - pck.PckOverhead()}, nil
+}
+
+func listenKCP(cfg *Config, addr string) (listener, error) {
+	block, err := kcpBlock(cfg.Token)
+	if err != nil {
+		return nil, err
+	}
+	ln, err := kcp.ListenWithOptions(addr, block, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	_ = ln.SetReadBuffer(kcpSocketBuffer)
+	_ = ln.SetWriteBuffer(kcpSocketBuffer)
+	return &kcpListener{ln: ln, mtu: kcpUDPMTU, frame: cfg.Transport == "udp"}, nil
 }
 
 func (k *kcpListener) Accept() (net.Conn, error) {
@@ -233,7 +255,10 @@ func (k *kcpListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	tuneKCP(s)
+	tuneKCP(s, k.mtu)
+	if k.frame {
+		return newKCPConn(s), nil
+	}
 	return s, nil
 }
 
@@ -243,7 +268,9 @@ func (k *kcpListener) Close() error {
 	var err error
 	k.once.Do(func() {
 		err = k.ln.Close()
-		_ = k.conn.Close()
+		if k.conn != nil {
+			_ = k.conn.Close()
+		}
 	})
 	return err
 }
@@ -268,6 +295,26 @@ func dialPCK(cfg *Config) (net.Conn, error) {
 		pc.Close()
 		return nil, err
 	}
-	tuneKCP(s)
+	tuneKCP(s, 1350-pck.PckOverhead())
+	return s, nil
+}
+
+// dialKCP opens one KCP session to Iran from a UDP socket of its own, so each
+// session is a flow of its own on the path.
+func dialKCP(cfg *Config, addr string) (net.Conn, error) {
+	block, err := kcpBlock(cfg.Token)
+	if err != nil {
+		return nil, err
+	}
+	s, err := kcp.DialWithOptions(addr, block, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.SetReadBuffer(kcpSocketBuffer)
+	_ = s.SetWriteBuffer(kcpSocketBuffer)
+	tuneKCP(s, kcpUDPMTU)
+	if cfg.Transport == "udp" {
+		return newKCPConn(s), nil
+	}
 	return s, nil
 }

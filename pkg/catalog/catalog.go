@@ -25,8 +25,8 @@ const (
 	FamilyKernelL2 Family = "L2-Direct"
 	FamilyUDPCrypt Family = "UDP-Crypt"
 	// FamilyStealth are encrypted layer-3 tunnels like UDP-Crypt whose packets
-	// do not travel as plain UDP: hand-built TCP segments (faketcp), ICMP echo
-	// (icmp), or UDP across a range of ports (udp-hop).
+	// do not travel as plain UDP: hand-built TCP segments (faketcp) or ICMP echo
+	// (icmp).
 	FamilyStealth Family = "Stealth"
 	// FamilyReverseL4 tunnels forward ports, not packets: Kharej dials Iran and
 	// each user connection rides its own stream (pkg/l4). No tunnel interface.
@@ -61,6 +61,7 @@ var Methods = []MethodSpec{
 	{ID: 11, Name: "fou-gre", Title: "FOU-GRE (GRE inside UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true},
 	{ID: 12, Name: "gue-ipip", Title: "GUE-IPIP (IPIP inside GUE/UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true},
 	{ID: 13, Name: "ecmp-lanes", Title: "ECMP-Lanes (2-8 parallel keyed GRE)", Family: FamilyKernelL3, Overhead: 28, SupportsLanes: true},
+	{ID: 41, Name: "bareudp", Title: "BareUDP (IPv4 straight inside UDP, kernel 5.7+)", Family: FamilyKernelL3, Overhead: 28, NeedsPort: true},
 
 	{ID: 14, Name: "eoip", Title: "EoIP (MikroTik-compatible, raw GRE)", Family: FamilyKernelL2, Overhead: 42, Userspace: true, MikroTik: true},
 	{ID: 15, Name: "gretap", Title: "GRETAP (Ethernet over GRE)", Family: FamilyKernelL2, Overhead: 38, SupportsFOU: true},
@@ -78,8 +79,10 @@ var Methods = []MethodSpec{
 	{ID: 26, Name: "dnscrypt-udp", Title: "DNS response framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true},
 	{ID: 27, Name: "ntp-direct", Title: "NTPv4 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
 	{ID: 28, Name: "openvpn-dco", Title: "OpenVPN P_DATA_V2 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
+	{ID: 36, Name: "stun-turn", Title: "TURN ChannelData framing (WebRTC calls) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 57, NeedsPort: true, Userspace: true},
+	{ID: 39, Name: "gtp-u", Title: "GTP-U G-PDU framing (mobile core) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
+	{ID: 40, Name: "esp-udp", Title: "IPsec ESP-in-UDP framing (NAT-T) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
 
-	{ID: 36, Name: "udp-hop", Title: "UDP across 16 ports, hopping every 30 s + AES-256-GCM", Family: FamilyStealth, Overhead: 64, NeedsPort: true, Userspace: true},
 	{ID: 37, Name: "faketcp", Title: "Hand-built TCP segments with TLS records + AES-256-GCM", Family: FamilyStealth, Overhead: 82, NeedsPort: true, Userspace: true},
 	{ID: 38, Name: "icmp", Title: "ICMP echo (ping) + AES-256-GCM", Family: FamilyStealth, Overhead: 53, Userspace: true},
 
@@ -90,6 +93,8 @@ var Methods = []MethodSpec{
 	{ID: 33, Name: "wsmux", Title: "WebSocket + MUX", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 34, Name: "wss", Title: "WebSocket in TLS", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 35, Name: "wssmux", Title: "WebSocket in TLS + MUX", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 42, Name: "udp", Title: "UDP (a KCP session per user connection, AES)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+	{ID: 43, Name: "udpmux", Title: "UDP + MUX (streams over a few KCP sessions, AES)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 }
 
 // L4 reports whether m is a layer-4 reverse transport: always reverse, no

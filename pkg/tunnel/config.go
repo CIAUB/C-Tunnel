@@ -28,9 +28,6 @@ const (
 	baseUDPPort = 24000
 	baseWGPort  = 51820
 	baseL4Port  = 3080
-	baseHopPort = 25000
-	// HopPorts is how many ports a udp-hop tunnel listens on, from its port up.
-	HopPorts = 16
 )
 
 var (
@@ -111,15 +108,6 @@ func exclusivePort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
 	// VXLAN/GENEVE demultiplex by VNI, so several tunnels may share 4789/6081.
 	// FOU, WireGuard, UDP-Crypt, Stealth, L2TPv3 and reverse carriers bind a unique socket.
 	return tc.Port > 0 && (tc.Reverse || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
-}
-
-// PortSpan is how many consecutive ports from tc.Port the tunnel takes: all of
-// a udp-hop range, one otherwise.
-func PortSpan(tc catalog.TunnelConfig) int {
-	if tc.Method == "udp-hop" {
-		return HopPorts
-	}
-	return 1
 }
 
 // Normalize validates tc, fills defaults and allocates the subnet, ports and keys that
@@ -206,12 +194,14 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if (tc.Reverse || m.NeedsPort) && tc.Port == 0 && m.Name != "icmp" {
 		if tc.Reverse && !m.NeedsPort {
 			tc.Port = baseUDPPort + tc.Index
+		} else if p := wellKnownPort(m.Name); p > 0 && !portTaken(p, others) {
+			tc.Port = p
 		} else {
 			tc.Port = defaultPort(m, tc.Index)
 		}
 	}
-	if tc.Port < 0 || tc.Port+PortSpan(*tc)-1 > 65535 {
-		return fmt.Errorf("port must be 0-%d", 65536-PortSpan(*tc))
+	if tc.Port < 0 || tc.Port > 65535 {
+		return fmt.Errorf("port must be 0-65535")
 	}
 
 	if m.SupportsLanes {
@@ -358,11 +348,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		if o.TunRemote4 == tc.TunRemote4 {
 			return fmt.Errorf("remote tunnel address %s is already used by tunnel %q", tc.TunRemote4, o.Name)
 		}
-		if om, ok := catalog.LookupMethod(o.Method); ok && exclusivePort(o, om) && exclusivePort(*tc, m) &&
-			tc.Port < o.Port+PortSpan(o) && o.Port < tc.Port+PortSpan(*tc) {
-			if PortSpan(o) > 1 || PortSpan(*tc) > 1 {
-				return fmt.Errorf("ports %d-%d overlap those of tunnel %q (%d-%d)", tc.Port, tc.Port+PortSpan(*tc)-1, o.Name, o.Port, o.Port+PortSpan(o)-1)
-			}
+		if om, ok := catalog.LookupMethod(o.Method); ok && exclusivePort(o, om) && exclusivePort(*tc, m) && o.Port == tc.Port {
 			return fmt.Errorf("UDP port %d is already used by tunnel %q", tc.Port, o.Name)
 		}
 		for _, p := range tc.Ports {
@@ -405,9 +391,6 @@ func defaultPort(m catalog.MethodSpec, index int) int {
 	}
 	if m.L4() {
 		return baseL4Port + index
-	}
-	if m.Name == "udp-hop" {
-		return baseHopPort + index*HopPorts
 	}
 	return baseUDPPort + index
 }
@@ -478,4 +461,30 @@ func ipsecSA(secret, role string) (spi string, key string) {
 	s := crypto.DeriveSubkey(secret, "ipsec-spi|"+role)
 	v := binary.BigEndian.Uint32(s[:4]) | 0x1000 // stay clear of reserved SPIs 0-255
 	return fmt.Sprintf("0x%08x", v), "0x" + hex.EncodeToString(append(a[:], b[:4]...))
+}
+
+// wellKnownPort is the real protocol's port for the methods that look like one,
+// taken by the first such tunnel so its flow looks right on the wire too.
+func wellKnownPort(method string) int {
+	switch method {
+	case "stun-turn":
+		return 3478
+	case "gtp-u":
+		return 2152
+	case "esp-udp":
+		return 4500
+	case "bareudp":
+		return 6635
+	}
+	return 0
+}
+
+// portTaken reports whether another tunnel already binds port.
+func portTaken(port int, others []catalog.TunnelConfig) bool {
+	for _, o := range others {
+		if om, ok := catalog.LookupMethod(o.Method); ok && o.Port == port && exclusivePort(o, om) {
+			return true
+		}
+	}
+	return false
 }

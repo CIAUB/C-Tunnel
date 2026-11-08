@@ -757,6 +757,8 @@ func probes() []probe {
 			p.header = func() []byte { return []byte{1, 0, 0, 0} }
 		case "vxlan":
 			p.header = func() []byte { return []byte{0x08, 0, 0, 0, 0, 0, 100, 0} }
+		case "bareudp":
+			p.header = func() []byte { return ipv4Inner(bodyLen) }
 		case "geneve":
 			p.header = func() []byte { return []byte{0, 0, 0x65, 0x58, 0, 0, 100, 0} }
 		case "fou-gre":
@@ -767,11 +769,7 @@ func probes() []probe {
 			if !m.Crypt() || untested(m) {
 				continue // reported as skipped: IPv6-underlay methods, faketcp, icmp
 			}
-			profile := dpi.Profile(m.Name)
-			if m.Name == "udp-hop" {
-				profile = dpi.ProfileQUICv1 // its packets are framed as QUIC
-			}
-			f, _ := dpi.NewFramer(profile, frameSecret)
+			f, _ := dpi.NewFramer(dpi.Profile(m.Name), frameSecret)
 			p.header = func() []byte {
 				w := f.Wrap(make([]byte, bodyLen+trailerLen))
 				return w[:len(w)-bodyLen-trailerLen]

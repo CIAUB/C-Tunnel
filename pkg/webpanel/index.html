@@ -578,7 +578,7 @@ details[open] summary{margin-bottom:12px}
       <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
     </div>
     <div id="l4-wrap" class="grid2" hidden>
-      <div><label for="f-l4port">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
+      <div><label for="f-l4port" id="f-l4port-l">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
       <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="the Iran IP"></div>
     </div>
     <div id="token-slot"></div>
@@ -1259,8 +1259,8 @@ function fillMethods(list) {
   syncForm();
 }
 const familyLabel = {
-  "Stealth": "Stealth — udp-hop (port hopping), faketcp (TCP look), icmp (ping)",
-  "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux)",
+  "Stealth": "Stealth — faketcp (TCP look), icmp (ping)",
+  "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)",
 };
 function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && mm.Family === "Reverse-L4"); }
 function syncForm() {
@@ -1294,7 +1294,8 @@ function syncForm() {
   $("f-l4port").placeholder = iran ? "3080 + index" : "the Iran tunnel port";
   const method = $("f-method").value;
   $("port-wrap").hidden = l4 || method === "icmp";
-  $("f-port-l").textContent = method === "udp-hop" ? "First UDP port (16 ports from it)" : method === "faketcp" ? "Port (TCP look)" : "Port (UDP or Reverse TCP)";
+  $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : "Port (UDP or Reverse TCP)";
+  $("f-l4port-l").textContent = method === "udp" || method === "udpmux" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
   $("backup-wrap").hidden = l4;
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;

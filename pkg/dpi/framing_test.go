@@ -22,7 +22,7 @@ func TestRoundTripAllProfiles(t *testing.T) {
 }
 
 func TestWrongSecretRejected(t *testing.T) {
-	for _, p := range []Profile{ProfileQUICv1, ProfileSRTPDirect, ProfileWGStealth, ProfileDNSCrypt, ProfileNTPDirect, ProfileOpenVPNDCO} {
+	for _, p := range []Profile{ProfileQUICv1, ProfileSRTPDirect, ProfileWGStealth, ProfileDNSCrypt, ProfileNTPDirect, ProfileOpenVPNDCO, ProfileSTUNTURN, ProfileGTPU, ProfileESPUDP} {
 		a, _ := NewFramer(p, secret)
 		b, _ := NewFramer(p, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
 		if _, err := b.Unwrap(a.Wrap([]byte("x"))); err == nil {
@@ -113,5 +113,43 @@ func TestFECRecoversAnySingleLoss(t *testing.T) {
 				t.Fatalf("drop=%d: payload %q not delivered", drop, want)
 			}
 		}
+	}
+}
+
+// The new look-alikes must match what a decoder of the real protocol expects.
+func TestProtocolLookAlikesAreWellFormed(t *testing.T) {
+	payload := bytes.Repeat([]byte{0xab}, 300)
+
+	turn, _ := NewFramer(ProfileSTUNTURN, secret)
+	w := turn.Wrap(payload)
+	if ch := int(w[0])<<8 | int(w[1]); ch < 0x4000 || ch > 0x4fff {
+		t.Fatalf("TURN channel %#x outside 0x4000-0x4FFF", ch)
+	}
+	if n := int(w[2])<<8 | int(w[3]); n != len(payload) {
+		t.Fatalf("TURN length %d, want %d", n, len(payload))
+	}
+	if _, err := turn.Unwrap(w[:len(w)-1]); err == nil {
+		t.Fatal("truncated ChannelData accepted")
+	}
+
+	gtp, _ := NewFramer(ProfileGTPU, secret)
+	w = gtp.Wrap(payload)
+	if w[0]>>5 != 1 || w[0]&0x10 == 0 || w[1] != 0xff {
+		t.Fatalf("GTP-U header %x: want version 1, PT=1, G-PDU", w[:2])
+	}
+	if n := int(w[2])<<8 | int(w[3]); n != len(payload) {
+		t.Fatalf("GTP-U length %d, want %d", n, len(payload))
+	}
+
+	esp, _ := NewFramer(ProfileESPUDP, secret)
+	a, b := esp.Wrap(payload), esp.Wrap(payload)
+	spi := uint32(a[0])<<24 | uint32(a[1])<<16 | uint32(a[2])<<8 | uint32(a[3])
+	if spi < 256 {
+		t.Fatalf("ESP SPI %d is reserved (0 marks IKE on port 4500)", spi)
+	}
+	seqA := uint32(a[4])<<24 | uint32(a[5])<<16 | uint32(a[6])<<8 | uint32(a[7])
+	seqB := uint32(b[4])<<24 | uint32(b[5])<<16 | uint32(b[6])<<8 | uint32(b[7])
+	if seqA != 1 || seqB != 2 {
+		t.Fatalf("ESP sequence %d, %d: want 1, 2", seqA, seqB)
 	}
 }

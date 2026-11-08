@@ -135,7 +135,7 @@ func udpTrip(t *testing.T, port int) {
 }
 
 func TestTransportsCarryTCPAndUDP(t *testing.T) {
-	for _, tr := range []string{"tcp", "tcpmux", "ws", "wsmux", "wss", "wssmux"} {
+	for _, tr := range []string{"tcp", "tcpmux", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux"} {
 		t.Run(tr, func(t *testing.T) {
 			target := services(t)
 			fwd, st := tunnel(t, tr, testToken, target)

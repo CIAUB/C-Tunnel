@@ -69,7 +69,7 @@ uses_fou() {
 # with no interface, routes or firewall rules here.
 is_l4() {
     case "${KIND}" in
-        tcp|tcpmux|pck|ws|wsmux|wss|wssmux) return 0 ;;
+        tcp|tcpmux|pck|ws|wsmux|wss|wssmux|udp|udpmux) return 0 ;;
     esac
     return 1
 }
@@ -246,7 +246,7 @@ cmd_up() {
     modload ip_gre ip6_gre ipip sit ip6_tunnel tun
     if [[ "${REVERSE}" == "1" ]]; then
         case "${KIND}" in
-            6to4|6to4-gre|sit|ipip|gue-ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|vxlan|geneve|l2tpv3)
+            6to4|6to4-gre|sit|ipip|gue-ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|vxlan|geneve|l2tpv3|bareudp)
                 local rev_local="172.31.${INDEX}.1" rev_remote="172.31.${INDEX}.2"
                 [[ "${ROLE}" == "kharej" ]] && { rev_local="172.31.${INDEX}.2"; rev_remote="172.31.${INDEX}.1"; }
                 ip tuntap add dev "${DEV}-r" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}-r" mode tun
@@ -259,6 +259,7 @@ cmd_up() {
                     geneve) PORT=6081 ;;
                     fou-gre) PORT=5555 ;;
                     gue-ipip) PORT=5556 ;;
+                    bareudp) PORT=6635 ;;
                     *) PORT=0 ;;
                 esac
                 ;;
@@ -308,6 +309,25 @@ cmd_up() {
             ip link add "${DEV}" type vxlan id "${VNI}" local "${LOCAL_IP}" remote "${REMOTE_IP}" dstport "${PORT}" nolearning
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
+        bareudp)
+            modload bareudp
+            ip link add "${DEV}" type bareudp dstport "${PORT}" ethertype ipv4 ||
+                die "bareudp is not available in this kernel (needs Linux 5.7+ with the bareudp module)"
+            tune_dev "${DEV}"; addr4 "${DEV}"
+            # bareudp has no peer of its own: the route to the far tunnel address
+            # names the outer destination (lightweight tunnel encap).
+            ip route replace "${TUN_REMOTE4}/32" dev "${DEV}" proto 77 src "${TUN_LOCAL4}" \
+                encap ip id 0 dst "${REMOTE_IP}" src "${LOCAL_IP}" ttl 64
+            # Unlike GRE, bareudp takes UDP from any address and hands what is inside
+            # to the stack. Only the peer may feed it, or anyone could inject packets.
+            if type -P iptables >/dev/null 2>&1; then
+                iptables -w -I INPUT -p udp --dport "${PORT}" ! -s "${REMOTE_IP}/32" \
+                    -m comment --comment "$(fw_comment)" -j DROP ||
+                    die "failed to restrict bareudp port ${PORT} to ${REMOTE_IP}"
+            else
+                log "iptables not found: bareudp port ${PORT} accepts packets from any address"
+            fi
+            ;;
         geneve)
             modload geneve
             ip link add "${DEV}" type geneve id "${VNI}" remote "${REMOTE_IP}" dstport "${PORT}"
@@ -348,7 +368,7 @@ cmd_up() {
             ip tuntap add dev "${DEV}" mode tap multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tap
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
-        dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco|udp-hop|faketcp|icmp)
+        dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco|stun-turn|gtp-u|esp-udp|faketcp|icmp)
             ip tuntap add dev "${DEV}" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tun
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;

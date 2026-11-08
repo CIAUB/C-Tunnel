@@ -68,7 +68,7 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 
 | | |
 |---|---|
-| **28 methods** | Kernel L3 and L2 tunnels plus eight encrypted UDP transports |
+| **43 methods** | Kernel L3 and L2 tunnels, eleven encrypted UDP transports, two Stealth carriers and nine layer-4 reverse transports |
 | **One Iran, many kharej** | Subnets, ports and tunnel IDs are allocated automatically, and conflicts are refused |
 | **Port forwarding** | `443`, or `2053=8443` to forward to a different port. Rules are tagged per tunnel and removed cleanly. |
 | **Encryption** | AES-256-GCM with a separate key per direction, a 2000-packet anti-replay window and random padding |
@@ -163,8 +163,11 @@ To add another kharej server, repeat step 1 with its IP. It gets `10.77.2.0/30`,
 |---|---|
 | GRE / IPIP not filtered | `gre`, `6to4`, `ipip`: kernel speed, lowest CPU |
 | Raw IP protocols filtered | `dtls-1.3`, `quic-v1`, `wireguard`, or `gre` with a FOU port |
-| Lossy or unstable route | `rudp-fec` |
-| Long UDP flows throttled or cut after a while | `udp-hop` |
+| Lossy or unstable route | `rudp-fec`, or `udpmux` for port forwarding |
+| GRE / IPIP filtered, plain UDP passes, no encryption needed | `bareudp` |
+| Video calls pass while other UDP is shaped | `stun-turn` |
+| IPsec VPN traffic passes | `esp-udp` |
+| UDP 2152 (mobile core) left alone | `gtp-u` |
 | UDP blocked, TCP open | `faketcp` |
 | Only ping gets through | `icmp` |
 | Encryption at kernel speed | `xfrm-ipsec`, `wireguard` |
@@ -207,21 +210,26 @@ In REVERSE mode the kharej server dials in and the iran server only listens, so 
 | UDP-Crypt (`rev+dtls-1.3`, `rev+quic-v1`…) | kharej sends UDP to iran, same packets as DIRECT | lossy or high-latency links |
 | WireGuard (`rev+wireguard`) | kharej is the WireGuard client | MikroTik and standard clients |
 | Kernel L3/L2 (`frp+gre`, `frp+vxlan`…) | inside 8 parallel TCP streams that look like TLS records | clean links where only TCP gets through |
-| Layer 4 (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`) | port forwarding as in BackPack: each user connection or UDP flow has its own stream, no tunnel IP | TCP services (VLESS, Trojan…) without TCP-in-TCP, and links that pass only WebSocket or TLS |
+| Layer 4 (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`, `udp`, `udpmux`) | port forwarding as in BackPack: each user connection or UDP flow has its own stream, no tunnel IP | TCP services (VLESS, Trojan…) without TCP-in-TCP, links that pass only WebSocket or TLS, and lossy links (`udp`, `udpmux`) |
 
 Every inner connection stays on one TCP stream, so it is never reordered, and each stream has its own queue. In our test this roughly doubled the speed of the TCP carrier compared with 0.1.5 (about 390 → 690 Mbit/s on an 800 Mbit/s link). The Connection Test measures every reverse option too: a `rev+` row for each UDP method and independent `frp+METHOD` rows with fresh TCP streams, method-specific payloads, verified echoes and separate speeds for every supported FRP-style option. These are carrier/encapsulation shape tests, not kernel tunnel integration tests. Best Settings names the fastest reverse option.
 
 ### Stealth methods
 
-Three layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, random padding) whose packets do not travel as one plain UDP flow. They work in DIRECT mode (Iran sends first) and in REVERSE mode (Kharej sends first).
+Two layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, random padding) whose packets do not travel as UDP. They work in DIRECT mode (Iran sends first) and in REVERSE mode (Kharej sends first).
 
 | Method | Between the servers | Use when |
 |---|---|---|
-| `udp-hop` | QUIC-shaped UDP to 16 consecutive ports; the sending side moves to another port every 30 seconds in an order derived from the secret, and the other side answers from the port it was reached on | long UDP flows are throttled or cut after a while |
 | `faketcp` | TLS records inside TCP segments built by hand and read through a packet socket (the `pck` carrier from BackPack). Middleboxes see one TCP connection with consistent sequence numbers; nothing is retransmitted inside it, so there is no TCP-in-TCP and the tunnel runs at UDP speed | UDP is blocked or shaped and TCP is not |
 | `icmp` | ICMP echo: requests one way, replies the other, with an identifier from the secret. The answering server's kernel would reply to each request itself; an iptables rule drops those replies and keeps the tunnel's own | only ping gets through |
 
-`udp-hop` needs the 16 ports (first port + 15) open on the answering server: Kharej in DIRECT mode, Iran in REVERSE. `faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test measures `udp-hop` with QUIC-shaped probes; `faketcp` and `icmp` are not part of it, so build the tunnel to try them.
+`faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test does not measure them, so build the tunnel to try them.
+
+### New look-alikes and BareUDP
+
+`stun-turn`, `gtp-u` and `esp-udp` are UDP-Crypt methods: the same encryption and padding, with the header of TURN ChannelData (WebRTC call relays), GTP-U G-PDU (the mobile core's user plane) or ESP in UDP (IPsec VPNs behind NAT). The first tunnel of each takes the real protocol's port, 3478, 2152 or 4500, when it is free; later ones take a port from the usual range. As with the other UDP-Crypt methods, only the header looks like the protocol; a filter that follows the whole exchange can tell them apart.
+
+`bareudp` is a kernel tunnel that puts IPv4 packets straight into UDP, with no header and no encryption, for links where GRE and IPIP are filtered and plain UDP passes. It needs Linux 5.7 or later with the `bareudp` module and takes port 6635 when it is free. A bareudp device takes UDP from any address, so an iptables rule lets only the other server reach its port.
 
 ### Layer-4 reverse tunnels
 
@@ -236,17 +244,19 @@ The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens
 | `wsmux` | as `tcpmux`, over WebSockets |
 | `wss` | as `ws`, inside TLS |
 | `wssmux` | as `wsmux`, inside TLS |
+| `udp` | one KCP session over UDP per user connection, from a pool of 16; AES-encrypted. KCP resends lost packets itself, so a lossy link costs less than with TCP |
+| `udpmux` | smux streams over 2 KCP sessions over UDP; AES-encrypted |
 
-Both servers prove they know the tunnel secret when each connection opens. Past that, `tcp` and `ws` carry the users' bytes unchanged, as in BackPack; use `wss`, `wssmux` or `pck` when the link between the servers must be encrypted. The WebSocket methods take an optional Host / SNI. On the Kharej server a tunnel can be added from the setup link or by hand with the Iran server's IP, the method, the tunnel port and the secret.
+Both servers prove they know the tunnel secret when each connection opens. Past that, `tcp` and `ws` carry the users' bytes unchanged, as in BackPack; use `wss`, `wssmux`, `pck`, `udp` or `udpmux` when the link between the servers must be encrypted. `udp` and `udpmux` need the tunnel port open for UDP on the Iran server. The WebSocket methods take an optional Host / SNI. On the Kharej server a tunnel can be added from the setup link or by hand with the Iran server's IP, the method, the tunnel port and the secret.
 
 Between two network namespaces on 2 CPUs (iperf3, one TCP flow through a forwarded port): `tcp` about 12.7 Gbps, `ws` 10.8, `tcpmux` 7.6, `wsmux` 6.9, `wss` 6.6, `wssmux` 4.4 and `pck` 0.8 Gbps.
 
-Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; iperf3, one flow): `tcp`, `ws` and `wss` about 425 Mbit/s, `tcpmux` 373, `wsmux` 397, `wssmux` 359 and `pck` 185. The Stealth methods on the same path: `udp-hop` 394, `faketcp` 370 and `icmp` 377 Mbit/s upload, against 380 for `quic-v1`.
+Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; iperf3, one flow): `tcp`, `ws` and `wss` about 425 Mbit/s, `tcpmux` 373, `wsmux` 397, `wssmux` 359, `pck` 185, `udp` 188 and `udpmux` 188 (about 300 with four flows). The layer-3 methods on the same path, upload: `faketcp` 370, `icmp` 377, `stun-turn` 323, `gtp-u` 311 and `esp-udp` 307 Mbit/s, against 317 for `quic-v1`.
 
 ## All methods
 
 <details>
-<summary><b>L3 kernel</b>: 13 methods</summary>
+<summary><b>L3 kernel</b>: 14 methods</summary>
 
 | Method | Description |
 |---|---|
@@ -263,6 +273,7 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 | `fou-gre` | GRE inside UDP |
 | `gue-ipip` | IPIP inside GUE/UDP |
 | `ecmp-lanes` | 2 to 8 parallel keyed GRE tunnels with ECMP |
+| `bareudp` | IPv4 straight inside UDP (6635), no header; Linux 5.7+ |
 
 </details>
 
@@ -282,7 +293,7 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 </details>
 
 <details>
-<summary><b>UDP-Crypt</b>: 8 methods, AES-256-GCM</summary>
+<summary><b>UDP-Crypt</b>: 11 methods, AES-256-GCM</summary>
 
 | Method | Packets look like |
 |---|---|
@@ -294,22 +305,24 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 | `dnscrypt-udp` | DNS responses |
 | `ntp-direct` | NTPv4 server packets |
 | `openvpn-dco` | OpenVPN `P_DATA_V2` |
+| `stun-turn` | TURN ChannelData, as WebRTC call relays send (3478) |
+| `gtp-u` | GTP-U G-PDU, the mobile core's user plane (2152) |
+| `esp-udp` | IPsec ESP in UDP, as NAT-T sends it (4500) |
 
 </details>
 
 <details>
-<summary><b>Stealth</b>: 3 methods, AES-256-GCM</summary>
+<summary><b>Stealth</b>: 2 methods, AES-256-GCM</summary>
 
 | Method | Packets travel as |
 |---|---|
-| `udp-hop` | QUIC-shaped UDP across 16 ports, a new port every 30 s |
 | `faketcp` | TLS records in hand-built TCP segments (no TCP state, no retransmission) |
 | `icmp` | ICMP echo requests and replies |
 
 </details>
 
 <details>
-<summary><b>Reverse-L4</b>: 7 methods, port forwarding</summary>
+<summary><b>Reverse-L4</b>: 9 methods, port forwarding</summary>
 
 | Method | Description |
 |---|---|
@@ -320,6 +333,8 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 | `wsmux` | WebSocket + MUX |
 | `wss` | WebSocket in TLS |
 | `wssmux` | WebSocket in TLS + MUX |
+| `udp` | UDP: a KCP session per user connection, AES |
+| `udpmux` | UDP + MUX: streams over a few KCP sessions, AES |
 
 </details>
 

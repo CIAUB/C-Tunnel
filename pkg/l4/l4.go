@@ -14,10 +14,13 @@
 //	wsmux    as tcpmux, over WebSockets
 //	wss      as ws, inside TLS
 //	wssmux   as wsmux, inside TLS
+//	udp      one KCP session over UDP per user connection, from a pool
+//	udpmux   streams multiplexed (smux) over a few KCP sessions over UDP
 //
 // Every connection between the servers starts with a handshake in which each
 // side proves it knows the tunnel token. Past that, tcp and ws carry the users'
-// bytes as they are, as BackPack does; wss adds TLS and pck is AES-encrypted by KCP.
+// bytes as they are, as BackPack does; wss adds TLS, and pck, udp and udpmux
+// are AES-encrypted by KCP.
 package l4
 
 import (
@@ -40,11 +43,11 @@ import (
 )
 
 // Transports lists the transport names in the order the panel offers them.
-var Transports = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux"}
+var Transports = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux"}
 
 // Mux reports whether transport multiplexes streams over a few connections.
 func Mux(transport string) bool {
-	return transport == "tcpmux" || transport == "wsmux" || transport == "wssmux" || transport == "pck"
+	return transport == "tcpmux" || transport == "wsmux" || transport == "wssmux" || transport == "pck" || transport == "udpmux"
 }
 
 func validTransport(t string) bool {
@@ -119,7 +122,7 @@ func (c *Config) check() error {
 	}
 	if c.Conns <= 0 {
 		c.Conns = 4
-		if c.Transport == "pck" {
+		if c.Transport == "pck" || c.Transport == "udpmux" {
 			c.Conns = 2
 		}
 	}

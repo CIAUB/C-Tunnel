@@ -23,11 +23,15 @@ const (
 	ProfileDNSCrypt   Profile = "dnscrypt-udp" // DNS response header
 	ProfileNTPDirect  Profile = "ntp-direct"   // NTPv4 server header (RFC 5905)
 	ProfileOpenVPNDCO Profile = "openvpn-dco"  // OpenVPN P_DATA_V2 header
+	ProfileSTUNTURN   Profile = "stun-turn"    // TURN ChannelData message (RFC 8656 §12.4), as WebRTC calls relay
+	ProfileGTPU       Profile = "gtp-u"        // GTPv1-U G-PDU header (3GPP TS 29.281), the mobile core's user plane
+	ProfileESPUDP     Profile = "esp-udp"      // ESP in UDP (RFC 3948), as IPsec VPNs behind NAT send it
 )
 
 var AllProfiles = []Profile{
 	ProfileDTLS13, ProfileQUICv1, ProfileSRTPDirect, ProfileWGStealth,
 	ProfileRUDPFEC, ProfileDNSCrypt, ProfileNTPDirect, ProfileOpenVPNDCO,
+	ProfileSTUNTURN, ProfileGTPU, ProfileESPUDP,
 }
 
 var ErrInvalidFrame = errors.New("ctunnel/dpi: invalid or unrecognized protocol frame")
@@ -46,6 +50,8 @@ type Framer struct {
 	dcid    [8]byte
 	ssrc    uint32
 	magic   [4]byte
+	channel uint16 // stun-turn
+	id      uint32 // gtp-u TEID, esp-udp SPI
 	seq     atomic.Uint32
 	ts      atomic.Uint32
 }
@@ -68,6 +74,13 @@ func NewFramer(profile Profile, secretHex string) (*Framer, error) {
 	copy(f.dcid[:], sub[:8])
 	copy(f.magic[:], sub[12:16])
 	f.ts.Store(binary.BigEndian.Uint32(sub[16:20]))
+	// A TURN channel is 0x4000-0x4FFF (RFC 8656); an ESP SPI below 256 is
+	// reserved and 0 marks IKE, so both are kept in the ranges real ones use.
+	f.channel = 0x4000 | binary.BigEndian.Uint16(sub[20:22])&0x0fff
+	f.id = binary.BigEndian.Uint32(sub[22:26])
+	if f.profile == ProfileESPUDP && f.id < 256 {
+		f.id += 256
+	}
 	return f, nil
 }
 
@@ -80,6 +93,8 @@ func (f *Framer) HeaderLen() int {
 		return 11
 	case ProfileSRTPDirect, ProfileDNSCrypt:
 		return 12
+	case ProfileSTUNTURN:
+		return 4
 	default:
 		return 8
 	}
@@ -124,6 +139,21 @@ func (f *Framer) PutHeader(hdr []byte, payloadLen int) {
 	case ProfileOpenVPNDCO:
 		hdr[0], hdr[1], hdr[2], hdr[3] = 0x48, f.magic[0], f.magic[1], f.magic[2]
 		binary.BigEndian.PutUint32(hdr[4:8], s)
+	case ProfileSTUNTURN:
+		// channel number, then the length of the data that follows; over UDP
+		// a ChannelData message needs no padding.
+		binary.BigEndian.PutUint16(hdr[0:2], f.channel)
+		binary.BigEndian.PutUint16(hdr[2:4], uint16(payloadLen))
+	case ProfileGTPU:
+		// version 1, protocol type GTP, no optional fields; G-PDU; length of
+		// what follows the 8-byte header; the tunnel endpoint identifier.
+		hdr[0], hdr[1] = 0x30, 0xff
+		binary.BigEndian.PutUint16(hdr[2:4], uint16(payloadLen))
+		binary.BigEndian.PutUint32(hdr[4:8], f.id)
+	case ProfileESPUDP:
+		// SPI, then the sequence number, which starts at 1.
+		binary.BigEndian.PutUint32(hdr[0:4], f.id)
+		binary.BigEndian.PutUint32(hdr[4:8], s)
 	}
 }
 
@@ -162,6 +192,13 @@ func (f *Framer) Unwrap(wire []byte) ([]byte, error) {
 		ok = wire[0] == 0x24 && wire[1] == 0x02 && [4]byte(wire[4:8]) == f.magic
 	case ProfileOpenVPNDCO:
 		ok = wire[0] == 0x48 && wire[1] == f.magic[0] && wire[2] == f.magic[1] && wire[3] == f.magic[2]
+	case ProfileSTUNTURN:
+		ok = binary.BigEndian.Uint16(wire[0:2]) == f.channel && int(binary.BigEndian.Uint16(wire[2:4])) == len(wire)-h
+	case ProfileGTPU:
+		ok = wire[0]&0xf7 == 0x30 && wire[1] == 0xff && binary.BigEndian.Uint32(wire[4:8]) == f.id &&
+			int(binary.BigEndian.Uint16(wire[2:4])) == len(wire)-h
+	case ProfileESPUDP:
+		ok = binary.BigEndian.Uint32(wire[0:4]) == f.id
 	}
 	if !ok {
 		return nil, ErrInvalidFrame

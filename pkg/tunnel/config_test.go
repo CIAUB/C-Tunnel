@@ -507,29 +507,21 @@ func TestNormalizeStealth(t *testing.T) {
 		t.Fatalf("icmp reverse: port %d, %v", rev.Port, err)
 	}
 
-	hop := catalog.TunnelConfig{Role: "kharej", Method: "udp-hop", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.1", Index: 3}
-	if err := Normalize(&hop, nil); err != nil {
-		t.Fatal(err)
-	}
-	if hop.Port != 25048 || PortSpan(hop) != 16 {
-		t.Fatalf("udp-hop: port %d span %d", hop.Port, PortSpan(hop))
-	}
-	// A second tunnel inside the range is refused, one past it is not.
-	inside := catalog.TunnelConfig{Role: "kharej", Method: "dtls-1.3", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.2", Port: 25063}
-	if err := Normalize(&inside, []catalog.TunnelConfig{hop}); err == nil || !strings.Contains(err.Error(), "overlap") {
-		t.Fatalf("port inside the hop range: %v", err)
-	}
-	past := catalog.TunnelConfig{Role: "kharej", Method: "dtls-1.3", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.2", Port: 25064}
-	if err := Normalize(&past, []catalog.TunnelConfig{hop}); err != nil {
-		t.Fatalf("port past the hop range: %v", err)
-	}
-	high := catalog.TunnelConfig{Role: "kharej", Method: "udp-hop", LocalIP: "203.0.113.5", RemoteIP: "198.51.100.1", Port: 65530}
-	if err := Normalize(&high, nil); err == nil {
-		t.Fatal("a hop range past 65535 was accepted")
-	}
-
 	fake := catalog.TunnelConfig{Role: "iran", Method: "faketcp", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5", Padding: 64}
 	if err := Normalize(&fake, nil); err != nil || fake.Port == 0 || fake.Padding != 64 {
 		t.Fatalf("faketcp: %+v %v", fake, err)
+	}
+}
+
+func TestLookAlikesTakeTheRealPortWhenFree(t *testing.T) {
+	for method, want := range map[string]int{"stun-turn": 3478, "gtp-u": 2152, "esp-udp": 4500} {
+		first := catalog.TunnelConfig{Role: "kharej", Method: method, LocalIP: "203.0.113.5", RemoteIP: "198.51.100.1", Index: 1}
+		if err := Normalize(&first, nil); err != nil || first.Port != want {
+			t.Fatalf("%s: port %d, want %d (%v)", method, first.Port, want, err)
+		}
+		second := catalog.TunnelConfig{Role: "kharej", Method: method, LocalIP: "203.0.113.5", RemoteIP: "198.51.100.2", Index: 2}
+		if err := Normalize(&second, []catalog.TunnelConfig{first}); err != nil || second.Port == want || second.Port == 0 {
+			t.Fatalf("%s second tunnel: port %d (%v)", method, second.Port, err)
+		}
 	}
 }

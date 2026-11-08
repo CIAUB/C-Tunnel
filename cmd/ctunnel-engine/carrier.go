@@ -1,16 +1,13 @@
 package main
 
 import (
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"net/netip"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
-	"time"
 )
 
 // stopOnSignal runs cleanup and exits when systemd stops the engine, so the
@@ -26,7 +23,7 @@ func stopOnSignal(cleanup func()) {
 }
 
 // A carrier moves sealed packets between the two servers: a UDP socket for the
-// UDP-Crypt methods and udp-hop, hand-built TCP segments for faketcp, ICMP echo
+// UDP-Crypt methods, hand-built TCP segments for faketcp, ICMP echo
 // for icmp. Each worker goroutine opens its own, because a batch keeps its
 // arrays between calls; the socket underneath is shared.
 type carrier interface {
@@ -83,60 +80,6 @@ func (icmpFramer) Unwrap(w []byte) ([]byte, error) {
 }
 
 const icmpHeaderLen = 8
-
-// The udp-hop schedule. The dialing side moves to another of the listener's
-// hopPorts ports every hopInterval, so no single UDP flow lives long enough to
-// be throttled or singled out; the listener answers from the port the latest
-// packet came to. Only the dialer needs the schedule, so the clocks of the two
-// servers do not have to agree.
-const (
-	hopPorts    = 16
-	hopInterval = 30 * time.Second
-)
-
-// hopper picks the port for each slot of the schedule, in an order derived
-// from the secret so it is not a plain rotation.
-type hopper struct {
-	key  []byte
-	base uint16
-	// slot and port cache the current choice; the send path reads them on
-	// every batch.
-	slot atomic.Int64
-	port atomic.Uint32
-}
-
-func newHopper(secret string, base int) *hopper {
-	h := &hopper{key: []byte("ctunnel-hop|" + secret), base: uint16(base)}
-	h.slot.Store(-1)
-	return h
-}
-
-func (h *hopper) current(now time.Time) uint16 {
-	slot := now.UnixNano() / int64(hopInterval)
-	if h.slot.Load() != slot {
-		h.port.Store(uint32(h.portFor(slot)))
-		h.slot.Store(slot)
-	}
-	return uint16(h.port.Load())
-}
-
-func (h *hopper) portFor(slot int64) uint16 {
-	m := hmac.New(sha256.New, h.key)
-	var b [8]byte
-	binary.BigEndian.PutUint64(b[:], uint64(slot))
-	m.Write(b[:])
-	return h.base + uint16(binary.BigEndian.Uint32(m.Sum(nil))%hopPorts)
-}
-
-// hopCarrier sends through inner to the port of the moment.
-type hopCarrier struct {
-	carrier
-	h *hopper
-}
-
-func (c hopCarrier) send(pkts [][]byte, peer netip.AddrPort) error {
-	return c.carrier.send(pkts, netip.AddrPortFrom(peer.Addr(), c.h.current(time.Now())))
-}
 
 // icmpID is the echo identifier of a tunnel, from its secret, so two icmp
 // tunnels between the same servers keep apart.

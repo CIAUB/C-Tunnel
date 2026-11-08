@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	streamWait   = 5 * time.Second   // how long a user connection waits for a stream
-	pingInterval = 20 * time.Second  // keepalive on idle pool connections
-	idleRead     = 60 * time.Second  // Kharej drops a pool connection silent this long
-	udpIdle      = 2 * time.Minute   // a UDP flow with no datagram this long is closed
-	maxPool      = 1024              // idle pool connections Iran holds at most
+	streamWait   = 5 * time.Second  // how long a user connection waits for a stream
+	pingInterval = 20 * time.Second // keepalive on idle pool connections
+	idleRead     = 60 * time.Second // Kharej drops a pool connection silent this long
+	udpIdle      = 2 * time.Minute  // a UDP flow with no datagram this long is closed
+	maxPool      = 1024             // idle pool connections Iran holds at most
 )
 
 // Stats counts what the tunnel carried: Up is Kharej to Iran (what users

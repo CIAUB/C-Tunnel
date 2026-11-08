@@ -288,10 +288,10 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		if (t.Reverse && !m.Crypt() && m.Name != "wireguard") || t.Method == "faketcp" {
 			network = "tcp"
 		}
-		ports := strconv.Itoa(t.Port)
-		if span := tunnel.PortSpan(t); span > 1 {
-			ports += "-" + strconv.Itoa(t.Port+span-1)
+		if t.Method == "udp" || t.Method == "udpmux" {
+			network = "udp" // layer 4 over KCP
 		}
+		ports := strconv.Itoa(t.Port)
 		// pck and faketcp read their segments off the wire; no socket listens.
 		if (t.Role == "iran" || !t.Reverse) && t.Method != "pck" && t.Method != "faketcp" {
 			if listening(t.Port, network) {

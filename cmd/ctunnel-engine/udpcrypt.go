@@ -37,12 +37,6 @@ type udpTunnel struct {
 	// socket by several).
 	openSend func() (carrier, error)
 	readers  []func() (carrier, error)
-	// heard, when set, is told which reader authenticated a packet: the
-	// udp-hop listener answers from the port the peer last reached.
-	heard func(reader int)
-	// hopping is set on the udp-hop dialer, whose peer keeps its address and
-	// changes its port; a new port is not a new peer.
-	hopping bool
 }
 
 // stealth reports whether kind is one of the carriers that are not plain UDP.
@@ -67,15 +61,13 @@ func runUDPCrypt(cfg config) error {
 		t.framer = tlsFramer{}
 	case "icmp":
 		t.framer = icmpFramer{}
-	case "udp-hop":
-		t.framer, err = dpi.NewFramer(dpi.ProfileQUICv1, cfg.secret)
 	default:
 		t.framer, err = dpi.NewFramer(dpi.Profile(cfg.kind), cfg.secret)
 	}
 	if err != nil {
 		return err
 	}
-	learns := cfg.isPassive() || ((stealth(cfg.kind) || cfg.kind == "udp-hop") && !dialer)
+	learns := cfg.isPassive() || (stealth(cfg.kind) && !dialer)
 	if !learns && validPeer(cfg.remoteIP) {
 		port := cfg.port
 		if cfg.kind == "icmp" {
@@ -115,7 +107,7 @@ func runUDPCrypt(cfg config) error {
 	}
 
 	errc := make(chan error, 2*workers+len(t.readers))
-	if !batched && t.conn != nil && !t.hopping && len(t.readers) == 1 {
+	if !batched && t.conn != nil && len(t.readers) == 1 {
 		// UDP one packet at a time: rudp-fec, or no batch calls on this platform.
 		for i := 0; i < workers; i++ {
 			go func(dev *os.File) { errc <- t.deviceToNet(dev) }(devs[i%len(devs)])
@@ -126,7 +118,7 @@ func runUDPCrypt(cfg config) error {
 			go func(dev *os.File) { errc <- t.deviceToNetBatch(dev) }(devs[i%len(devs)])
 		}
 		// The UDP socket takes a reader per worker; a carrier of its own (a
-		// packet socket, a raw socket, one of the udp-hop ports) takes one.
+		// packet socket or a raw socket) takes one.
 		n := len(t.readers)
 		if n == 1 && t.conn != nil {
 			n = workers
@@ -147,9 +139,6 @@ func (t *udpTunnel) openCarriers(dialer bool) (func(), error) {
 	if stealth(cfg.kind) {
 		return openStealth(t, dialer)
 	}
-	if cfg.kind == "udp-hop" && !dialer {
-		return t.openHopListener()
-	}
 	var err error
 	t.conn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: cfg.port})
 	if err != nil {
@@ -159,91 +148,8 @@ func (t *udpTunnel) openCarriers(dialer bool) (func(), error) {
 	conn := t.conn
 	t.openSend = func() (carrier, error) { return newUDPBatch(conn) }
 	t.readers = []func() (carrier, error){t.openSend}
-	if cfg.kind == "udp-hop" {
-		h := newHopper(cfg.secret, cfg.port)
-		t.hopping = true
-		t.openSend = func() (carrier, error) {
-			b, err := newUDPBatch(conn)
-			if err != nil {
-				return nil, err
-			}
-			return hopCarrier{b, h}, nil
-		}
-	}
 	return func() { conn.Close() }, nil
 }
-
-// openHopListener listens on all hopPorts ports from cfg.port up and answers
-// through the one the dialer used last.
-func (t *udpTunnel) openHopListener() (func(), error) {
-	conns := make([]*net.UDPConn, hopPorts)
-	closeAll := func() {
-		for _, c := range conns {
-			if c != nil {
-				c.Close()
-			}
-		}
-	}
-	for i := range conns {
-		c, err := net.ListenUDP("udp4", &net.UDPAddr{Port: t.cfg.port + i})
-		if err != nil {
-			closeAll()
-			return nil, fmt.Errorf("listen udp :%d: %w", t.cfg.port+i, err)
-		}
-		forceBuffers(c, socketBuffer)
-		conns[i] = c
-	}
-	var active atomic.Int32
-	t.heard = func(r int) {
-		if active.Load() != int32(r) {
-			active.Store(int32(r))
-		}
-	}
-	for _, c := range conns {
-		c := c
-		t.readers = append(t.readers, func() (carrier, error) {
-			b, err := newUDPBatch(c)
-			if err != nil {
-				return nil, err
-			}
-			return noGRO{b}, nil
-		})
-	}
-	t.openSend = func() (carrier, error) {
-		bs := make([]carrier, len(conns))
-		for i, c := range conns {
-			b, err := newUDPBatch(c)
-			if err != nil {
-				return nil, err
-			}
-			bs[i] = b
-		}
-		return hopReply{bs, &active}, nil
-	}
-	return closeAll, nil
-}
-
-// noGRO keeps a socket off UDP GRO: the 16 udp-hop sockets each have a reader,
-// and GRO's 64 KiB buffers would multiply by 16 for one stream's worth of use.
-type noGRO struct{ carrier }
-
-func (noGRO) enableGRO() bool { return false }
-
-// hopReply sends from the udp-hop port the dialer last reached.
-type hopReply struct {
-	bs     []carrier
-	active *atomic.Int32
-}
-
-func (h hopReply) send(pkts [][]byte, peer netip.AddrPort) error {
-	return h.bs[h.active.Load()].send(pkts, peer)
-}
-
-func (h hopReply) recv([][]byte, []int, []int, []netip.AddrPort) (int, error) {
-	return 0, errors.New("hopReply only sends")
-}
-
-func (hopReply) enableGRO() bool { return false }
 
 // deviceToNet seals packets read from the TUN device and sends them to the peer.
 // Header room is reserved in front of the ciphertext so nothing is copied or allocated.
@@ -369,7 +275,6 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File, r int) error {
 	if t.offload {
 		gro = newCoalescer(func(b []byte) { _, _ = dev.Write(b) })
 	}
-	heard := false
 	for {
 		n, err := ub.recv(bufs, sizes, segs, srcs)
 		if err != nil {
@@ -396,7 +301,6 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File, r int) error {
 				if p == nil {
 					continue
 				}
-				heard = true
 				if len(p) == 0 {
 					continue
 				}
@@ -411,10 +315,6 @@ func (t *udpTunnel) netToDeviceBatch(dev *os.File, r int) error {
 		if gro != nil {
 			gro.flushAll()
 		}
-		if heard && t.heard != nil {
-			t.heard(r)
-		}
-		heard = false
 	}
 }
 
@@ -507,9 +407,6 @@ func (t *udpTunnel) open(ct []byte, src netip.AddrPort, plainBuf []byte) []byte 
 	}
 	src = netip.AddrPortFrom(src.Addr().Unmap(), src.Port())
 	cur := t.peer.Load()
-	if t.hopping && cur != nil && addrPort(cur).Addr() == src.Addr() {
-		return plain // the reply came from another of the hop ports
-	}
 	if src.IsValid() && (cur == nil || addrPort(cur) != src) {
 		log.Printf("peer address active: %s", src)
 		t.peer.Store(net.UDPAddrFromAddrPort(src))

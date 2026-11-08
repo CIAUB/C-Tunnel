@@ -100,6 +100,7 @@ var methodMenu = []methodFamily{
 		[]methodGroup{
 			{"GRE", "gre, fou-gre, ecmp-lanes, xfrm-ipsec", []string{"gre", "fou-gre", "ecmp-lanes", "xfrm-ipsec"}},
 			{"IPIP / 6to4", "ipip, gue-ipip, 6to4, 6to4-gre, sit", []string{"ipip", "gue-ipip", "6to4", "6to4-gre", "sit"}},
+			{"UDP", "bareudp: IPv4 straight inside UDP, no header", []string{"bareudp"}},
 			{"IPv6 underlay", "ip6gre, ipip6, ip6ip6: both servers need IPv6", []string{"ip6gre", "ipip6", "ip6ip6"}},
 			{"WireGuard", "kernel WireGuard, keys from the setup link", []string{"wireguard"}},
 		}},
@@ -115,22 +116,23 @@ var methodMenu = []methodFamily{
 		"encrypted UDP that looks like DTLS, QUIC, RTP, DNS...",
 		"kharej dials UDP to iran; best on lossy or high-latency links (no TCP-in-TCP)",
 		[]methodGroup{
-			{"Web / VPN look", "dtls-1.3, quic-v1, openvpn-dco, wg-stealth", []string{"dtls-1.3", "quic-v1", "openvpn-dco", "wg-stealth"}},
-			{"Service look", "srtp-direct, dnscrypt-udp, ntp-direct", []string{"srtp-direct", "dnscrypt-udp", "ntp-direct"}},
+			{"Web / VPN look", "dtls-1.3, quic-v1, openvpn-dco, wg-stealth, esp-udp", []string{"dtls-1.3", "quic-v1", "openvpn-dco", "wg-stealth", "esp-udp"}},
+			{"Service look", "srtp-direct, stun-turn, dnscrypt-udp, ntp-direct, gtp-u", []string{"srtp-direct", "stun-turn", "dnscrypt-udp", "ntp-direct", "gtp-u"}},
 			{"Lossy links", "rudp-fec: parity packets rebuild losses", []string{"rudp-fec"}},
 		}},
 	{catalog.FamilyStealth, "Stealth",
-		"encrypted like UDP-Crypt, not plain UDP: udp-hop, faketcp, icmp",
-		"kharej sends, iran answers: udp-hop, faketcp, icmp",
+		"encrypted like UDP-Crypt, not plain UDP: faketcp, icmp",
+		"kharej sends, iran answers: faketcp, icmp",
 		[]methodGroup{
-			{"Stealth", "port hopping, TCP look, ping", []string{"udp-hop", "faketcp", "icmp"}},
+			{"Stealth", "TCP look, ping", []string{"faketcp", "icmp"}},
 		}},
 	{catalog.FamilyReverseL4, "Layer 4",
 		"",
-		"port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux; no tunnel IP",
+		"port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux; no tunnel IP",
 		[]methodGroup{
 			{"TCP", "tcp, tcpmux, pck", []string{"tcp", "tcpmux", "pck"}},
 			{"WS", "ws, wsmux, wss, wssmux: WebSocket, with TLS in wss", []string{"ws", "wsmux", "wss", "wssmux"}},
+			{"UDP", "udp, udpmux: KCP over UDP, AES; good on lossy links", []string{"udp", "udpmux"}},
 		}},
 }
 
@@ -315,12 +317,14 @@ func setupWizard(role string) {
 	switch {
 	case m.Name == "icmp":
 		// no port: the echo identifier comes from the secret
-	case m.Name == "udp-hop":
-		tc.Port = askInt(fmt.Sprintf("First UDP port (%d ports from it, the same on both servers)", tunnel.HopPorts), probe.Port)
 	case m.L4() && role == "kharej":
 		tc.Port = askInt("Tunnel port (the same as on the Iran server)", probe.Port)
 	case m.L4():
-		tc.Port = askInt("Tunnel port (TCP; Kharej dials it)", probe.Port)
+		proto := "TCP"
+		if m.Name == "udp" || m.Name == "udpmux" {
+			proto = "UDP"
+		}
+		tc.Port = askInt("Tunnel port ("+proto+"; Kharej dials it)", probe.Port)
 	case tc.Reverse && !m.NeedsPort:
 		tc.Port = askInt("Reverse carrier TCP port (Iran listens, Kharej dials)", probe.Port)
 	case m.NeedsPort:

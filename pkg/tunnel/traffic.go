@@ -25,7 +25,7 @@ var (
 	// L4Dir holds the counters of layer-4 tunnels, which have no interface:
 	// ctunnel-engine writes <L4Dir>/<dev>/ifindex, links and statistics/*
 	// in the layout of /sys/class/net/<dev>.
-	L4Dir = "/run/ctunnel/l4"
+	L4Dir      = "/run/ctunnel/l4"
 	sysfsRoot  = "/sys"
 	bootIDPath = "/proc/sys/kernel/random/boot_id"
 )
