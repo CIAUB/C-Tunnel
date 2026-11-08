@@ -48,6 +48,7 @@ type testServerView struct {
 	Host       string            `json:"host,omitempty"`
 	UDPPort    int               `json:"udp_port,omitempty"`
 	TCPPort    int               `json:"tcp_port,omitempty"`
+	L4Port     int               `json:"l4_port,omitempty"`
 	RawOpen    []int             `json:"raw_open,omitempty"`
 	RawError   string            `json:"raw_error,omitempty"`
 	StartedAt  time.Time         `json:"started_at,omitempty"`
@@ -67,6 +68,7 @@ func (r *testResponder) view() testServerView {
 		Host:       r.link.Host,
 		UDPPort:    r.udpPort,
 		TCPPort:    r.tcpPort,
+		L4Port:     r.link.L4Port,
 		RawOpen:    append([]int(nil), r.rawOpen...),
 		RawError:   r.rawError,
 		StartedAt:  r.started,
@@ -119,9 +121,11 @@ func (s *Server) startTestResponder(host string) (*testResponder, error) {
 		stopTCP()
 		return nil, errors.New("invalid test TCP port")
 	}
+	l4Port := conntest.FreeL4Port()
+	r.SetL4Port(l4Port)
 	now := time.Now()
 	st := &testResponder{
-		link:     conntest.Link{Host: host, UDPPort: udpPort, TCPPort: tcpPort, TokenHex: token},
+		link:     conntest.Link{Host: host, UDPPort: udpPort, TCPPort: tcpPort, TokenHex: token, L4Port: l4Port},
 		udpPort:  udpPort,
 		tcpPort:  tcpPort,
 		rawOpen:  append([]int(nil), r.RawOpen...),
@@ -311,7 +315,7 @@ func (s *Server) handleLinkTestStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	job := &linkTestJob{
 		ID:          id,
 		Owner:       cookie.Value,

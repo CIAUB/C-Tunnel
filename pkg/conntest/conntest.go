@@ -55,6 +55,9 @@ type Link struct {
 	UDPPort  int    `json:"u"`
 	TCPPort  int    `json:"t"`
 	TokenHex string `json:"k"`
+	// L4Port is where the Iran server runs the layer-4 test tunnels (TCP and
+	// UDP); 0 from a server that has none, whose layer-4 rows are skipped.
+	L4Port int `json:"l,omitempty"`
 }
 
 func EncodeLink(l Link) string {
@@ -81,7 +84,7 @@ func DecodeLink(s string) (Link, error) {
 func validateLink(l Link) error {
 	ip := net.ParseIP(l.Host)
 	token, err := hex.DecodeString(l.TokenHex)
-	if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) || l.UDPPort < 1 || l.UDPPort > 65535 || l.TCPPort < 1 || l.TCPPort > 65535 || err != nil || len(token) != tokenLen {
+	if ip == nil || ip.To4() == nil || ip.IsUnspecified() || ip.IsMulticast() || ip.Equal(net.IPv4bcast) || l.UDPPort < 1 || l.UDPPort > 65535 || l.TCPPort < 1 || l.TCPPort > 65535 || l.L4Port < 0 || l.L4Port > 65535 || err != nil || len(token) != tokenLen {
 		return errors.New("invalid IPv4 test endpoint, port or token")
 	}
 	return nil
@@ -132,6 +135,8 @@ type Responder struct {
 	UDPAddr  string
 	RawOpen  []int // protocols with a working raw socket
 	RawError error
+	l4Port   atomic.Int32 // see SetL4Port
+	l4       l4Responder
 
 	token      []byte
 	ps         []probe
@@ -186,8 +191,8 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 		row := Result{Method: name, Family: string(m.Family), Mode: mode, Sent: Probes}
 		i, ok := byName[m.Name]
 		switch {
-		case !ok && untested(m):
-			row.Skipped = "not part of the test: build the tunnel to try it"
+		case !ok && measuredApart(m):
+			row.Phase, row.Sent = "wait", 0 // measured after the probes, on its own
 		case !ok:
 			row.Skipped = "needs IPv6 on both servers"
 		case !usable(i):
@@ -204,6 +209,12 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 		}
 		if i, ok := add(m, m.Name, "DIRECT"); ok {
 			dir[i] = len(rows) - 1
+		}
+	}
+	// Layer-4 rows: a real layer-4 tunnel per transport, Kharej dialing Iran.
+	for _, m := range catalog.Methods {
+		if m.L4() {
+			rows = append(rows, Result{Method: m.Name, Family: string(m.Family), Mode: "REVERSE", Phase: "wait"})
 		}
 	}
 	for _, m := range catalog.Methods {
@@ -225,9 +236,15 @@ func frpMethod(m catalog.MethodSpec) bool {
 	return !m.IPv6Underlay && !m.Crypt() && m.Name != "wireguard" && !m.L4()
 }
 
-// untested methods have no probe: faketcp needs a raw TCP flow and icmp the
-// kernel's own echo, neither of which the responder's sockets can stand in for.
+// untested methods have no packet probe: faketcp needs a raw TCP flow and icmp
+// the kernel's own echo, neither of which the responder's UDP socket can stand
+// in for. They are measured apart, after the probes (measuredApart).
 func untested(m catalog.MethodSpec) bool { return m.Name == "faketcp" || m.Name == "icmp" }
+
+// measuredApart are the rows without a packet probe that are still measured:
+// icmp by pinging the Iran server, faketcp on the pck carrier, whose
+// hand-built TCP segments it shares.
+func measuredApart(m catalog.MethodSpec) bool { return untested(m) }
 
 func (r *Responder) notifyLocked() {
 	if r.onUpdate == nil || len(r.rows) == 0 {
@@ -381,6 +398,14 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	}
 	body := pkt[o+8 : len(pkt)-tokenLen]
 	switch cmd {
+	case ctlL4Start, ctlL4Measure, ctlL4Read, ctlL4Stop:
+		v := r.controlL4(cmd, binary.BigEndian.Uint16(pkt[o+2:o+4]), nonce, body)
+		reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
+		reply = append(reply, pkt[:o+8]...)
+		reply = binary.BigEndian.AppendUint64(reply, v)
+		reply = append(reply, r.token...)
+		_, _ = r.udp.WriteTo(reply, from)
+		return
 	case ctlPing:
 		r.mu.Lock()
 		fresh := !r.nonces[nonce]
@@ -1083,6 +1108,77 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		notify()
 		push(ci)
 	}
+
+	// Phase 5: a real layer-4 tunnel per transport. Their tunnel port is TCP
+	// for most and UDP for udp and udpmux, so a closed test UDP port does not
+	// skip them; but the commands travel over that UDP port.
+	// pck goes first: it binds the tunnel port without SO_REUSEADDR, which a
+	// TIME_WAIT left by an earlier TCP transport would refuse.
+	var l4Rows []int
+	for ci := range rows {
+		if rows[ci].Family != string(catalog.FamilyReverseL4) {
+			continue
+		}
+		if rows[ci].Method == "pck" {
+			l4Rows = append([]int{ci}, l4Rows...)
+		} else {
+			l4Rows = append(l4Rows, ci)
+		}
+	}
+	var pckRow *Result
+	for _, ci := range l4Rows {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		switch {
+		case l.L4Port == 0:
+			set(ci, func(r *Result) {
+				r.Skipped, r.Phase = "the Iran server runs an older C-Tunnel; update it to test layer 4", ""
+			})
+		case !udpOpen:
+			set(ci, func(r *Result) { r.Skipped, r.Phase = "UDP "+strconv.Itoa(l.UDPPort)+" closed on the iran server", "" })
+		default:
+			set(ci, func(r *Result) { r.Phase = "speed" })
+			notify()
+			measured := s.measureL4(ctx, l, rows[ci].Method)
+			set(ci, func(r *Result) { *r = measured })
+		}
+		notify()
+		push(ci)
+		if rows[ci].Method == "pck" {
+			pr := rows[ci]
+			pckRow = &pr
+		}
+	}
+
+	// Phase 6: icmp and faketcp, which have no packet probe.
+	for ci := range rows {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		switch rows[ci].Method {
+		case "icmp":
+			set(ci, func(r *Result) { r.Phase = "speed" })
+			notify()
+			measured := measureICMP(ctx, s.host)
+			set(ci, func(r *Result) { *r = measured })
+		case "faketcp":
+			set(ci, func(r *Result) {
+				r.Phase = ""
+				switch {
+				case pckRow == nil || pckRow.Skipped != "":
+					r.Skipped = "measured on the pck carrier, which was not tested"
+				default:
+					r.Sent, r.Received, r.RTTms, r.JitterMs = pckRow.Sent, pckRow.Received, pckRow.RTTms, pckRow.JitterMs
+					r.UpMbps, r.DownMbps, r.Error = pckRow.UpMbps, pckRow.DownMbps, pckRow.Error
+				}
+			})
+		default:
+			continue
+		}
+		notify()
+		push(ci)
+	}
 	return rows, ctx.Err()
 }
 
@@ -1249,6 +1345,9 @@ func Recommend(results []Result) (method, reason string) {
 	var hasBest bool
 	var fecRow Result
 	for _, r := range results {
+		if r.Family == string(catalog.FamilyReverseL4) {
+			continue // port forwarding: it needs ports chosen, not a recommendation
+		}
 		if r.Method == "rudp-fec" && r.Received > fecRow.Received {
 			fecRow = r
 		}
@@ -1265,7 +1364,7 @@ func Recommend(results []Result) (method, reason string) {
 	}
 	var least Result
 	for _, r := range results {
-		if r.Received > least.Received {
+		if r.Family != string(catalog.FamilyReverseL4) && r.Received > least.Received {
 			least = r
 		}
 	}

@@ -520,11 +520,14 @@ func connTestIran() {
 	Header()
 	Title("Connection Test — Iran")
 	host := Ask("This server's public IP", detectIP("udp4", "8.8.8.8:80"))
-	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken()}
+	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken(), L4Port: conntest.DefaultL4Port}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	r, err := conntest.Serve(ctx, link.UDPPort, link.TokenHex)
+	if err == nil {
+		r.SetL4Port(link.L4Port)
+	}
 	if err != nil {
 		Err(err.Error())
 		Pause()
@@ -538,7 +541,7 @@ func connTestIran() {
 	}
 	defer stop()
 
-	Ok(fmt.Sprintf("Ready · UDP %d · TCP %d · IP %v", link.UDPPort, link.TCPPort, r.RawOpen))
+	Ok(fmt.Sprintf("Ready · UDP %d · TCP %d · layer 4 TCP+UDP %d · IP %v", link.UDPPort, link.TCPPort, link.L4Port, r.RawOpen))
 	Subtle("On kharej: ctunnel → 0 → Kharej, and paste:")
 	fmt.Printf("\n   %s%s%s\n\n", Bold+White, conntest.EncodeLink(link), Reset)
 	Subtle("Live results show here. Enter = stop.")
@@ -572,7 +575,7 @@ func RunConnTest(raw string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 
 	board := conntest.NewBoard(os.Stdout, link.Host)
@@ -906,12 +909,13 @@ func ConnTestServer(host string) {
 	if host == "" {
 		host = detectIP("udp4", "8.8.8.8:80")
 	}
-	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken()}
+	link := conntest.Link{Host: host, UDPPort: conntest.DefaultUDPPort, TCPPort: speedtest.DefaultSpeedPort, TokenHex: conntest.NewToken(), L4Port: conntest.DefaultL4Port}
 	r, err := conntest.Serve(context.Background(), link.UDPPort, link.TokenHex)
 	if err != nil {
 		Err(err.Error())
 		os.Exit(1)
 	}
+	r.SetL4Port(link.L4Port)
 	if _, _, err := speedtest.StartServer(fmt.Sprintf(":%d", link.TCPPort)); err != nil {
 		Err(err.Error())
 		os.Exit(1)

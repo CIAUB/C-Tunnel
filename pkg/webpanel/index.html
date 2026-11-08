@@ -445,6 +445,7 @@ details[open] summary{margin-bottom:12px}
             <div><div class="k">Listener</div><div id="t-listen-state" class="v">—</div></div>
             <div><div class="k">UDP</div><div id="t-udp" class="v">—</div></div>
             <div><div class="k">TCP</div><div id="t-tcp" class="v">—</div></div>
+            <div><div class="k">Layer 4</div><div id="t-l4" class="v" title="TCP and UDP: the layer-4 test tunnels">—</div></div>
             <div><div class="k">Expires</div><div id="t-expires" class="v">—</div></div>
           </div>
           <div><label for="t-iran-link">Test link for Kharej</label>
@@ -1891,6 +1892,7 @@ function renderTestServer(r) {
   $("t-listen-state").textContent = "LISTENING";
   $("t-udp").textContent = r.udp_port ? ":" + r.udp_port : "—";
   $("t-tcp").textContent = r.tcp_port ? ":" + r.tcp_port : "—";
+  $("t-l4").textContent = r.l4_port ? ":" + r.l4_port : "—";
   $("t-expires").textContent = r.expires_at ? new Date(r.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
   $("t-iran-meta").textContent = "Raw IP protocols: " + ((r.raw_open || []).length ? r.raw_open.join(", ") : (r.raw_error || "none — UDP-only methods still work"));
   renderTestRows($("t-iran-progress"), r.rows);

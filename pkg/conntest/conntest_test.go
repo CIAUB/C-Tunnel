@@ -263,7 +263,8 @@ func TestClosedUDPPortSkipsUDPAndStillTestsTCP(t *testing.T) {
 			frp++
 			continue
 		}
-		if r.Mode == "DIRECT" && r.Status() != "skipped" {
+		// icmp pings the Iran server and needs no UDP port.
+		if r.Mode == "DIRECT" && r.Method != "icmp" && r.Status() != "skipped" {
 			t.Fatalf("DIRECT row should be skipped with UDP closed: %+v", r)
 		}
 		if r.Status() == "testing" {
