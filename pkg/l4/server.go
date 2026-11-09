@@ -19,7 +19,55 @@ const (
 	idleRead     = 60 * time.Second // Kharej drops a pool connection silent this long
 	udpIdle      = 2 * time.Minute  // a UDP flow with no datagram this long is closed
 	maxPool      = 1024             // idle pool connections Iran holds at most
+	// Connections still in the handshake, at most, per source address and in
+	// all. Each one holds a socket and a goroutine for up to handshakeTimeout,
+	// so without a bound a flood of idle connections to the tunnel port uses
+	// up the engine's file descriptors and starves the forwarded ports. Kharej
+	// opens at most Pool (16) or Conns at a time, well under the per-source cap.
+	maxPendingPerIP = 64
+	maxPending      = 1024
 )
+
+// admission bounds the connections that have not finished the handshake.
+type admission struct {
+	mu    sync.Mutex
+	total int
+	perIP map[string]int
+}
+
+func (a *admission) take(ip string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.perIP == nil {
+		a.perIP = map[string]int{}
+	}
+	if a.total >= maxPending || a.perIP[ip] >= maxPendingPerIP {
+		return false
+	}
+	a.total++
+	a.perIP[ip]++
+	return true
+}
+
+func (a *admission) release(ip string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.total--
+	if a.perIP[ip]--; a.perIP[ip] <= 0 {
+		delete(a.perIP, ip)
+	}
+}
+
+// sourceIP is the address a connection came from, for admission.
+func sourceIP(c net.Conn) string {
+	if a := c.RemoteAddr(); a != nil {
+		if h, _, err := net.SplitHostPort(a.String()); err == nil {
+			return h
+		}
+		return a.String()
+	}
+	return ""
+}
 
 // Stats counts what the tunnel carried: Up is Kharej to Iran (what users
 // download), Down is Iran to Kharej.
@@ -68,6 +116,8 @@ type server struct {
 	// idle ones they are the links to Kharej: a pool emptied by traffic is
 	// a busy tunnel, not a broken one.
 	busy atomic.Int64
+
+	pending admission // connections still in the handshake
 }
 
 // countLinks publishes the pool transports' links: idle plus busy.
@@ -134,22 +184,32 @@ func (s *server) run(ctx context.Context) error {
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
-		go s.admit(ctx, c)
+		ip := sourceIP(c)
+		if !s.pending.take(ip) {
+			c.Close() // too many unfinished handshakes: shed it at once
+			continue
+		}
+		go s.admit(ctx, c, ip)
 	}
 }
 
 // admit authenticates one connection from Kharej and files it as an idle pool
 // connection or a mux session.
-func (s *server) admit(ctx context.Context, c net.Conn) {
+func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.SetKeepAlive(true)
 		_ = tc.SetKeepAlivePeriod(15 * time.Second)
 	}
-	if err := serverHandshake(c, s.cfg.Token); err != nil {
-		time.Sleep(time.Second) // no fast feedback for a guesser
+	err := serverHandshake(c, s.cfg.Token)
+	if err != nil {
 		c.Close()
+		// The slot stays taken during the pause, so a guesser cannot open a
+		// new connection for each failed one.
+		time.Sleep(time.Second) // no fast feedback for a guesser
+		s.pending.release(ip)
 		return
 	}
+	s.pending.release(ip)
 	if !Mux(s.cfg.Transport) {
 		select {
 		case s.pool <- c:

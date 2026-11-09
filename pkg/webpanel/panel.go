@@ -264,6 +264,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
+		// No other site's window keeps a handle on the panel, no other origin
+		// may embed its responses, and the page gets no device features.
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), usb=(), payment=(), clipboard-read=()")
 		if r.TLS != nil {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
@@ -348,8 +353,19 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// limiterKey is what the login limiter counts failures by: the address for
+// IPv4, the /64 for IPv6, since one host usually holds a whole /64 and could
+// otherwise get a fresh allowance from each of its addresses.
+func limiterKey(addr string) string {
+	ip := net.ParseIP(addr)
+	if ip == nil || ip.To4() != nil {
+		return addr
+	}
+	return (&net.IPNet{IP: ip.Mask(net.CIDRMask(64, 128)), Mask: net.CIDRMask(64, 128)}).String()
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
+	ip := limiterKey(clientIP(r))
 	if wait := s.limiter.blocked(ip); wait > 0 {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": fmt.Sprintf("too many attempts, try again in %d s", int(wait.Seconds())+1)})
 		return

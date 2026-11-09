@@ -25,3 +25,17 @@ func TestMethodMenuListsEveryMethodOnce(t *testing.T) {
 		}
 	}
 }
+
+// The update runs the repository in a shell command: only owner/name passes.
+func TestRepoSlugRefusesShell(t *testing.T) {
+	for _, ok := range []string{"CIAUB/C-Tunnel", "a_b/c.d-e"} {
+		if !repoSlugRe.MatchString(ok) {
+			t.Errorf("refused %q", ok)
+		}
+	}
+	for _, bad := range []string{"$(id)/x", "a/b;id", "a/b`id`", "a/b c", "a/../../b", "a", "a/b\n"} {
+		if repoSlugRe.MatchString(bad) {
+			t.Errorf("accepted %q", bad)
+		}
+	}
+}

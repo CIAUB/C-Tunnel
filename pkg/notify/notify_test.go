@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -303,3 +304,29 @@ func TestConfigValidation(t *testing.T) {
 }
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
+
+// The settings file holds the bot token: it is 0600 even when a stale,
+// world-readable temporary file of the old naming is lying next to it.
+func TestConfigFileStaysPrivate(t *testing.T) {
+	dir := t.TempDir()
+	ConfigPath = filepath.Join(dir, "telegram.json")
+	if err := os.WriteFile(ConfigPath+".tmp", []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := DefaultConfig()
+	c.Token, c.ChatID = testToken, "1"
+	if err := SaveConfig(c); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v", fi.Mode().Perm())
+	}
+	left, _ := filepath.Glob(filepath.Join(dir, ".telegram.json-*.tmp"))
+	if len(left) != 0 {
+		t.Fatalf("temporary files left: %v", left)
+	}
+}

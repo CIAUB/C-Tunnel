@@ -2,6 +2,14 @@
 
 ## [2.0.0]
 
+### Security
+- Releases are built with Go 1.26.10, pinned by the `toolchain` line in go.mod, and golang.org/x/net, x/crypto and x/sys are updated (x/net 0.23 to 0.62). Earlier releases were built with Go 1.22, which no longer gets security fixes; `govulncheck` reported 37 standard-library vulnerabilities reachable from the code (net/http, crypto/tls, crypto/x509, net/url and others, in the panel's HTTPS server and the TLS transports). It now reports none reachable. Building from source needs Go 1.26 or newer, or a Go 1.21+ that can fetch the toolchain.
+- The Iran end of a layer-4 tunnel holds at most 64 connections per source address, and 1024 in all, that have not finished the handshake; past that a new connection is closed at once. Before, every connection to the tunnel port held a socket and a goroutine for up to 11 seconds, so a flood of idle connections could use up the engine's file descriptors and stop the forwarded ports. The WebSocket server also drops idle keep-alive connections after 60 seconds.
+- The panel sends `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` and `Permissions-Policy`, and counts wrong login codes per /64 for IPv6, so one host cannot get a fresh allowance from each of its addresses.
+- The Telegram settings file, which holds the bot token, is written through a new private temporary file each time, so it can no longer inherit the mode of a stale world-readable one.
+- The connection test responder compares its token in constant time.
+- The terminal menu's update only runs a GitHub repository of the form owner/name, as the panel's update already required, since the name goes into a shell command.
+
 ### Added
 - Layer-4 reverse tunnels after BackPack's reverse engine: `tcp`, `tcpmux`, `pck` (TCP + PCK), `ws`, `wsmux`, `wss` and `wssmux`. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own 127.0.0.1, on a stream of its own, so TCP never runs inside TCP. Each connection between the servers opens with a handshake in which both prove they know the secret; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI. No tunnel interface or IP, so the tunnel benchmark does not apply to them. `pck` comes from BackPack (pkg/pck) and needs root.
 - The panel and the terminal menu build these tunnels on both servers. On Kharej the panel form asks for the Iran server's IP and the secret outside Advanced, so any tunnel can be built by hand as well as from the setup link.

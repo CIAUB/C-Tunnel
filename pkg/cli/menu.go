@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -820,6 +821,11 @@ func updateMenu() {
 	}) {
 	case 1:
 		slug := strings.TrimPrefix(repo, "https://github.com/")
+		// The slug goes into a shell command: refuse anything but owner/name.
+		if !repoSlugRe.MatchString(slug) {
+			Err("The repository must be https://github.com/owner/name; change it first")
+			return
+		}
 		installer := "https://raw.githubusercontent.com/" + slug + "/main/install.sh"
 		Info("Installing the latest release (every file is SHA-256 checked)")
 		script := fmt.Sprintf(`set -e; f=$(mktemp); curl -fsSL --connect-timeout 15 %q -o "$f"; CTUNNEL_REPO=%q bash "$f"; rm -f "$f"`, installer, slug)
@@ -835,7 +841,7 @@ func updateMenu() {
 			os.Exit(0)
 		}
 	case 2:
-		if r := strings.TrimRight(Ask("GitHub repository URL", repo), "/"); strings.HasPrefix(r, "https://github.com/") {
+		if r := strings.TrimRight(Ask("GitHub repository URL", repo), "/"); strings.HasPrefix(r, "https://github.com/") && repoSlugRe.MatchString(strings.TrimPrefix(r, "https://github.com/")) {
 			st.GitHubRepo = r
 			reportErr(st.Save())
 			return
@@ -950,3 +956,6 @@ func SplitMethods(s string) []string {
 	}
 	return out
 }
+
+// repoSlugRe is a GitHub owner/name, the only repository form an update runs.
+var repoSlugRe = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)

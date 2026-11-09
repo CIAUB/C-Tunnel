@@ -178,3 +178,81 @@ func TestParseForwards(t *testing.T) {
 		t.Fatal("port 0 accepted")
 	}
 }
+
+// A flood of connections that never finish the handshake is shed past the
+// per-source cap instead of holding a socket and a goroutine each, and the
+// tunnel works again once the flood stops.
+func TestUnfinishedHandshakesAreBounded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tunPort := freePort(t)
+	go func() {
+		_ = Run(ctx, Config{Role: "iran", Transport: "tcp", Port: tunPort, Token: testToken,
+			Forwards: []Forward{{Listen: freePort(t), Target: 1}}, Logf: t.Logf}, nil)
+	}()
+	time.Sleep(200 * time.Millisecond)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(tunPort))
+	var idle []net.Conn
+	defer func() {
+		for _, c := range idle {
+			c.Close()
+		}
+	}()
+	for i := 0; i < maxPendingPerIP; i++ {
+		c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		idle = append(idle, c)
+	}
+	time.Sleep(300 * time.Millisecond)
+	extra, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer extra.Close()
+	_ = extra.SetReadDeadline(time.Now().Add(3 * time.Second))
+	start := time.Now()
+	if _, err := extra.Read(make([]byte, 1)); err == nil || time.Since(start) > 2*time.Second {
+		t.Fatalf("connection past the cap was held: err %v after %v", err, time.Since(start))
+	}
+	for _, c := range idle {
+		c.Close()
+	}
+	idle = nil
+	time.Sleep(1500 * time.Millisecond) // failed handshakes keep their slot for a second
+	c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := clientHandshake(c, testToken); err != nil {
+		t.Fatalf("handshake after the flood: %v", err)
+	}
+}
+
+func TestAdmissionCounts(t *testing.T) {
+	var a admission
+	for i := 0; i < maxPendingPerIP; i++ {
+		if !a.take("192.0.2.1") {
+			t.Fatalf("slot %d refused", i)
+		}
+	}
+	if a.take("192.0.2.1") {
+		t.Fatal("past the per-source cap")
+	}
+	if !a.take("192.0.2.2") {
+		t.Fatal("another source refused")
+	}
+	a.release("192.0.2.1")
+	if !a.take("192.0.2.1") {
+		t.Fatal("released slot not reusable")
+	}
+	for i := 0; i < maxPendingPerIP; i++ {
+		a.release("192.0.2.1")
+	}
+	a.release("192.0.2.2")
+	if a.total != 0 || len(a.perIP) != 0 {
+		t.Fatalf("leak: total %d, sources %d", a.total, len(a.perIP))
+	}
+}

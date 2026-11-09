@@ -1,14 +1,16 @@
 module ctunnel
 
-go 1.22
+go 1.26.0
+
+toolchain go1.26.10
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/xtaci/kcp-go/v5 v5.6.18
 	github.com/xtaci/smux v1.5.57
-	golang.org/x/crypto v0.21.0
-	golang.org/x/net v0.23.0
-	golang.org/x/sys v0.18.0
+	golang.org/x/crypto v0.58.0
+	golang.org/x/net v0.62.0
+	golang.org/x/sys v0.49.0
 )
 
 require (

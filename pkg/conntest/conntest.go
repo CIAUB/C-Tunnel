@@ -12,6 +12,7 @@ import (
 	"compress/zlib"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -333,7 +334,7 @@ func (r *Responder) serve(c net.PacketConn) {
 			continue
 		}
 		pkt := buf[:n]
-		if n < trailerLen || string(pkt[n-tokenLen:]) != string(r.token) {
+		if n < trailerLen || subtle.ConstantTimeCompare(pkt[n-tokenLen:], r.token) != 1 {
 			continue
 		}
 		if ua, ok := src.(*net.UDPAddr); ok && n >= len(ctlMagic)+8+tokenLen && string(pkt[:len(ctlMagic)]) == ctlMagic {

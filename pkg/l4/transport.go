@@ -108,7 +108,7 @@ func listenWS(cfg *Config, addr string) (listener, error) {
 			c.Close()
 		}
 	})
-	w.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	w.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() { _ = w.srv.Serve(ln) }()
 	return w, nil
 }
