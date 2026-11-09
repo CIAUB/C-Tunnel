@@ -900,6 +900,44 @@ type Progress func(rows []Result)
 // Run probes every method against the responder in l: first Probes echoes per method,
 // then, for each method that answered every echo, a short throughput test.
 func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
+	return RunOnly(ctx, l, progress, nil)
+}
+
+// NewMethods are the methods new in C-Tunnel 2.0, for testing just them.
+var NewMethods = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux",
+	"faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp"}
+
+// CheckOnly reports a name in only that is not a method.
+func CheckOnly(only []string) error {
+	for _, n := range only {
+		if _, ok := catalog.LookupMethod(n); !ok {
+			return fmt.Errorf("unknown method %q (see: ctunnel catalog)", n)
+		}
+	}
+	return nil
+}
+
+// RunOnly is Run limited to the methods in only, in every mode they have
+// (DIRECT, rev+, frp+, layer 4); nil or empty tests everything. The short
+// echo phases still run for all methods, but only these are measured and
+// reported.
+func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]Result, error) {
+	if err := CheckOnly(only); err != nil {
+		return nil, err
+	}
+	want := map[string]bool{}
+	for _, n := range only {
+		want[n] = true
+	}
+	if want["faketcp"] {
+		want["pck"] = true // faketcp takes the pck carrier's result
+	}
+	wanted := func(method string) bool {
+		if len(want) == 0 {
+			return true
+		}
+		return want[strings.TrimPrefix(strings.TrimPrefix(method, "rev+"), "frp+")]
+	}
 	if err := validateLink(l); err != nil {
 		return nil, err
 	}
@@ -941,7 +979,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 			return
 		}
 		rowsMu.Lock()
-		cp := append([]Result(nil), rows...)
+		cp := shown(rows, wanted)
 		rowsMu.Unlock()
 		progress(cp)
 	}
@@ -955,7 +993,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	// TCP (frp+) rows are still measured.
 	udpOpen := true
 	push := func(i int) {
-		if !udpOpen {
+		if !udpOpen || !wanted(rows[i].Method) {
 			return
 		}
 		rowsMu.Lock()
@@ -1070,7 +1108,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		}
 		var targets []int
 		for _, ri := range []int{dirRow[i], revRow[i]} {
-			if usable(i) && ri >= 0 && rows[ri].Skipped == "" && rows[ri].Status() == "ok" {
+			if usable(i) && ri >= 0 && rows[ri].Skipped == "" && rows[ri].Status() == "ok" && wanted(rows[ri].Method) {
 				targets = append(targets, ri)
 			}
 		}
@@ -1095,7 +1133,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	// Phase 4: each frp+ method gets fresh TCP streams, its own method-specific
 	// payload, verified echoes and bidirectional throughput. No aggregate is copied.
 	for ci := range rows {
-		if !strings.HasPrefix(rows[ci].Method, "frp+") {
+		if !strings.HasPrefix(rows[ci].Method, "frp+") || !wanted(rows[ci].Method) {
 			continue
 		}
 		if ctx.Err() != nil {
@@ -1116,7 +1154,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	// TIME_WAIT left by an earlier TCP transport would refuse.
 	var l4Rows []int
 	for ci := range rows {
-		if rows[ci].Family != string(catalog.FamilyReverseL4) {
+		if rows[ci].Family != string(catalog.FamilyReverseL4) || !wanted(rows[ci].Method) {
 			continue
 		}
 		if rows[ci].Method == "pck" {
@@ -1156,6 +1194,9 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if !wanted(rows[ci].Method) {
+			continue
+		}
 		switch rows[ci].Method {
 		case "icmp":
 			set(ci, func(r *Result) { r.Phase = "speed" })
@@ -1179,7 +1220,18 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 		notify()
 		push(ci)
 	}
-	return rows, ctx.Err()
+	return shown(rows, wanted), ctx.Err()
+}
+
+// shown is the rows of the methods asked for.
+func shown(rows []Result, wanted func(string) bool) []Result {
+	out := make([]Result, 0, len(rows))
+	for _, r := range rows {
+		if wanted(r.Method) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // These are carrier/encapsulation shape probes, not kernel tunnel integration tests.

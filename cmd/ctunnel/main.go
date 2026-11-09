@@ -17,6 +17,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/cli"
+	"ctunnel/pkg/conntest"
 	"ctunnel/pkg/localproxy"
 	"ctunnel/pkg/speedtest"
 	"ctunnel/pkg/tunnel"
@@ -50,10 +51,19 @@ func main() {
 		applyLink(args[0])
 
 	case "conntest":
-		if len(args) != 1 {
-			log.Fatal("usage: ctunnel conntest 'ctunnel-test://...'   (get the link with: ctunnel conntest-server on the iran server)")
+		fs := flag.NewFlagSet("conntest", flag.ExitOnError)
+		only := fs.String("only", "", "test only these methods, comma separated (e.g. udp,udpmux,icmp)")
+		newOnly := fs.Bool("new", false, "test only the methods new in 2.0")
+		_ = fs.Parse(args)
+		if fs.NArg() != 1 {
+			log.Fatal("usage: ctunnel conntest [-new | -only m1,m2] 'ctunnel-test://...'   (get the link with: ctunnel conntest-server on the iran server)")
 		}
-		if err := cli.RunConnTest(args[0]); err != nil {
+		var methods []string
+		if *newOnly {
+			methods = conntest.NewMethods
+		}
+		methods = append(methods, cli.SplitMethods(*only)...)
+		if err := cli.RunConnTest(fs.Arg(0), methods); err != nil {
 			log.Fatal(err)
 		}
 
@@ -144,7 +154,7 @@ func main() {
   link <name>                  print the setup link for the other server
   apply-link 'ctunnel://...'   create and start the tunnel from a link
   conntest-server [ip]         iran side of the connection test: prints a link
-  conntest 'ctunnel-test://…'  kharej side: which methods pass, speed, recommendation
+  conntest [-new|-only a,b] 'ctunnel-test://…'  kharej side: which methods pass, speed, recommendation
   linktest [-port N] <host>    latency, loss and speed to <host>
   speedtest-server [-port N]   responder for linktest (default 7711/tcp)
   panel [-port N]              run the web panel in the foreground

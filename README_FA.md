@@ -375,6 +375,7 @@ http://<server-ip>:6969/panel-<random-id>/
 | `ctunnel apply-link 'ctunnel://…'` | ساختن و روشن کردن تانل از روی لینک |
 | `ctunnel conntest-server` | سمت ایران تست اتصال؛ لینک تست را می‌دهد |
 | `ctunnel conntest 'ctunnel-test://…'` | سمت خارج: کدام روش‌ها رد می‌شوند، سرعت و پیشنهاد |
+| `ctunnel conntest -new 'ctunnel-test://…'` | فقط روش‌های جدید نسخه‌ی ۲.۰؛ با `-only udp,udpmux` هر فهرست دلخواه |
 | `ctunnel linktest HOST` | پینگ، loss و سرعت تا HOST، مثلاً IP تانل |
 | `ctunnel speedtest-server` | پاسخ‌دهنده برای `linktest` (پورت TCP 7711) |
 | `ctunnel optimize` | BBR + fq، بافر ۶۴ مگابایتی و IP forwarding |

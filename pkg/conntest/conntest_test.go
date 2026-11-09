@@ -275,3 +275,48 @@ func TestClosedUDPPortSkipsUDPAndStillTestsTCP(t *testing.T) {
 		t.Fatal("no frp+ rows")
 	}
 }
+
+// RunOnly measures and reports only the methods asked for, in every mode
+// they have, and refuses a name that is not a method.
+func TestRunOnlyLimitsTheRows(t *testing.T) {
+	if err := CheckOnly([]string{"udp", "nope"}); err == nil {
+		t.Fatal("unknown method accepted")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	l := Link{Host: "127.0.0.1", TokenHex: NewToken()}
+	tcpAddr, stopTCP, err := speedtest.StartServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopTCP()
+	_, tport, _ := net.SplitHostPort(tcpAddr)
+	l.TCPPort = atoi(tport)
+	resp, err := Serve(ctx, 0, l.TokenHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.L4Port = FreeL4Port()
+	resp.SetL4Port(l.L4Port)
+	_, port, _ := net.SplitHostPort(resp.UDPAddr)
+	l.UDPPort = atoi(port)
+
+	start := time.Now()
+	rows, err := RunOnly(ctx, l, nil, []string{"stun-turn", "udp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Result{}
+	for _, r := range rows {
+		got[r.Method] = r
+	}
+	if len(got) != 3 {
+		t.Fatalf("rows %v, want stun-turn, rev+stun-turn and udp", got)
+	}
+	for _, m := range []string{"stun-turn", "rev+stun-turn", "udp"} {
+		if r, ok := got[m]; !ok || r.Status() != "ok" || r.DownMbps <= 0 {
+			t.Fatalf("%s: %+v", m, r)
+		}
+	}
+	t.Logf("three rows in %v", time.Since(start).Round(time.Second))
+}

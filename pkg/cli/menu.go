@@ -571,7 +571,7 @@ func attachResponderUI(r *conntest.Responder, title string) {
 
 // RunConnTest runs the kharej side and prints the live board, the verdict and the
 // best settings; shared by the menu and the CLI.
-func RunConnTest(raw string) error {
+func RunConnTest(raw string, only []string) error {
 	link, err := conntest.DecodeLink(raw)
 	if err != nil {
 		return err
@@ -580,7 +580,7 @@ func RunConnTest(raw string) error {
 	defer cancel()
 
 	board := conntest.NewBoard(os.Stdout, link.Host)
-	rows, err := conntest.Run(ctx, link, board.Update)
+	rows, err := conntest.RunOnly(ctx, link, board.Update, only)
 	if err != nil {
 		return err
 	}
@@ -599,7 +599,21 @@ func connTestKharej(raw string) {
 		return
 	}
 	Header()
-	if err := RunConnTest(raw); err != nil {
+	var only []string
+	switch ChooseOpt("Test which methods", []MenuOpt{
+		{"All", "every method, about 5-8 minutes"},
+		{"New in 2.0", strings.Join(conntest.NewMethods, ", ")},
+		{"Choose", "type method names"},
+	}) {
+	case 0:
+		return
+	case 2:
+		only = conntest.NewMethods
+	case 3:
+		only = SplitMethods(Ask("Methods, comma separated", "udp,udpmux"))
+	}
+	Header()
+	if err := RunConnTest(raw, only); err != nil {
 		Err(err.Error())
 	}
 	Pause()
@@ -926,4 +940,13 @@ func ConnTestServer(host string) {
 	fmt.Printf("on the kharej server run:\n  sudo ctunnel conntest '%s'\n\n", conntest.EncodeLink(link))
 	attachResponderUI(r, host)
 	select {}
+}
+
+// SplitMethods reads a comma- or space-separated list of method names.
+func SplitMethods(s string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }) {
+		out = append(out, strings.ToLower(strings.TrimSpace(f)))
+	}
+	return out
 }

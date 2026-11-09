@@ -396,6 +396,7 @@ The screenshots use synthetic demonstration data and are generated from the actu
 | `ctunnel apply-link 'ctunnel://…'` | Create and start a tunnel from a link |
 | `ctunnel conntest-server` | Iran side of the connection test, prints a link |
 | `ctunnel conntest 'ctunnel-test://…'` | Kharej side: which methods pass, speed, recommendation |
+| `ctunnel conntest -new 'ctunnel-test://…'` | Only the methods new in 2.0; `-only udp,udpmux` for any list |
 | `ctunnel linktest HOST` | Latency, loss and throughput to HOST, e.g. a tunnel IP |
 | `ctunnel speedtest-server` | Responder for `linktest` (TCP 7711) |
 | `ctunnel optimize` | BBR + fq, 64 MB socket buffers, IP forwarding |
