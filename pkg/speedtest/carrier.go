@@ -169,6 +169,11 @@ func CarrierRTT(ctx context.Context, addr string, probes int, interval time.Dura
 
 // CarrierPayloadRTT verifies full echoes, including the method-specific prefix.
 func CarrierPayloadRTT(ctx context.Context, addr string, prefix []byte, probes int, interval time.Duration) []float64 {
+	return CarrierPayloadRTTLive(ctx, addr, prefix, probes, interval, nil)
+}
+
+// CarrierPayloadRTTLive verifies echoes step-by-step and emits progress samples.
+func CarrierPayloadRTTLive(ctx context.Context, addr string, prefix []byte, probes int, interval time.Duration, onStep func(sent int, rtts []float64)) []float64 {
 	c, err := dialCarrier(ctx, addr, 'P', prefix)
 	if err != nil {
 		return nil
@@ -188,13 +193,22 @@ func CarrierPayloadRTT(ctx context.Context, addr string, prefix []byte, probes i
 		_ = c.SetDeadline(time.Now().Add(1500 * time.Millisecond))
 		t0 := time.Now()
 		if writeRecord(c, body) != nil {
+			if onStep != nil {
+				onStep(i+1, rtts)
+			}
 			break
 		}
 		n, err := readRecord(c, buf)
 		if err != nil || !bytes.Equal(body, buf[:n]) {
+			if onStep != nil {
+				onStep(i+1, rtts)
+			}
 			break
 		}
 		rtts = append(rtts, float64(time.Since(t0).Microseconds())/1000)
+		if onStep != nil {
+			onStep(i+1, rtts)
+		}
 		if !sleepCtx(ctx, interval) {
 			break
 		}
@@ -210,17 +224,23 @@ func MeasureCarrier(ctx context.Context, addr string, warmup, duration time.Dura
 
 // MeasureCarrierPayload runs fresh streams for one method, counting verified payload bytes.
 func MeasureCarrierPayload(ctx context.Context, addr string, prefix []byte, warmup, duration time.Duration) (down, up float64, err error) {
+	return MeasureCarrierPayloadLive(ctx, addr, prefix, warmup, duration, nil)
+}
+
+// MeasureCarrierPayloadLive runs fresh streams for one method and emits ~150ms
+// bandwidth samples for dir ('D' download, 'U' upload).
+func MeasureCarrierPayloadLive(ctx context.Context, addr string, prefix []byte, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (down, up float64, err error) {
 	if warmup < 0 || duration <= 0 {
 		return 0, 0, errors.New("invalid measurement duration")
 	}
-	if down, err = carrierDirection(ctx, addr, 'D', prefix, warmup, duration); err != nil {
+	if down, err = carrierDirection(ctx, addr, 'D', prefix, warmup, duration, onSample); err != nil {
 		return 0, 0, err
 	}
-	up, err = carrierDirection(ctx, addr, 'U', prefix, warmup, duration)
+	up, err = carrierDirection(ctx, addr, 'U', prefix, warmup, duration, onSample)
 	return down, up, err
 }
 
-func carrierDirection(parent context.Context, addr string, dir byte, prefix []byte, warmup, duration time.Duration) (float64, error) {
+func carrierDirection(parent context.Context, addr string, dir byte, prefix []byte, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (float64, error) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	var conns []net.Conn
@@ -285,11 +305,19 @@ func carrierDirection(parent context.Context, addr string, dir byte, prefix []by
 			}
 		}(c)
 	}
-	if !sleepCtx(ctx, warmup) {
+	if !sleepSample(ctx, warmup, &got, func(mbps float64) {
+		if onSample != nil {
+			onSample(dir, mbps)
+		}
+	}) {
 		return 0, ctx.Err()
 	}
 	base, t0 := got.Load(), time.Now()
-	if !sleepCtx(ctx, duration) {
+	if !sleepSample(ctx, duration, &got, func(mbps float64) {
+		if onSample != nil {
+			onSample(dir, mbps)
+		}
+	}) {
 		return 0, ctx.Err()
 	}
 	total, el := got.Load()-base, time.Since(t0).Seconds()
@@ -298,7 +326,48 @@ func carrierDirection(parent context.Context, addr string, dir byte, prefix []by
 	if failed.Load() || total == 0 {
 		return 0, fmt.Errorf("carrier %c stream failed or returned no verified payload", dir)
 	}
-	return float64(total) * 8 / el / 1e6, nil
+	finalMbps := float64(total) * 8 / el / 1e6
+	if onSample != nil {
+		onSample(dir, finalMbps)
+	}
+	return finalMbps, nil
+}
+
+func sleepSample(ctx context.Context, d time.Duration, counter *atomic.Uint64, emit func(mbps float64)) bool {
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	if emit == nil || counter == nil {
+		return sleepCtx(ctx, d)
+	}
+	end := time.Now().Add(d)
+	tick := time.NewTicker(150 * time.Millisecond)
+	defer tick.Stop()
+	lastB := counter.Load()
+	lastT := time.Now()
+	for {
+		rem := time.Until(end)
+		if rem <= 0 {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(rem):
+			now := time.Now()
+			cur := counter.Load()
+			if dt := now.Sub(lastT).Seconds(); dt > 0 {
+				emit(float64(cur-lastB) * 8 / dt / 1e6)
+			}
+			return true
+		case now := <-tick.C:
+			cur := counter.Load()
+			if dt := now.Sub(lastT).Seconds(); dt > 0 {
+				emit(float64(cur-lastB) * 8 / dt / 1e6)
+			}
+			lastB, lastT = cur, now
+		}
+	}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {

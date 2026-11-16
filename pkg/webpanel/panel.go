@@ -116,6 +116,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/linktest/server/stop", s.auth(s.handleTestServerStop))
 	mux.HandleFunc("POST /api/linktest/jobs", s.auth(s.handleLinkTestStart))
 	mux.HandleFunc("GET /api/linktest/jobs/{id}", s.auth(s.handleLinkTestJob))
+	mux.HandleFunc("GET /api/linktest/jobs/{id}/stream", s.auth(s.handleLinkTestStream))
 	mux.HandleFunc("POST /api/linktest/jobs/{id}/stop", s.auth(s.handleLinkTestStop))
 	mux.HandleFunc("POST /api/optimize", s.auth(s.handleOptimize))
 	mux.HandleFunc("GET /api/auto-refresh", s.auth(s.handleAutoRefresh))

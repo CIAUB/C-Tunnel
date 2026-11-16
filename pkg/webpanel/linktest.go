@@ -2,6 +2,7 @@ package webpanel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -270,6 +271,7 @@ type linkTestJob struct {
 	Peer         string
 	Status       string
 	Rows         []conntest.Result
+	Live         *conntest.LiveTelemetry
 	Text         string
 	Best         conntest.Result
 	BestSettings conntest.Best
@@ -277,6 +279,7 @@ type linkTestJob struct {
 	Error        string
 	Expires      time.Time
 	cancel       context.CancelFunc
+	subs         map[chan struct{}]struct{}
 }
 
 func (s *Server) handleLinkTestStart(w http.ResponseWriter, r *http.Request) {
@@ -328,6 +331,7 @@ func (s *Server) handleLinkTestStart(w http.ResponseWriter, r *http.Request) {
 		Deployments: map[string]linkTestDeployment{},
 		Expires:     time.Now().Add(linkTestJobTTL),
 		cancel:      cancel,
+		subs:        map[chan struct{}]struct{}{},
 	}
 	s.jobMu.Lock()
 	s.pruneJobsLocked(time.Now())
@@ -344,6 +348,15 @@ func (s *Server) handleLinkTestStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"test_id": id, "status": "running"})
 }
 
+func (s *Server) notifyJobLocked(job *linkTestJob) {
+	for ch := range job.subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conntest.Link, req methodTestRequest) {
 	defer func() { <-s.testSlot }()
 	defer job.cancel()
@@ -352,17 +365,27 @@ func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conn
 		s.jobMu.Lock()
 		if s.jobs[job.ID] == job && job.Status == "running" {
 			job.Rows = append([]conntest.Result(nil), progress...)
+			s.notifyJobLocked(job)
 		}
 		s.jobMu.Unlock()
 	}
+	liveCtx := conntest.WithLive(ctx, func(lt conntest.LiveTelemetry) {
+		s.jobMu.Lock()
+		if s.jobs[job.ID] == job && job.Status == "running" {
+			cp := lt
+			job.Live = &cp
+			s.notifyJobLocked(job)
+		}
+		s.jobMu.Unlock()
+	})
 	var (
 		rows []conntest.Result
 		err  error
 	)
 	if len(only) > 0 {
-		rows, err = runMethodTestOnly(ctx, link, progressFn, only)
+		rows, err = runMethodTestOnly(liveCtx, link, progressFn, only)
 	} else {
-		rows, err = runMethodTest(ctx, link, progressFn)
+		rows, err = runMethodTest(liveCtx, link, progressFn)
 	}
 	if err != nil {
 		s.finishLinkTestJob(job, "error", err.Error(), nil, nil, conntest.Result{}, conntest.Best{})
@@ -433,6 +456,7 @@ func (s *Server) finishLinkTestJob(job *linkTestJob, status, message string, dep
 	if status == "done" {
 		job.Text = conntest.Verdict(job.Peer, job.Rows)
 	}
+	s.notifyJobLocked(job)
 }
 
 func (s *Server) addTestDeployment(owner string, tc catalog.TunnelConfig, result conntest.Result) (string, error) {
@@ -466,6 +490,20 @@ func (s *Server) pruneJobsLocked(now time.Time) {
 	}
 }
 
+func (s *Server) jobViewLocked(job *linkTestJob) map[string]any {
+	view := map[string]any{
+		"test_id": job.ID, "status": job.Status,
+		"rows": append([]conntest.Result(nil), job.Rows...),
+		"best": job.Best, "best_settings": job.BestSettings, "text": job.Text, "error": job.Error,
+		"deployments": job.Deployments, "expires_at": job.Expires,
+	}
+	if job.Live != nil {
+		cp := *job.Live
+		view["live"] = cp
+	}
+	return view
+}
+
 func (s *Server) handleLinkTestJob(w http.ResponseWriter, r *http.Request) {
 	cookie, err := s.session(r)
 	if err != nil {
@@ -482,14 +520,93 @@ func (s *Server) handleLinkTestJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errors.New("test result expired or unavailable"))
 		return
 	}
-	view := map[string]any{
-		"test_id": job.ID, "status": job.Status,
-		"rows": append([]conntest.Result(nil), job.Rows...),
-		"best": job.Best, "best_settings": job.BestSettings, "text": job.Text, "error": job.Error,
-		"deployments": job.Deployments, "expires_at": job.Expires,
-	}
+	view := s.jobViewLocked(job)
 	s.jobMu.Unlock()
 	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) handleLinkTestStream(w http.ResponseWriter, r *http.Request) {
+	cookie, err := s.session(r)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session changed; log in again"})
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, errors.New("streaming unsupported"))
+		return
+	}
+	id := r.PathValue("id")
+	now := time.Now()
+	s.jobMu.Lock()
+	s.pruneJobsLocked(now)
+	job := s.jobs[id]
+	if job == nil || job.Owner != cookie.Value {
+		s.jobMu.Unlock()
+		writeError(w, http.StatusNotFound, errors.New("test result expired or unavailable"))
+		return
+	}
+	ch := make(chan struct{}, 1)
+	if job.subs == nil {
+		job.subs = map[chan struct{}]struct{}{}
+	}
+	job.subs[ch] = struct{}{}
+	view := s.jobViewLocked(job)
+	s.jobMu.Unlock()
+
+	defer func() {
+		s.jobMu.Lock()
+		delete(job.subs, ch)
+		s.jobMu.Unlock()
+	}()
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	rc := http.NewResponseController(w)
+	send := func(v map[string]any) bool {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return false
+		}
+		_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if _, err := fmt.Fprintf(w, "event: telemetry\ndata: %s\n\n", b); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	if !send(view) || view["status"] != "running" {
+		return
+	}
+
+	keepAlive := time.NewTicker(15 * time.Second)
+	defer keepAlive.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-keepAlive.C:
+			_ = rc.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		case <-ch:
+			s.jobMu.Lock()
+			if s.jobs[id] != job {
+				s.jobMu.Unlock()
+				return
+			}
+			view = s.jobViewLocked(job)
+			s.jobMu.Unlock()
+			if !send(view) || view["status"] != "running" {
+				return
+			}
+		}
+	}
 }
 
 func (s *Server) handleLinkTestStop(w http.ResponseWriter, r *http.Request) {
@@ -509,6 +626,7 @@ func (s *Server) handleLinkTestStop(w http.ResponseWriter, r *http.Request) {
 	if job.Status == "running" {
 		job.Status = "stopped"
 		job.Error = "stopped by the operator"
+		s.notifyJobLocked(job)
 		if job.cancel != nil {
 			job.cancel()
 		}

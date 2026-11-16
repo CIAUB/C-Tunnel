@@ -22,6 +22,10 @@ const (
 // answers. Echo requests and replies take both directions of the path, so the
 // rate of replies is given for both.
 func measureICMP(ctx context.Context, host net.IP) Result {
+	return measureICMPLive(ctx, host, nil)
+}
+
+func measureICMPLive(ctx context.Context, host net.IP, onLive func(phase string, r *Result)) Result {
 	row := Result{Method: "icmp", Family: "Stealth", Mode: "DIRECT", Sent: Probes}
 	c, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
@@ -77,6 +81,14 @@ func measureICMP(ctx context.Context, host net.IP) Result {
 
 	for seq := uint16(1); seq <= Probes; seq++ {
 		send(seq)
+		if onLive != nil {
+			mu.Lock()
+			row.Sent, row.Received = int(seq), len(rtts)
+			row.RTTms, row.JitterMs = stats(rtts)
+			cp := row
+			mu.Unlock()
+			onLive("echo", &cp)
+		}
 		if !sleep(ctx, probeInterval) {
 			return row
 		}
@@ -85,6 +97,7 @@ func measureICMP(ctx context.Context, host net.IP) Result {
 		return row
 	}
 	mu.Lock()
+	row.Sent = Probes
 	row.Received = len(rtts)
 	row.RTTms, row.JitterMs = stats(rtts)
 	mu.Unlock()
@@ -97,6 +110,32 @@ func measureICMP(ctx context.Context, host net.IP) Result {
 	inflight.Store(0)
 	seq := uint16(Probes + 1)
 	end := time.Now().Add(speedDuration)
+	stopMon := make(chan struct{})
+	doneMon := make(chan struct{})
+	go func() {
+		defer close(doneMon)
+		if onLive == nil {
+			return
+		}
+		tick := time.NewTicker(150 * time.Millisecond)
+		defer tick.Stop()
+		lastR, lastT := int64(0), time.Now()
+		for {
+			select {
+			case <-stopMon:
+				return
+			case now := <-tick.C:
+				cur := replies.Load()
+				if dt := now.Sub(lastT).Seconds(); dt > 0 {
+					mbps := float64(cur-lastR) * float64(8+icmpPayload) * 8 / dt / 1e6
+					cp := row
+					cp.UpMbps, cp.DownMbps = mbps, mbps
+					onLive("download", &cp)
+				}
+				lastR, lastT = cur, now
+			}
+		}
+	}()
 	for time.Now().Before(end) && ctx.Err() == nil {
 		if inflight.Load() >= icmpWindow {
 			time.Sleep(200 * time.Microsecond)
@@ -116,6 +155,8 @@ func measureICMP(ctx context.Context, host net.IP) Result {
 		}
 	}
 	_ = sleep(ctx, time.Duration(row.RTTms*float64(time.Millisecond))+200*time.Millisecond)
+	close(stopMon)
+	<-doneMon
 	mbps := float64(replies.Load()) * float64(8+icmpPayload) * 8 / speedDuration.Seconds() / 1e6
 	row.UpMbps, row.DownMbps = mbps, mbps
 	return row

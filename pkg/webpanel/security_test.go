@@ -21,7 +21,7 @@ var protectedRoutes = [][2]string{
 	{"GET", "/api/backup"}, {"POST", "/api/backup/restore"}, {"POST", "/api/import"},
 	{"GET", "/api/hostips"}, {"POST", "/api/linktest"}, {"POST", "/api/linktest/server/start"},
 	{"GET", "/api/linktest/server"}, {"POST", "/api/linktest/server/stop"}, {"POST", "/api/linktest/jobs"},
-	{"GET", "/api/linktest/jobs/x"}, {"POST", "/api/linktest/jobs/x/stop"}, {"POST", "/api/optimize"},
+	{"GET", "/api/linktest/jobs/x"}, {"GET", "/api/linktest/jobs/x/stream"}, {"POST", "/api/linktest/jobs/x/stop"}, {"POST", "/api/optimize"},
 	{"GET", "/api/auto-refresh"}, {"POST", "/api/auto-refresh"}, {"GET", "/api/proxy"}, {"POST", "/api/proxy"},
 	{"GET", "/api/telegram"}, {"POST", "/api/telegram"}, {"POST", "/api/telegram/test"},
 	{"GET", "/api/bench"}, {"POST", "/api/bench"}, {"GET", "/api/settings"}, {"POST", "/api/settings"},

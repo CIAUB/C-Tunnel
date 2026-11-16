@@ -229,8 +229,8 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 	}
 	for _, m := range catalog.Methods {
 		if frpMethod(m) {
-			rows = append(rows, Result{Method: "frp+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Sent: Probes, Phase: "wait"})
-			rows = append(rows, Result{Method: "turbo+" + m.Name, Family: string(m.Family), Mode: "DIRECT", Sent: Probes, Phase: "wait"})
+			rows = append(rows, Result{Method: "frp+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Phase: "wait"})
+			rows = append(rows, Result{Method: "turbo+" + m.Name, Family: string(m.Family), Mode: "DIRECT", Phase: "wait"})
 		}
 	}
 	return rows, dir, rev
@@ -598,6 +598,10 @@ func buildProbe(p probe, kind byte, idx int, seq uint16, body, token []byte) []b
 // stream sends full-size packets shaped like method p from several goroutines, as fast
 // as the socket accepts them, for dur. It returns the number of bytes sent.
 func stream(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token []byte, dur time.Duration) int64 {
+	return streamWithCounter(c, dst, p, idx, kind, token, dur, nil)
+}
+
+func streamWithCounter(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token []byte, dur time.Duration, counter *atomic.Int64) int64 {
 	workers := min(4, runtime.NumCPU())
 	end := time.Now().Add(dur)
 	var total atomic.Int64
@@ -616,14 +620,19 @@ func stream(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token [
 			seq := uint16(w << 12)
 			var sent int64
 			for time.Now().Before(end) {
+				var batch int64
 				for i := 0; i < 64; i++ {
 					seq++
 					binary.BigEndian.PutUint16(t[2:4], seq)
 					if n, err := c.WriteTo(pkt, dst); err == nil {
-						sent += int64(n)
+						batch += int64(n)
 					} else {
 						time.Sleep(100 * time.Microsecond) // socket buffer full
 					}
+				}
+				sent += batch
+				if counter != nil && batch > 0 {
+					counter.Add(batch)
 				}
 			}
 			total.Add(sent)
@@ -631,6 +640,39 @@ func stream(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token [
 	}
 	wg.Wait()
 	return total.Load()
+}
+
+// LiveTelemetry is a high-frequency snapshot emitted while a method is tested.
+type LiveTelemetry struct {
+	Method      string  `json:"method"`
+	Direction   string  `json:"direction"`
+	Family      string  `json:"family"`
+	Phase       string  `json:"phase"` // "echo", "download", "upload", "mtu", "done"
+	RxMbps      float64 `json:"rx_mbps"`
+	TxMbps      float64 `json:"tx_mbps"`
+	RTTms       float64 `json:"rtt_ms"`
+	JitterMs    float64 `json:"jitter_ms"`
+	ProbesOK    int     `json:"probes_ok"`
+	ProbesTotal int     `json:"probes_total"`
+	MTU         int     `json:"mtu"`
+	Index       int     `json:"index"`
+	Total       int     `json:"total"`
+	ProgressPct int     `json:"progress_pct"`
+	TS          int64   `json:"ts"`
+}
+
+type liveCtxKey struct{}
+
+// WithLive attaches a real-time telemetry sink to ctx for Run / RunOnly.
+func WithLive(ctx context.Context, cb func(LiveTelemetry)) context.Context {
+	return context.WithValue(ctx, liveCtxKey{}, cb)
+}
+
+func liveSink(ctx context.Context) func(LiveTelemetry) {
+	if v, ok := ctx.Value(liveCtxKey{}).(func(LiveTelemetry)); ok {
+		return v
+	}
+	return nil
 }
 
 // Result is the outcome for one method and mode (DIRECT or REVERSE).
@@ -646,7 +688,7 @@ type Result struct {
 	DownMbps float64 `json:"down_mbps"` // received by this server (download)
 	Skipped  string  `json:"skipped,omitempty"`
 	Error    string  `json:"error,omitempty"`
-	Phase    string  `json:"-"` // "", "echo", "speed-queued", "speed" while the test runs
+	Phase    string  `json:"phase,omitempty"` // "", "wait", "echo", "download", "upload", "speed" while the test runs
 }
 
 func stripMethodPrefix(method string) string {
@@ -1005,19 +1047,95 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 	usable := func(i int) bool { return s.ps[i].proto == 0 || s.raw[s.ps[i].proto] != nil }
 	rows, dirRow, revRow := newRows(s.ps, usable)
 	var rowsMu sync.Mutex
-	notify := func() {
+	var notifyMu sync.Mutex
+	var lastNotify time.Time
+	notifyForce := func(force bool) {
 		if progress == nil {
 			return
+		}
+		if !force {
+			notifyMu.Lock()
+			if time.Since(lastNotify) < 120*time.Millisecond {
+				notifyMu.Unlock()
+				return
+			}
+			lastNotify = time.Now()
+			notifyMu.Unlock()
+		} else {
+			notifyMu.Lock()
+			lastNotify = time.Now()
+			notifyMu.Unlock()
 		}
 		rowsMu.Lock()
 		cp := shown(rows, wanted)
 		rowsMu.Unlock()
 		progress(cp)
 	}
+	notify := func() { notifyForce(true) }
 	set := func(i int, f func(r *Result)) {
 		rowsMu.Lock()
 		f(&rows[i])
 		rowsMu.Unlock()
+	}
+	liveCb := liveSink(ctx)
+	estPathMTU := PathMTU(ctx, l)
+	if estPathMTU <= 0 {
+		estPathMTU = 1500
+	}
+	totalWanted := 0
+	for i := range rows {
+		if wanted(rows[i].Method) {
+			totalWanted++
+		}
+	}
+	emitLive := func(focusIdx int, phase string, rx, tx float64) {
+		if liveCb == nil && progress == nil {
+			return
+		}
+		rowsMu.Lock()
+		var r Result
+		if focusIdx >= 0 && focusIdx < len(rows) {
+			r = rows[focusIdx]
+		}
+		doneCount := 0
+		for i := range rows {
+			if wanted(rows[i].Method) && rows[i].Phase == "" {
+				doneCount++
+			}
+		}
+		rowsMu.Unlock()
+		if totalWanted <= 0 {
+			totalWanted = 1
+		}
+		idxPos := min(totalWanted, doneCount+1)
+		pct := min(99, max(1, (doneCount*100)/totalWanted))
+		if phase == "done" {
+			idxPos, pct = totalWanted, 100
+		}
+		mtuVal := tunnelMTU(r.Method, estPathMTU)
+		if mtuVal <= 0 {
+			mtuVal = 1420
+		}
+		if liveCb != nil && r.Method != "" {
+			liveCb(LiveTelemetry{
+				Method:      r.Method,
+				Direction:   modeTag(r),
+				Family:      r.Family,
+				Phase:       phase,
+				RxMbps:      rx,
+				TxMbps:      tx,
+				RTTms:       r.RTTms,
+				JitterMs:    r.JitterMs,
+				ProbesOK:    r.Received,
+				ProbesTotal: Probes,
+				MTU:         mtuVal,
+				Index:       idxPos,
+				Total:       totalWanted,
+				ProgressPct: pct,
+				TS:          time.Now().UnixMilli(),
+			})
+		}
+		notifyForce(false)
 	}
 	// udpOpen is false when the iran responder's UDP port does not answer (closed or
 	// filtered). The UDP and IP-protocol phases need it, so they are skipped and the
@@ -1066,12 +1184,16 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		notify()
 	}
 	for step := 1; udpOpen && anyProbeWanted && step <= Probes; step++ {
+		focus := -1
 		for i := range s.ps {
 			if usable(i) && wanted(s.ps[i].method) {
 				set(dirRow[i], func(r *Result) { r.Phase, r.Sent = "echo", step })
+				if focus < 0 {
+					focus = dirRow[i]
+				}
 			}
 		}
-		notify()
+		emitLive(focus, "echo", 0, 0)
 		if !sleep(ctx, probeInterval) {
 			return nil, ctx.Err()
 		}
@@ -1114,15 +1236,24 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 	})
 	body := make([]byte, bodyLen)
 	for seq := 0; udpOpen && anyProbeWanted && seq < Probes; seq++ {
+		focus := -1
 		for i := range s.ps {
 			if revRow[i] < 0 || !wanted(s.ps[i].method) {
 				continue
 			}
 			_, _ = rand.Read(body)
 			s.send(i, uint16(seq), body)
-			set(revRow[i], func(r *Result) { r.Phase, r.Sent = "echo", seq+1 })
+			set(revRow[i], func(r *Result) {
+				r.Phase, r.Sent = "echo", seq+1
+				if len(rtts[i]) > 0 {
+					r.RTTms, r.JitterMs = stats(rtts[i])
+				}
+			})
+			if focus < 0 {
+				focus = revRow[i]
+			}
 		}
-		notify()
+		emitLive(focus, "echo", 0, 0)
 		if !sleep(ctx, probeInterval) {
 			return nil, ctx.Err()
 		}
@@ -1155,10 +1286,28 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			continue
 		}
 		for _, ri := range targets {
-			set(ri, func(r *Result) { r.Phase = "speed" })
+			set(ri, func(r *Result) { r.Phase = "upload" })
 		}
-		notify()
-		up, down := s.throughput(ctx, i)
+		emitLive(targets[0], "upload", 0, 0)
+		up, down := s.throughputLive(ctx, i, func(phase string, rateMbps float64) {
+			for _, ri := range targets {
+				set(ri, func(r *Result) {
+					r.Phase = phase
+					if phase == "upload" {
+						r.UpMbps = rateMbps
+					} else {
+						r.DownMbps = rateMbps
+					}
+				})
+			}
+			rx, tx := 0.0, 0.0
+			if phase == "download" {
+				rx = rateMbps
+			} else {
+				tx = rateMbps
+			}
+			emitLive(targets[0], phase, rx, tx)
+		})
 		for _, ri := range targets {
 			set(ri, func(r *Result) { r.UpMbps, r.DownMbps, r.Phase = up, down, "" })
 			push(ri)
@@ -1186,12 +1335,34 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 		base := strings.TrimPrefix(rows[ci].Method, "frp+")
 		tci, hasTurbo := turboRows[base]
-		set(ci, func(r *Result) { r.Phase = "speed" })
+		set(ci, func(r *Result) { r.Phase = "echo" })
 		if hasTurbo {
-			set(tci, func(r *Result) { r.Phase = "speed" })
+			set(tci, func(r *Result) { r.Phase = "echo" })
 		}
-		notify()
-		measured := measureCarrier(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), rows[ci].Method)
+		focusIdx := ci
+		if hasTurbo && wanted(rows[tci].Method) {
+			// When both share a probe, keep focus unambiguous: show frp+ during echo/download
+			// or turbo+ when only Direct is emphasized; switch deterministically.
+			focusIdx = tci
+		}
+		emitLive(focusIdx, "echo", 0, 0)
+		measured := measureCarrierLive(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), rows[ci].Method, func(phase string, sent, recv int, rtt, jit, rx, tx float64) {
+			apply := func(r *Result, mode, name string) {
+				r.Method, r.Mode, r.Phase = name, mode, phase
+				r.Sent, r.Received, r.RTTms, r.JitterMs = sent, recv, rtt, jit
+				if rx > 0 {
+					r.DownMbps = rx
+				}
+				if tx > 0 {
+					r.UpMbps = tx
+				}
+			}
+			set(ci, func(r *Result) { apply(r, "REVERSE", "frp+"+base) })
+			if hasTurbo {
+				set(tci, func(r *Result) { apply(r, "DIRECT", "turbo+"+base) })
+			}
+			emitLive(focusIdx, phase, rx, tx)
+		})
 		set(ci, func(r *Result) { *r = measured })
 		if hasTurbo {
 			tm := measured
@@ -1248,12 +1419,42 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 				set(dci, func(r *Result) { r.Skipped, r.Phase = "UDP "+strconv.Itoa(l.UDPPort)+" closed on the iran server", "" })
 			}
 		default:
-			set(ci, func(r *Result) { r.Phase = "speed" })
+			set(ci, func(r *Result) { r.Phase = "echo" })
 			if hasDir {
-				set(dci, func(r *Result) { r.Phase = "speed" })
+				set(dci, func(r *Result) { r.Phase = "echo" })
 			}
-			notify()
-			measured := s.measureL4(ctx, l, base)
+			emitLive(ci, "echo", 0, 0)
+			measured := s.measureL4Live(ctx, l, base, func(phase string, r *Result) {
+				set(ci, func(dst *Result) {
+					dst.Phase = phase
+					if r.Sent > 0 {
+						dst.Sent = r.Sent
+					}
+					dst.Received, dst.RTTms, dst.JitterMs = r.Received, r.RTTms, r.JitterMs
+					if r.DownMbps > 0 {
+						dst.DownMbps = r.DownMbps
+					}
+					if r.UpMbps > 0 {
+						dst.UpMbps = r.UpMbps
+					}
+				})
+				if hasDir {
+					set(dci, func(dst *Result) {
+						dst.Phase = phase
+						if r.Sent > 0 {
+							dst.Sent = r.Sent
+						}
+						dst.Received, dst.RTTms, dst.JitterMs = r.Received, r.RTTms, r.JitterMs
+						if r.DownMbps > 0 {
+							dst.DownMbps = r.DownMbps
+						}
+						if r.UpMbps > 0 {
+							dst.UpMbps = r.UpMbps
+						}
+					})
+				}
+				emitLive(ci, phase, r.DownMbps, r.UpMbps)
+			})
 			set(ci, func(r *Result) { *r = measured })
 			if hasDir {
 				dm := measured
@@ -1283,9 +1484,15 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 		switch rows[ci].Method {
 		case "icmp":
-			set(ci, func(r *Result) { r.Phase = "speed" })
-			notify()
-			measured := measureICMP(ctx, s.host)
+			set(ci, func(r *Result) { r.Phase = "echo" })
+			emitLive(ci, "echo", 0, 0)
+			measured := measureICMPLive(ctx, s.host, func(phase string, r *Result) {
+				set(ci, func(dst *Result) {
+					*dst = *r
+					dst.Phase = phase
+				})
+				emitLive(ci, phase, r.DownMbps, r.UpMbps)
+			})
 			set(ci, func(r *Result) { *r = measured })
 		case "faketcp":
 			set(ci, func(r *Result) {
@@ -1320,9 +1527,13 @@ func shown(rows []Result, wanted func(string) bool) []Result {
 
 // These are carrier/encapsulation shape probes, not kernel tunnel integration tests.
 func measureCarrier(ctx context.Context, addr, method string) Result {
+	return measureCarrierLive(ctx, addr, method, nil)
+}
+
+func measureCarrierLive(ctx context.Context, addr, method string, onLive func(phase string, sent, recv int, rtt, jit, rx, tx float64)) Result {
 	base := strings.TrimPrefix(method, "frp+")
 	spec, ok := catalog.LookupMethod(base)
-	r := Result{Method: method, Family: string(spec.Family), Mode: "REVERSE", Sent: Probes}
+	r := Result{Method: method, Family: string(spec.Family), Mode: "REVERSE", Sent: 0}
 	if !ok || !frpMethod(spec) {
 		r.Skipped = "unsupported frp method"
 		return r
@@ -1338,13 +1549,31 @@ func measureCarrier(ctx context.Context, addr, method string) Result {
 		r.Skipped = "no carrier probe"
 		return r
 	}
-	rtts := speedtest.CarrierPayloadRTT(ctx, addr, prefix, Probes, probeInterval)
+	rtts := speedtest.CarrierPayloadRTTLive(ctx, addr, prefix, Probes, probeInterval, func(sent int, cur []float64) {
+		avg, jit := stats(cur)
+		if onLive != nil {
+			onLive("echo", sent, len(cur), avg, jit, 0, 0)
+		}
+	})
+	r.Sent = Probes
 	r.Received = len(rtts)
 	r.RTTms, r.JitterMs = stats(rtts)
 	if r.Received == 0 {
 		return r
 	}
-	down, up, err := speedtest.MeasureCarrierPayload(ctx, addr, prefix, 200*time.Millisecond, time.Second)
+	var lastRx, lastTx float64
+	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 200*time.Millisecond, time.Second, func(dir byte, mbps float64) {
+		phase := "download"
+		if dir == 'U' {
+			phase = "upload"
+			lastTx = mbps
+		} else {
+			lastRx = mbps
+		}
+		if onLive != nil {
+			onLive(phase, r.Sent, r.Received, r.RTTms, r.JitterMs, lastRx, lastTx)
+		}
+	})
 	r.DownMbps, r.UpMbps = down, up
 	if err != nil {
 		r.Error = "carrier throughput failed"
@@ -1397,6 +1626,10 @@ func (s *session) controlMsg(ctx context.Context, cmd byte, idx int, arg uint16,
 // throughput streams method idx at full rate for speedDuration in each direction and
 // returns the rates that arrived, in Mbit/s: up is kharej → iran, down is iran → kharej.
 func (s *session) throughput(ctx context.Context, idx int) (up, down float64) {
+	return s.throughputLive(ctx, idx, nil)
+}
+
+func (s *session) throughputLive(ctx context.Context, idx int, onSample func(phase string, mbps float64)) (up, down float64) {
 	p := s.ps[idx]
 	toMbps := func(b int64) float64 { return float64(b) * 8 / speedDuration.Seconds() / 1e6 }
 
@@ -1406,29 +1639,77 @@ func (s *session) throughput(ctx context.Context, idx int) (up, down float64) {
 		if p.proto != 0 {
 			conn, dst = s.raw[p.proto], &net.IPAddr{IP: s.host}
 		}
-		stream(conn, dst, p, idx, kindUpload, s.token, speedDuration)
+		var txBytes atomic.Int64
+		stopMon := make(chan struct{})
+		doneMon := make(chan struct{})
+		go func() {
+			defer close(doneMon)
+			tick := time.NewTicker(150 * time.Millisecond)
+			defer tick.Stop()
+			lastB, lastT := int64(0), time.Now()
+			for {
+				select {
+				case <-stopMon:
+					return
+				case now := <-tick.C:
+					cur := txBytes.Load()
+					if dt := now.Sub(lastT).Seconds(); dt > 0 && onSample != nil {
+						onSample("upload", float64(cur-lastB)*8/dt/1e6)
+					}
+					lastB, lastT = cur, now
+				}
+			}
+		}()
+		streamWithCounter(conn, dst, p, idx, kindUpload, s.token, speedDuration, &txBytes)
+		close(stopMon)
+		<-doneMon
 		_ = sleep(ctx, 300*time.Millisecond)
 		if n, ok := s.control(ctx, ctlCountRead, idx, 0); ok {
 			up = toMbps(n)
+			if onSample != nil {
+				onSample("upload", up)
+			}
 		}
 	}
 
 	// iran → kharej: count what arrives here.
-	var mu sync.Mutex
-	var got int64
+	var got atomic.Int64
 	s.setHandler(func(kind byte, i int, _ uint16, _ int64, size int) {
 		if kind == kindDownload && i == idx {
-			mu.Lock()
-			got += int64(size)
-			mu.Unlock()
+			got.Add(int64(size))
 		}
 	})
 	defer s.setHandler(nil)
 	if _, ok := s.control(ctx, ctlSend, idx, speedDuration); ok {
+		stopMon := make(chan struct{})
+		doneMon := make(chan struct{})
+		go func() {
+			defer close(doneMon)
+			tick := time.NewTicker(150 * time.Millisecond)
+			defer tick.Stop()
+			lastB, lastT := int64(0), time.Now()
+			for {
+				select {
+				case <-stopMon:
+					return
+				case <-ctx.Done():
+					return
+				case now := <-tick.C:
+					cur := got.Load()
+					if dt := now.Sub(lastT).Seconds(); dt > 0 && onSample != nil {
+						onSample("download", float64(cur-lastB)*8/dt/1e6)
+					}
+					lastB, lastT = cur, now
+				}
+			}
+		}()
 		_ = sleep(ctx, speedDuration+400*time.Millisecond)
-		mu.Lock()
-		down = toMbps(got)
-		mu.Unlock()
+		close(stopMon)
+		<-doneMon
+		down = toMbps(got.Load())
+		if onSample != nil {
+			onSample("download", down)
+		}
 	}
 	return up, down
 }

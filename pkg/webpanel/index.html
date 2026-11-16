@@ -359,10 +359,10 @@ details[open] summary{margin-bottom:12px}
 .ct-progress{display:flex;align-items:center;gap:12px;padding:12px 15px;border:1px solid var(--ln2);border-radius:12px;background:var(--s2)}
 .ct-pbar{flex:1;height:8px;border-radius:999px;background:var(--sunk);overflow:hidden}
 .ct-pbar i{display:block;height:100%;width:0%;background:var(--ac);border-radius:999px;transition:width .3s var(--spring)}
-.ct-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
-.ct-mcard{padding:14px 16px;border:1px solid var(--ln);border-radius:14px;background:var(--s2);display:grid;gap:6px;align-content:start}
-.ct-mcard.win{border-color:color-mix(in srgb,var(--ok) 45%,var(--ln));background:color-mix(in srgb,var(--ok) 6%,var(--s2))}
-.ct-mcard .k{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mu)}
+.ct-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ct-mcard{padding:14px 16px;border:1px solid var(--ln);border-radius:14px;background:var(--s1);display:grid;gap:6px;align-content:start}
+.ct-mcard.win{border-color:color-mix(in srgb,#10b981 42%,var(--ln));background:color-mix(in srgb,#10b981 5%,var(--s1))}
+.ct-mcard .k{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--mu)}
 .ct-mcard .v{font:700 18px/1.2 var(--mono);color:var(--tx);overflow-wrap:anywhere}
 .ct-mcard .sub{font-size:12px;color:var(--mu);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .ct-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -376,69 +376,45 @@ details[open] summary{margin-bottom:12px}
 .probe-pill.warn{border-color:color-mix(in srgb,var(--wr) 40%,transparent);color:var(--wr)}
 .probe-pill.bad{border-color:color-mix(in srgb,var(--er) 40%,transparent);color:var(--er)}
 .sec-box{padding:14px;border:1px solid var(--ln);border-radius:12px;background:var(--s2);display:grid;gap:12px}
-.st-gauge-card{position:relative;overflow:hidden;display:grid;grid-template-columns:310px minmax(0,1fr);gap:24px;align-items:center;padding:22px 24px;border:1px solid rgba(56,189,248,.32);border-radius:20px;background:radial-gradient(90% 110% at 16% 24%,#0c2744 0%,#0b1528 48%,#070b14 100%);color:#f8fafc;box-shadow:0 24px 50px -20px rgba(2,6,23,.82),inset 0 1px 0 rgba(255,255,255,.1)}
-.st-gauge-card::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.14;background-image:radial-gradient(rgba(148,163,184,.55) 1px,transparent 1px);background-size:16px 16px;-webkit-mask-image:linear-gradient(115deg,#000 10%,transparent 75%);mask-image:linear-gradient(115deg,#000 10%,transparent 75%)}
-.st-dial-wrap{position:relative;display:grid;place-items:center;z-index:1}
-.st-svg{width:300px;height:232px;overflow:visible;display:block}
-.st-bezel{fill:none;stroke:rgba(148,163,184,.14);stroke-width:1.5;stroke-dasharray:4 4}
-.st-inner-ring{fill:none;stroke:rgba(56,189,248,.14);stroke-width:1.2;stroke-dasharray:2 5}
-.st-track{fill:none;stroke:rgba(15,23,42,.85);stroke-width:15;stroke-linecap:round}
-.st-track-rim{fill:none;stroke:rgba(148,163,184,.16);stroke-width:17;stroke-linecap:round}
-.st-arc{fill:none;stroke:url(#st-grad-dl);stroke-width:15;stroke-linecap:round;stroke-dasharray:402.1;stroke-dashoffset:402.1;filter:drop-shadow(0 0 10px rgba(56,189,248,.45));transition:stroke-dashoffset .32s var(--spring)}
-.st-arc.up{stroke:url(#st-grad-ul);filter:drop-shadow(0 0 10px rgba(16,185,129,.45))}
-.st-tick{stroke:rgba(148,163,184,.26);stroke-width:1.6;stroke-linecap:round;transition:stroke .2s}
-.st-tick.maj{stroke:rgba(226,232,240,.55);stroke-width:2.2}
-.st-tick.lit{stroke:#38bdf8;filter:drop-shadow(0 0 4px rgba(56,189,248,.6))}
-.st-tick.lit.up{stroke:#34d399;filter:drop-shadow(0 0 4px rgba(52,211,153,.6))}
-.st-tick-lbl{fill:#94a3b8;stroke:none;font:700 10px var(--mono);text-anchor:middle;dominant-baseline:middle;transition:fill .2s}
-.st-tick-lbl.lit{fill:#f8fafc}
-.st-tip{fill:#fff;stroke:#38bdf8;stroke-width:3;filter:drop-shadow(0 0 8px #38bdf8);transition:cx .32s var(--spring),cy .32s var(--spring)}
-.st-tip.up{stroke:#34d399;filter:drop-shadow(0 0 8px #34d399)}
-.st-needle{fill:url(#st-needle-grad);stroke:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.65))}
-.st-hub-outer{fill:#0f172a;stroke:rgba(148,163,184,.35);stroke-width:2}
-.st-hub{fill:#38bdf8;stroke:#0f172a;stroke-width:3;filter:drop-shadow(0 0 8px rgba(56,189,248,.8))}
-.st-hub.up{fill:#34d399;filter:drop-shadow(0 0 8px rgba(52,211,153,.8))}
-.st-center{position:absolute;bottom:8px;left:0;right:0;text-align:center;display:grid;justify-items:center;gap:3px;pointer-events:none}
-.st-center b{font:800 38px/1 var(--mono);letter-spacing:-.04em;color:#fff;text-shadow:0 0 22px rgba(56,189,248,.42)}
-.st-center small{display:inline-flex;padding:2px 9px;border-radius:999px;background:rgba(15,23,42,.85);border:1px solid rgba(56,189,248,.28);font:700 9.5px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:#38bdf8}
-.st-info{position:relative;z-index:1;display:grid;gap:14px;min-width:0}
-.st-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.st-proto{font:800 19px/1.2 var(--mono);color:#fff;letter-spacing:-.02em}
-.st-phase-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;border:1px solid rgba(56,189,248,.4);background:rgba(56,189,248,.12);font:700 11px/1.3 var(--mono);color:#38bdf8;letter-spacing:.04em}
-.st-phase-pill.done{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.14);color:#34d399}
-.st-phase-pill .pdot{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:stpulse 1.1s ease-in-out infinite}
-@keyframes stpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
-.st-badge{display:inline-flex;padding:3px 9px;border-radius:999px;border:1px solid rgba(148,163,184,.25);background:rgba(15,23,42,.7);font:700 10.5px/1.3 var(--mono);color:#cbd5e1}
-.st-badge.ok{border-color:rgba(52,211,153,.4);color:#34d399;background:rgba(52,211,153,.1)}
-.st-pwrap{display:grid;gap:6px;padding:10px 14px;border-radius:12px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.65)}
-.st-ptop{display:flex;align-items:center;justify-content:space-between;gap:8px;font:600 11.5px/1.2 var(--mono);color:#cbd5e1}
-.st-pbar{height:7px;border-radius:999px;background:rgba(30,41,59,.9);overflow:hidden}
-.st-pbar i{display:block;height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#38bdf8,#818cf8,#34d399);box-shadow:0 0 12px rgba(56,189,248,.6);transition:width .3s var(--spring)}
-.st-stream-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.st-scard{position:relative;overflow:hidden;padding:12px 14px 34px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:linear-gradient(180deg,rgba(15,23,42,.82),rgba(9,13,22,.92));display:grid;gap:4px}
-.st-scard.dl{border-color:rgba(56,189,248,.28)}
-.st-scard.ul{border-color:rgba(52,211,153,.28)}
-.st-shead{display:flex;align-items:center;justify-content:space-between;gap:6px;font:700 10.5px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#94a3b8}
-.st-shead .dir{display:inline-flex;align-items:center;gap:5px;color:#38bdf8}
-.st-scard.ul .st-shead .dir{color:#34d399}
-.st-sval{display:flex;align-items:baseline;gap:6px}
-.st-sval b{font:800 24px/1.1 var(--mono);color:#fff;letter-spacing:-.03em}
-.st-sval small{font:700 11px var(--mono);color:#94a3b8}
-.st-spark{position:absolute;left:0;right:0;bottom:0;width:100%;height:32px;stroke:none;pointer-events:none}
-.st-spark .ln{fill:none;stroke-width:2;vector-effect:non-scaling-stroke}
-.st-scard.dl .st-spark .ln{stroke:#38bdf8}
-.st-scard.ul .st-spark .ln{stroke:#34d399}
-.st-scard.dl .st-spark .ar{fill:url(#st-dl-fill)}
-.st-scard.ul .st-spark .ar{fill:url(#st-ul-fill)}
-.st-tele-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.st-stat{padding:10px 12px;border:1px solid rgba(148,163,184,.16);border-radius:12px;background:rgba(15,23,42,.68);display:grid;gap:4px}
-.st-stat .k{font:700 10px/1.2 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;justify-content:space-between;gap:5px}
-.st-stat .v{font:800 16px/1.2 var(--mono);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.st-stat .sub{font:500 11px/1.2 var(--mono);color:#94a3b8}
-.st-leds{display:flex;gap:3px;align-items:center;margin-top:2px}
-.st-leds i{flex:1;height:5px;border-radius:2px;background:rgba(148,163,184,.2);transition:background-color .2s,box-shadow .2s}
-.st-leds i.ok{background:#34d399;box-shadow:0 0 6px rgba(52,211,153,.55)}
-.st-leds i.bad{background:#ef4444}
+.ct-console{--ct-bg:#fff;--ct-cell:#f9fafb;--ct-track:#f3f4f6;--ct-ln:#e5e7eb;--ct-ink:#111;--ct-mu:#6b7280;--ct-ok:#10b981;--ct-wr:#f59e0b;--ct-er:#ef4444;background:var(--ct-bg);color:var(--ct-ink);border:1px solid var(--ct-ln);border-radius:16px;padding:18px 20px;display:grid;gap:16px}
+:root[data-theme=dark] .ct-console{--ct-bg:var(--s1);--ct-cell:var(--s2);--ct-track:var(--s3);--ct-ln:var(--ln2);--ct-ink:var(--tx);--ct-mu:var(--mu)}
+@media(prefers-color-scheme:dark){:root[data-theme=auto] .ct-console{--ct-bg:var(--s1);--ct-cell:var(--s2);--ct-track:var(--s3);--ct-ln:var(--ln2);--ct-ink:var(--tx);--ct-mu:var(--mu)}}
+.ct-con-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.ct-con-left{display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-width:0}
+.ct-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--ct-mu)}
+.ct-dot.live{background:var(--ct-ok);animation:ctpulse 1.2s ease-in-out infinite}
+.ct-dot.done{background:var(--ct-ok)}
+.ct-dot.bad{background:var(--ct-er)}
+@keyframes ctpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.82)}}
+.ct-con-method{font:700 17px/1.2 var(--mono);color:var(--ct-ink);letter-spacing:-.02em}
+.ct-tag{display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;border:1px solid var(--ct-ln);background:var(--ct-cell);font:600 11px/1.4 var(--mono);color:var(--ct-ink)}
+.ct-tag.solid{background:var(--ct-ink);color:var(--ct-bg);border-color:var(--ct-ink)}
+.ct-tag.mu{color:var(--ct-mu)}
+.ct-con-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font:600 12px/1.3 var(--mono);color:var(--ct-mu)}
+.ct-con-phase{color:var(--ct-ink)}
+.ct-slim-track{width:100%;height:3px;border-radius:999px;background:var(--ct-track);overflow:hidden}
+.ct-slim-fill{display:block;height:100%;width:0%;border-radius:999px;background:var(--ct-ink);transition:width .24s var(--spring),background-color .2s}
+.ct-slim-fill.done{background:var(--ct-ok)}
+.ct-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.ct-mcell{padding:13px 14px;border:1px solid var(--ct-ln);border-radius:12px;background:var(--ct-cell);display:grid;gap:8px;align-content:space-between;min-width:0;overflow:hidden}
+.ct-mtop{display:flex;align-items:baseline;justify-content:space-between;gap:4px 8px;flex-wrap:wrap;font:700 10.5px/1.25 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ct-mu)}
+.ct-mtop .pk{font-weight:600;color:var(--ct-ink);text-transform:none;letter-spacing:0;font-size:10.5px;white-space:nowrap}
+.ct-mval{display:flex;align-items:baseline;gap:5px;min-width:0;flex-wrap:wrap}
+.ct-mval b{font:700 24px/1.05 var(--mono);letter-spacing:-.03em;color:var(--ct-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ct-mval small{font:600 11.5px var(--mono);color:var(--ct-mu);white-space:nowrap}
+.ct-spark{width:100%;height:34px;display:block;overflow:hidden;stroke:none}
+.ct-spark .ln{fill:none;stroke:var(--ct-ink);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.ct-spark .ln.ul{stroke:var(--ct-ok)}
+.ct-spark .ln.rtt{stroke:var(--ct-mu)}
+.ct-spark .ar{fill:var(--ct-ink);opacity:.08}
+.ct-spark .ar.ul{fill:var(--ct-ok);opacity:.11}
+.ct-spark .ar.rtt{fill:var(--ct-mu);opacity:.08}
+.ct-probes{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:4px;align-items:center;height:34px;padding-top:12px}
+.ct-probes i{display:block;height:6px;border-radius:999px;background:var(--ct-ln);transition:background-color .18s}
+.ct-probes i.ok{background:var(--ct-ok)}
+.ct-probes i.bad{background:var(--ct-er)}
+.ct-probes i.active{background:var(--ct-ink);animation:ctpulse 1s ease-in-out infinite}
+.ct-probe-sub{font:500 11px/1.3 var(--mono);color:var(--ct-mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mode-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .mode-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 13px;border:1px solid var(--ln2);border-radius:12px;background:var(--field);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s}
 .mode-card b{font-size:13px;color:var(--tx);display:flex;align-items:center;gap:6px;width:100%}
@@ -464,8 +440,8 @@ details[open] summary{margin-bottom:12px}
 .proto-cur{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 11px;border-radius:10px;border:1px dashed var(--ln2);background:var(--s1);font-size:12px}
 .proto-cur code{font-weight:700;color:var(--ac)}
 .v2-pills{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px dashed var(--ln2)}
-@media(max-width:860px){.st-gauge-card{grid-template-columns:minmax(0,1fr);justify-items:center}.st-info{width:100%}.st-stream-grid,.st-tele-row{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:720px){.scope-tabs,.mode-switch{grid-template-columns:minmax(0,1fr)}.proto-search{max-width:none;width:100%;margin-left:0}}
+@media(max-width:1023px){.ct-metrics,.ct-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:767px){.scope-tabs,.mode-switch{grid-template-columns:minmax(0,1fr)}.proto-search{max-width:none;width:100%;margin-left:0}.ct-console{padding:14px}.ct-mcell{padding:11px 12px}.ct-mval b{font-size:19px}.test-actions{width:100%}.test-actions .btn{flex:1 1 140px;min-height:44px}}
 </style>
 </head>
 <body>
@@ -644,91 +620,56 @@ details[open] summary{margin-bottom:12px}
           <button id="t-btn" class="btn primary" type="submit">Run connection test</button>
           <button id="t-stop-job" class="btn danger" type="button" hidden>Stop test</button>
         </div>
-        <div id="t-kharej-dash" class="ct-dash" hidden>
-          <div id="t-speed-gauge" class="st-gauge-card">
-            <div class="st-dial-wrap">
-              <svg class="st-svg" viewBox="0 0 320 236" aria-hidden="true">
-                <defs>
-                  <linearGradient id="st-grad-dl" x1="0%" y1="100%" x2="100%" y2="0%">
-                    <stop offset="0%" stop-color="#0ea5e9"/>
-                    <stop offset="50%" stop-color="#38bdf8"/>
-                    <stop offset="100%" stop-color="#818cf8"/>
-                  </linearGradient>
-                  <linearGradient id="st-grad-ul" x1="0%" y1="100%" x2="100%" y2="0%">
-                    <stop offset="0%" stop-color="#059669"/>
-                    <stop offset="55%" stop-color="#10b981"/>
-                    <stop offset="100%" stop-color="#38bdf8"/>
-                  </linearGradient>
-                  <linearGradient id="st-needle-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stop-color="#ffffff"/>
-                    <stop offset="100%" stop-color="#38bdf8"/>
-                  </linearGradient>
-                  <linearGradient id="st-dl-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.32"/>
-                    <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0"/>
-                  </linearGradient>
-                  <linearGradient id="st-ul-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#34d399" stop-opacity="0.32"/>
-                    <stop offset="100%" stop-color="#34d399" stop-opacity="0.0"/>
-                  </linearGradient>
-                </defs>
-                <circle class="st-bezel" cx="160" cy="132" r="108"/>
-                <circle class="st-inner-ring" cx="160" cy="132" r="72"/>
-                <path class="st-track-rim" d="M 76.9 180.0 A 96 96 0 1 1 243.1 180.0"/>
-                <path class="st-track" d="M 76.9 180.0 A 96 96 0 1 1 243.1 180.0"/>
-                <path id="st-arc" class="st-arc" d="M 76.9 180.0 A 96 96 0 1 1 243.1 180.0"/>
-                <g id="st-ticks"></g>
-                <circle id="st-tip" class="st-tip" cx="76.9" cy="180.0" r="5"/>
-                <polygon id="st-needle" class="st-needle" points="92,171 158,128 162,136 172,139"/>
-                <circle class="st-hub-outer" cx="160" cy="132" r="14"/>
-                <circle id="st-hub" class="st-hub" cx="160" cy="132" r="6"/>
-              </svg>
-              <div class="st-center">
-                <b id="st-mbps" class="num">0.0</b>
-                <small id="st-unit">Mbps Peak</small>
+        <div id="t-kharej-dash" class="ct-dash">
+          <div id="t-speed-gauge" class="ct-console" aria-live="polite">
+            <div class="ct-con-head">
+              <div class="ct-con-left">
+                <span id="st-dot" class="ct-dot"></span>
+                <b id="st-method" class="ct-con-method">Ready to test</b>
+                <span id="st-mode" class="ct-tag solid">IDLE</span>
+                <span id="st-family" class="ct-tag mu">—</span>
+              </div>
+              <div class="ct-con-right">
+                <span id="t-live-label" class="ct-con-phase">Paste Iran test link and run</span>
+                <span id="st-counter" class="num">0 / 0</span>
+                <span id="t-live-pct" class="num">0%</span>
               </div>
             </div>
-            <div class="st-info">
-              <div class="st-head">
-                <span id="st-phase" class="st-phase-pill"><span class="pdot"></span><span id="st-phase-txt">PROBING</span></span>
-                <b id="st-method" class="st-proto">—</b>
-                <span id="st-mode" class="st-badge ok">REVERSE</span>
-                <span id="st-family" class="st-badge">—</span>
+            <div class="ct-slim-track"><i id="t-live-fill" class="ct-slim-fill"></i></div>
+            <div class="ct-metrics">
+              <div class="ct-mcell">
+                <div class="ct-mtop"><span>Download Stream</span><span id="st-down-sub" class="pk">Peak —</span></div>
+                <div class="ct-mval"><b id="st-down" class="num">—</b><small>Mbps</small></div>
+                <svg class="ct-spark" viewBox="0 0 220 34" preserveAspectRatio="none" aria-hidden="true">
+                  <path id="st-dl-area" class="ar"></path>
+                  <path id="st-dl-line" class="ln"></path>
+                </svg>
               </div>
-              <div id="t-live-bar" class="st-pwrap">
-                <div class="st-ptop">
-                  <span id="t-live-label">Probing methods…</span>
-                  <span id="t-live-pct" class="num">0%</span>
-                </div>
-                <div class="st-pbar"><i id="t-live-fill"></i></div>
+              <div class="ct-mcell">
+                <div class="ct-mtop"><span>Upload Stream</span><span id="st-up-sub" class="pk">Peak —</span></div>
+                <div class="ct-mval"><b id="st-up" class="num">—</b><small>Mbps</small></div>
+                <svg class="ct-spark" viewBox="0 0 220 34" preserveAspectRatio="none" aria-hidden="true">
+                  <path id="st-ul-area" class="ar ul"></path>
+                  <path id="st-ul-line" class="ln ul"></path>
+                </svg>
               </div>
-              <div class="st-stream-grid">
-                <div class="st-scard dl">
-                  <div class="st-shead"><span class="dir">↓ Download Stream</span><span id="st-down-sub">Peak burst</span></div>
-                  <div class="st-sval"><b id="st-down" class="num">—</b><small id="st-down-u">Mbps</small></div>
-                  <svg class="st-spark" viewBox="0 0 240 32" preserveAspectRatio="none" aria-hidden="true">
-                    <path id="st-dl-area" class="ar"></path>
-                    <path id="st-dl-line" class="ln"></path>
-                  </svg>
-                </div>
-                <div class="st-scard ul">
-                  <div class="st-shead"><span class="dir">↑ Upload Stream</span><span id="st-up-sub">Return stream</span></div>
-                  <div class="st-sval"><b id="st-up" class="num">—</b><small id="st-up-u">Mbps</small></div>
-                  <svg class="st-spark" viewBox="0 0 240 32" preserveAspectRatio="none" aria-hidden="true">
-                    <path id="st-ul-area" class="ar"></path>
-                    <path id="st-ul-line" class="ln"></path>
-                  </svg>
-                </div>
+              <div class="ct-mcell">
+                <div class="ct-mtop"><span>Ping / RTT</span><span id="st-jitter" class="pk">Jitter —</span></div>
+                <div class="ct-mval"><b id="st-rtt" class="num">—</b><small>ms</small></div>
+                <svg class="ct-spark" viewBox="0 0 220 34" preserveAspectRatio="none" aria-hidden="true">
+                  <path id="st-rtt-area" class="ar rtt"></path>
+                  <path id="st-rtt-line" class="ln rtt"></path>
+                </svg>
               </div>
-              <div class="st-tele-row">
-                <div class="st-stat"><div class="k"><span>Ping / RTT</span><span id="st-rtt-grade" style="color:#38bdf8">—</span></div><div id="st-rtt" class="v num">—</div><div id="st-jitter" class="sub">Echo latency</div></div>
-                <div class="st-stat"><div class="k"><span>Path MTU</span><span id="st-mtu-grade" style="color:#34d399">AUTO</span></div><div id="st-mtu-val" class="v num">1420 B</div><div id="st-mtu-sub" class="sub">Optimal payload</div></div>
-                <div class="st-stat"><div class="k"><span>Echo Probes</span><span id="st-probes" class="num" style="color:#fff">0/10</span></div><div id="st-leds" class="st-leds"></div><div id="st-loss" class="sub">Packet integrity</div></div>
+              <div class="ct-mcell">
+                <div class="ct-mtop"><span>Path MTU &amp; Probes</span><span id="st-probes" class="pk">0/10</span></div>
+                <div class="ct-mval"><b id="st-mtu-val" class="num">1420 B</b><small id="st-loss" class="ct-probe-sub">Ready</small></div>
+                <div id="st-leds" class="ct-probes" aria-label="Echo probes"></div>
               </div>
             </div>
           </div>
           <div id="t-summary-cards" class="ct-cards" hidden></div>
-          <div class="ct-toolbar">
+          <div id="t-row-controls" class="ct-toolbar" hidden>
             <div class="filters" id="t-row-filters" role="group" aria-label="Filter test results">
               <button type="button" data-rfilter="all" aria-pressed="true">All</button>
               <button type="button" data-rfilter="ok" aria-pressed="false">Passed</button>
@@ -2515,8 +2456,11 @@ $("settings-form").addEventListener("submit", async e => {
 
 /* ---------- connection test ---------- */
 function testBadge(r) {
-  if (r.phase === "echo") return ["ECHO " + (r.sent || 0) + "/10", "warn", "Sending echo probes"];
+  if (r.phase === "echo") return ["ECHO " + (r.sent || 0) + "/10", "warn", "Probing RTT"];
+  if (r.phase === "download") return ["DOWNLOAD…", "warn", "Measuring download stream"];
+  if (r.phase === "upload") return ["UPLOAD…", "warn", "Measuring upload stream"];
   if (r.phase === "speed") return ["SPEED…", "warn", "Measuring bidirectional throughput"];
+  if (r.phase === "wait") return ["WAIT", "idle", "Queued"];
   if (r.skipped) return ["SKIP", "warn", r.skipped];
   if (r.error) return ["ERROR", "bad", r.error];
   if (!r.sent) return ["WAIT", "idle", ""];
@@ -2526,189 +2470,222 @@ function testBadge(r) {
 }
 function mbps(v) { return v > 0 ? Number(v).toFixed(1) + " Mbps" : "—"; }
 function stripPrefix(m) { return (m || "").replace(/^(frp\+|rev\+|turbo\+|direct\+)/, ""); }
-const ST_SCALE = [
-  [0, "0"], [0.125, "10"], [0.25, "25"], [0.375, "50"],
-  [0.5, "100"], [0.625, "250"], [0.75, "500"], [0.875, "750"], [1, "1G+"]
-];
-function initSpeedDialTicks() {
-  const g = $("st-ticks");
-  if (!g || g.children.length) return;
-  const ns = "http://www.w3.org/2000/svg";
-  const cx = 160, cy = 132;
-  for (let i = 0; i <= 40; i++) {
-    const ratio = i / 40;
-    const deg = -120 + ratio * 240;
-    const rad = deg * (Math.PI / 180);
-    const maj = i % 5 === 0;
-    const r1 = maj ? 80 : 83, r2 = 87;
-    const line = document.createElementNS(ns, "line");
-    line.setAttribute("x1", (cx + r1 * Math.sin(rad)).toFixed(1));
-    line.setAttribute("y1", (cy - r1 * Math.cos(rad)).toFixed(1));
-    line.setAttribute("x2", (cx + r2 * Math.sin(rad)).toFixed(1));
-    line.setAttribute("y2", (cy - r2 * Math.cos(rad)).toFixed(1));
-    line.setAttribute("class", "st-tick" + (maj ? " maj" : ""));
-    line.dataset.ratio = String(ratio);
-    g.appendChild(line);
-    if (maj) {
-      const lblEntry = ST_SCALE[i / 5];
-      if (lblEntry) {
-        const txt = document.createElementNS(ns, "text");
-        const rl = 121;
-        txt.setAttribute("x", (cx + rl * Math.sin(rad)).toFixed(1));
-        txt.setAttribute("y", (cy - rl * Math.cos(rad)).toFixed(1));
-        txt.setAttribute("class", "st-tick-lbl");
-        txt.dataset.ratio = String(ratio);
-        txt.textContent = lblEntry[1];
-        g.appendChild(txt);
-      }
-    }
-  }
+
+let testES = null, liveRAF = 0;
+const liveState = {
+  key: "", rxSamples: [], txSamples: [], rttSamples: [],
+  targetDl: 0, targetUl: 0, targetRtt: 0,
+  dispDl: 0, dispUl: 0, dispRtt: 0,
+  peakDl: 0, peakUl: 0, running: false, lastSampleKey: ""
+};
+
+function resetLiveBuffers(newKey) {
+  liveState.key = newKey || "";
+  liveState.rxSamples = [];
+  liveState.txSamples = [];
+  liveState.rttSamples = [];
+  liveState.targetDl = 0; liveState.targetUl = 0; liveState.targetRtt = 0;
+  liveState.dispDl = 0; liveState.dispUl = 0; liveState.dispRtt = 0;
+  liveState.peakDl = 0; liveState.peakUl = 0;
+  liveState.lastSampleKey = "";
+  renderRollingSpark("st-dl-line", "st-dl-area", []);
+  renderRollingSpark("st-ul-line", "st-ul-area", []);
+  renderRollingSpark("st-rtt-line", "st-rtt-area", []);
 }
-function speedGaugeRatio(val) {
-  const v = Math.max(0, Number(val) || 0);
-  const stops = [0, 10, 25, 50, 100, 250, 500, 750, 1000];
-  for (let i = 0; i < stops.length - 1; i++) {
-    if (v <= stops[i + 1]) {
-      return (i + (v - stops[i]) / (stops[i + 1] - stops[i])) / (stops.length - 1);
-    }
-  }
-  return 1;
-}
-function setSpeedDial(val, isUpPhase) {
-  initSpeedDialTicks();
-  const ratio = speedGaugeRatio(val);
-  const arcLen = 402.1;
-  const offset = arcLen * (1 - ratio);
-  const cx = 160, cy = 132, rArc = 96;
-  const rad = (-120 + ratio * 240) * (Math.PI / 180);
-  if ($("st-arc")) {
-    $("st-arc").style.strokeDashoffset = offset.toFixed(1);
-    $("st-arc").setAttribute("class", "st-arc" + (isUpPhase ? " up" : ""));
-  }
-  if ($("st-tip")) {
-    $("st-tip").setAttribute("cx", (cx + rArc * Math.sin(rad)).toFixed(1));
-    $("st-tip").setAttribute("cy", (cy - rArc * Math.cos(rad)).toFixed(1));
-    $("st-tip").setAttribute("class", "st-tip" + (isUpPhase ? " up" : ""));
-  }
-  if ($("st-hub")) {
-    $("st-hub").setAttribute("class", "st-hub" + (isUpPhase ? " up" : ""));
-  }
-  if ($("st-needle")) {
-    const tipX = cx + 76 * Math.sin(rad), tipY = cy - 76 * Math.cos(rad);
-    const tailX = cx - 14 * Math.sin(rad), tailY = cy + 14 * Math.cos(rad);
-    const w = 4.2;
-    const lX = cx - w * Math.cos(rad), lY = cy - w * Math.sin(rad);
-    const rX = cx + w * Math.cos(rad), rY = cy + w * Math.sin(rad);
-    $("st-needle").setAttribute("points", `${tipX.toFixed(1)},${tipY.toFixed(1)} ${lX.toFixed(1)},${lY.toFixed(1)} ${tailX.toFixed(1)},${tailY.toFixed(1)} ${rX.toFixed(1)},${rY.toFixed(1)}`);
-  }
-  if ($("st-ticks")) {
-    $("st-ticks").querySelectorAll("[data-ratio]").forEach(node => {
-      const r = Number(node.dataset.ratio);
-      const isTxt = node.tagName.toLowerCase() === "text";
-      if (isTxt) {
-        node.setAttribute("class", "st-tick-lbl" + (r <= ratio + 0.01 ? " lit" : ""));
-      } else {
-        const maj = node.classList.contains("maj");
-        node.setAttribute("class", "st-tick" + (maj ? " maj" : "") + (r <= ratio + 0.01 ? " lit" + (isUpPhase ? " up" : "") : ""));
-      }
-    });
-  }
-  if ($("st-mbps")) {
-    $("st-mbps").textContent = (Number(val) || 0).toFixed(1);
-  }
-}
-function renderStreamWave(lineId, areaId, peak, rows, key) {
+
+function renderRollingSpark(lineId, areaId, samples) {
   const ln = $(lineId), ar = $(areaId);
   if (!ln || !ar) return;
-  const measured = (rows || []).map(x => Number(x[key] || 0)).filter(v => v > 0);
-  const base = peak > 0 ? peak : (measured.length ? Math.max(...measured) : 0);
-  if (!(base > 0)) { ln.setAttribute("d", ""); ar.setAttribute("d", ""); return; }
-  const pts = [];
-  for (let i = 0; i < 24; i++) {
-    const t = i / 23;
-    const ramp = Math.min(1, t * 1.45);
-    const ripple = Math.sin(i * 0.65 + (key === "up_mbps" ? 1.2 : 0)) * 0.06 + Math.cos(i * 1.1) * 0.035;
-    pts.push(Math.max(base * 0.15, base * (0.72 * ramp + 0.24 + ripple)));
+  if (!samples || !samples.length) {
+    ln.setAttribute("d", "");
+    ar.setAttribute("d", "");
+    return;
   }
-  pts[23] = base;
-  const max = base * 1.12;
-  ln.setAttribute("d", chartPath(pts, max, 240, 32));
-  ar.setAttribute("d", areaPath(pts, max, 240, 32));
+  const vals = samples.length === 1 ? [samples[0], samples[0]] : samples;
+  const max = Math.max(1, ...vals) * 1.15;
+  ln.setAttribute("d", chartPath(vals, max, 220, 34));
+  ar.setAttribute("d", areaPath(vals, max, 220, 34));
 }
-function renderProbeLeds(sent, recv) {
+
+function renderProbeLeds(sent, recv, isEcho) {
   const box = $("st-leds");
   if (!box) return;
-  box.replaceChildren();
+  if (box.children.length !== 10) {
+    box.replaceChildren();
+    for (let i = 0; i < 10; i++) box.appendChild(el("i"));
+  }
   for (let i = 0; i < 10; i++) {
-    const led = el("i");
+    const led = box.children[i];
     if (i < recv) led.className = "ok";
-    else if (i < sent) led.className = "bad";
-    box.appendChild(led);
+    else if (i < sent) led.className = isEcho && i === sent - 1 ? "active" : "bad";
+    else if (isEcho && i === sent) led.className = "active";
+    else led.className = "";
   }
 }
-function updateSpeedGauge(r) {
+
+function startLiveAnimation() {
+  if (liveRAF) return;
+  const step = () => {
+    liveState.dispDl += (liveState.targetDl - liveState.dispDl) * 0.28;
+    liveState.dispUl += (liveState.targetUl - liveState.dispUl) * 0.28;
+    liveState.dispRtt += (liveState.targetRtt - liveState.dispRtt) * 0.28;
+    if (Math.abs(liveState.targetDl - liveState.dispDl) < 0.05) liveState.dispDl = liveState.targetDl;
+    if (Math.abs(liveState.targetUl - liveState.dispUl) < 0.05) liveState.dispUl = liveState.targetUl;
+    if (Math.abs(liveState.targetRtt - liveState.dispRtt) < 0.05) liveState.dispRtt = liveState.targetRtt;
+
+    if ($("st-down")) $("st-down").textContent = liveState.dispDl > 0.05 ? liveState.dispDl.toFixed(1) : (liveState.running ? "0.0" : "—");
+    if ($("st-up")) $("st-up").textContent = liveState.dispUl > 0.05 ? liveState.dispUl.toFixed(1) : (liveState.running ? "0.0" : "—");
+    if ($("st-rtt")) $("st-rtt").textContent = liveState.dispRtt > 0.05 ? liveState.dispRtt.toFixed(1) : "—";
+
+    const settled = Math.abs(liveState.targetDl - liveState.dispDl) < 0.05 &&
+      Math.abs(liveState.targetUl - liveState.dispUl) < 0.05 &&
+      Math.abs(liveState.targetRtt - liveState.dispRtt) < 0.05;
+    if (liveState.running || !settled) {
+      liveRAF = requestAnimationFrame(step);
+    } else {
+      liveRAF = 0;
+    }
+  };
+  liveRAF = requestAnimationFrame(step);
+}
+
+function setConsoleIdle() {
+  liveState.running = false;
+  resetLiveBuffers("");
+  renderProbeLeds(0, 0, false);
+  if ($("st-dot")) $("st-dot").className = "ct-dot";
+  if ($("st-method")) $("st-method").textContent = "Ready to test";
+  if ($("st-mode")) { $("st-mode").textContent = "IDLE"; $("st-mode").className = "ct-tag solid"; }
+  if ($("st-family")) $("st-family").textContent = "—";
+  if ($("t-live-label")) $("t-live-label").textContent = "Paste Iran test link and run";
+  if ($("st-counter")) $("st-counter").textContent = "0 / 0";
+  if ($("t-live-pct")) $("t-live-pct").textContent = "0%";
+  if ($("t-live-fill")) { $("t-live-fill").style.width = "0%"; $("t-live-fill").className = "ct-slim-fill"; }
+  if ($("st-down")) $("st-down").textContent = "—";
+  if ($("st-up")) $("st-up").textContent = "—";
+  if ($("st-down-sub")) $("st-down-sub").textContent = "Peak —";
+  if ($("st-up-sub")) $("st-up-sub").textContent = "Peak —";
+  if ($("st-rtt")) $("st-rtt").textContent = "—";
+  if ($("st-jitter")) $("st-jitter").textContent = "Jitter —";
+  if ($("st-mtu-val")) $("st-mtu-val").textContent = "1420 B";
+  if ($("st-probes")) $("st-probes").textContent = "0/10";
+  if ($("st-loss")) $("st-loss").textContent = "Ready";
+}
+
+function updateTelemetryConsole(r) {
   if (!$("t-speed-gauge") || !r) return;
   const rows = r.rows || [];
   const running = r.status === "running";
-  const active = rows.find(x => x.phase) || [...rows].reverse().find(x => x.down_mbps > 0 || x.sent > 0) || rows[0];
-  const winner = !running ? (pickBestRow(rows, "") || active) : active;
-  const target = running ? active : winner;
-  if (!target) {
-    setSpeedDial(0, false);
-    renderProbeLeds(0, 0);
-    $("st-phase-txt").textContent = running ? "STARTING" : "IDLE";
-    $("st-method").textContent = "Initializing probe…";
-    return;
-  }
-  $("st-method").textContent = target.method || "—";
-  $("st-mode").textContent = target.mode || "DIRECT";
-  $("st-mode").className = "st-badge" + (target.mode === "REVERSE" ? " ok" : "");
-  $("st-family").textContent = target.family || "—";
-  const down = Number(target.down_mbps || 0), up = Number(target.up_mbps || 0);
-  const rtt = Number(target.rtt_ms || 0), jit = Number(target.jitter_ms || 0);
-  const sent = target.sent || 0, recv = target.received || 0;
-  $("st-down").textContent = down > 0 ? down.toFixed(1) : (target.phase === "speed" ? "…" : "—");
-  $("st-up").textContent = up > 0 ? up.toFixed(1) : (target.phase === "speed" ? "…" : "—");
-  $("st-down-sub").textContent = down > 0 ? ((down / 8).toFixed(1) + " MB/s") : "Peak burst";
-  $("st-up-sub").textContent = up > 0 ? ((up / 8).toFixed(1) + " MB/s") : "Return stream";
-  $("st-rtt").textContent = rtt > 0 ? rtt.toFixed(1) + " ms" : "—";
-  $("st-rtt-grade").textContent = !(rtt > 0) ? "—" : rtt < 25 ? "ULTRA LOW" : rtt < 60 ? "GOOD" : "HIGH";
-  $("st-jitter").textContent = jit > 0 ? "Jitter ±" + jit.toFixed(1) + " ms" : "Echo latency";
-  $("st-probes").textContent = recv + "/" + (sent || 10);
-  const lossPct = sent > 0 ? Math.round(((sent - recv) / sent) * 100) : 0;
-  $("st-loss").textContent = sent > 0 ? (lossPct === 0 ? "0% packet loss · Verified" : lossPct + "% packet loss") : "Packet integrity";
-  renderProbeLeds(sent, recv);
-  const bs = r.best_settings || {};
-  if ($("st-mtu-val")) $("st-mtu-val").textContent = (bs.tunnel_mtu || 1420) + " B";
-  if ($("st-mtu-sub")) $("st-mtu-sub").textContent = bs.path_mtu ? ("Path MTU " + bs.path_mtu + " B") : "Optimal payload";
-  renderStreamWave("st-dl-line", "st-dl-area", down, rows, "down_mbps");
-  renderStreamWave("st-ul-line", "st-ul-area", up, rows, "up_mbps");
+  liveState.running = running;
+  const lt = r.live || null;
+  const activeRow = rows.find(x => x.phase && x.phase !== "wait") ||
+    (running ? [...rows].reverse().find(x => x.received > 0 || x.down_mbps > 0 || x.up_mbps > 0) : null) ||
+    (!running ? (pickBestRow(rows, "") || rows.find(x => x.down_mbps > 0 || x.up_mbps > 0 || x.received > 0)) : null);
 
-  if (!running) {
-    $("st-phase").className = "st-phase-pill" + (r.status === "done" ? " done" : "");
-    $("st-phase-txt").textContent = r.status === "done" ? "★ WINNER LOCKED" : (r.status || "DONE").toUpperCase();
-    $("st-unit").textContent = "Mbps Peak";
-    setSpeedDial(Math.max(down, up), false);
+  const method = (running && lt && lt.method) ? lt.method : (activeRow ? activeRow.method : "");
+  const mode = (running && lt && lt.direction) ? lt.direction : (activeRow ? (activeRow.mode || "DIRECT") : "");
+  const family = (running && lt && lt.family) ? lt.family : (activeRow ? activeRow.family : "");
+  const phase = (running && lt && lt.phase) ? lt.phase : (activeRow ? (activeRow.phase || "") : "");
+
+  if (!method && !rows.length) {
+    if (running) {
+      $("st-dot").className = "ct-dot live";
+      $("st-method").textContent = "Initializing probe…";
+      $("st-mode").textContent = "SYNC";
+      $("t-live-label").textContent = "Connecting to responder…";
+      $("t-live-fill").style.width = "4%";
+      $("t-live-pct").textContent = "4%";
+    } else {
+      setConsoleIdle();
+    }
     return;
   }
-  $("st-phase").className = "st-phase-pill";
-  if (target.phase === "echo") {
-    $("st-phase-txt").textContent = "ECHO PROBE " + sent + "/10";
-    $("st-unit").textContent = rtt > 0 ? "ms Latency" : "Probing";
-    const pulseMbps = rtt > 0 ? Math.max(15, Math.min(180, 1200 / Math.max(5, rtt))) : 28;
-    setSpeedDial(pulseMbps, false);
-    if (rtt > 0 && $("st-mbps")) $("st-mbps").textContent = rtt.toFixed(1);
-  } else if (target.phase === "speed") {
-    const isUp = down > 0 && !(up > 0);
-    $("st-phase-txt").textContent = isUp ? "UPLOAD STREAM" : "DOWNLOAD STREAM";
-    $("st-unit").textContent = isUp ? "Mbps Upload" : "Mbps Download";
-    const prevBest = rows.reduce((m, x) => Math.max(m, x.down_mbps || 0, x.up_mbps || 0), 0);
-    const liveVal = down > 0 ? (up > 0 ? up : down) : Math.max(85, prevBest * 0.92);
-    setSpeedDial(liveVal, isUp);
+
+  const key = mode + ":" + method;
+  if (running && key && liveState.key !== key) {
+    resetLiveBuffers(key);
+  } else if (!running && key && liveState.key !== key) {
+    liveState.key = key;
+  }
+
+  const dl = running && lt && lt.rx_mbps > 0 ? Number(lt.rx_mbps) : Number(activeRow && activeRow.down_mbps || 0);
+  const ul = running && lt && lt.tx_mbps > 0 ? Number(lt.tx_mbps) : Number(activeRow && activeRow.up_mbps || 0);
+  const rtt = running && lt && lt.rtt_ms > 0 ? Number(lt.rtt_ms) : Number(activeRow && activeRow.rtt_ms || 0);
+  const jit = running && lt && lt.jitter_ms > 0 ? Number(lt.jitter_ms) : Number(activeRow && activeRow.jitter_ms || 0);
+  const recv = running && lt && lt.probes_ok > 0 ? lt.probes_ok : Number(activeRow && activeRow.received || 0);
+  const sent = phase === "echo"
+    ? Math.max(recv, Number(activeRow && activeRow.sent || 0))
+    : (activeRow && activeRow.sent > 0 ? activeRow.sent : (running && lt && lt.probes_total > 0 ? (recv > 0 ? lt.probes_total : 0) : 0));
+
+  if (running) {
+    const sampleStamp = lt && lt.ts ? String(lt.ts) : (phase + ":" + dl.toFixed(1) + ":" + ul.toFixed(1) + ":" + rtt.toFixed(1));
+    if (sampleStamp !== liveState.lastSampleKey) {
+      liveState.lastSampleKey = sampleStamp;
+      if (dl > 0) { liveState.rxSamples.push(dl); if (liveState.rxSamples.length > 24) liveState.rxSamples.shift(); }
+      if (ul > 0) { liveState.txSamples.push(ul); if (liveState.txSamples.length > 24) liveState.txSamples.shift(); }
+      if (rtt > 0) { liveState.rttSamples.push(rtt); if (liveState.rttSamples.length > 24) liveState.rttSamples.shift(); }
+    }
+    renderRollingSpark("st-dl-line", "st-dl-area", liveState.rxSamples);
+    renderRollingSpark("st-ul-line", "st-ul-area", liveState.txSamples);
+    renderRollingSpark("st-rtt-line", "st-rtt-area", liveState.rttSamples);
   } else {
-    $("st-phase-txt").textContent = "MEASURED";
-    $("st-unit").textContent = "Mbps";
-    setSpeedDial(Math.max(down, up), false);
+    const finalDl = rows.map(x => Number(x.down_mbps || 0)).filter(v => v > 0);
+    const finalUl = rows.map(x => Number(x.up_mbps || 0)).filter(v => v > 0);
+    const finalRtt = rows.map(x => Number(x.rtt_ms || 0)).filter(v => v > 0);
+    renderRollingSpark("st-dl-line", "st-dl-area", liveState.rxSamples.length > 1 ? liveState.rxSamples : finalDl.slice(-24));
+    renderRollingSpark("st-ul-line", "st-ul-area", liveState.txSamples.length > 1 ? liveState.txSamples : finalUl.slice(-24));
+    renderRollingSpark("st-rtt-line", "st-rtt-area", liveState.rttSamples.length > 1 ? liveState.rttSamples : finalRtt.slice(-24));
+  }
+
+  liveState.targetDl = dl;
+  liveState.targetUl = ul;
+  liveState.targetRtt = rtt;
+  if (dl > liveState.peakDl) liveState.peakDl = dl;
+  if (ul > liveState.peakUl) liveState.peakUl = ul;
+  startLiveAnimation();
+
+  $("st-method").textContent = method || "—";
+  $("st-mode").textContent = mode || "DIRECT";
+  $("st-mode").className = "ct-tag" + (mode === "REVERSE" ? " solid" : "");
+  $("st-family").textContent = family || "—";
+  $("st-down-sub").textContent = liveState.peakDl > 0 ? ("Pk " + liveState.peakDl.toFixed(1) + " M") : "Peak —";
+  $("st-up-sub").textContent = liveState.peakUl > 0 ? ("Pk " + liveState.peakUl.toFixed(1) + " M") : "Peak —";
+  $("st-jitter").textContent = jit > 0 ? ("±" + jit.toFixed(1) + " ms") : "Jitter —";
+
+  const bs = r.best_settings || {};
+  const mtu = (bs.tunnel_mtu > 0 ? bs.tunnel_mtu : 0) || (lt && lt.mtu > 0 ? lt.mtu : 1420);
+  $("st-mtu-val").textContent = mtu + " B";
+
+  const totalP = (lt && lt.probes_total > 0) ? lt.probes_total : 10;
+  $("st-probes").textContent = sent > 0 ? (recv + "/" + totalP) : ("0/" + totalP);
+  const lossPct = sent > 0 ? Math.round(((sent - recv) / sent) * 100) : 0;
+  $("st-loss").textContent = sent === 0 ? (running ? "Awaiting probes" : "Ready") : (lossPct === 0 ? "0% loss" : lossPct + "% loss");
+  renderProbeLeds(sent, recv, running && phase === "echo");
+
+  const doneCount = rows.filter(x => x.phase !== "wait" && !x.phase).length;
+  const totalCount = (lt && lt.total > 0) ? lt.total : rows.length;
+  const activeIdx = (lt && lt.index > 0) ? lt.index : Math.min(totalCount, doneCount + (running ? 1 : 0));
+  const pct = !running ? (r.status === "done" ? 100 : (totalCount ? Math.round((doneCount / totalCount) * 100) : 0)) :
+    Math.min(99, Math.max(3, (lt && lt.progress_pct > 0) ? lt.progress_pct : (totalCount ? Math.round((doneCount / totalCount) * 100) : 5)));
+
+  $("st-counter").textContent = activeIdx + " / " + totalCount;
+  $("t-live-pct").textContent = pct + "%";
+  $("t-live-fill").style.width = pct + "%";
+  $("t-live-fill").className = "ct-slim-fill" + (!running && r.status === "done" ? " done" : "");
+
+  if (running) {
+    $("st-dot").className = "ct-dot live";
+    const phaseLabel = phase === "download" ? "Testing download…" :
+      phase === "upload" ? "Testing upload…" :
+      phase === "echo" ? "Probing RTT…" :
+      phase === "speed" ? "Measuring throughput…" : "Testing methods…";
+    $("t-live-label").textContent = phaseLabel;
+  } else if (r.status === "done") {
+    $("st-dot").className = "ct-dot done";
+    $("t-live-label").textContent = "Completed · " + totalCount + " carriers checked";
+  } else {
+    $("st-dot").className = "ct-dot bad";
+    $("t-live-label").textContent = r.status === "stopped" ? "Test stopped" : "Test failed";
   }
 }
 function pickBestRow(rows, mode) {
@@ -2887,7 +2864,11 @@ async function refreshTestServer() {
   try { const r = await api("/api/linktest/server"); renderTestServer(r); if (!r.active) stopTestPoll(); }
   catch (_) { /* the next explicit action reports the error */ }
 }
-function stopTestPoll() { if (testPoll) { clearInterval(testPoll); testPoll = 0; } }
+function stopTestPoll() {
+  if (testPoll) { clearInterval(testPoll); testPoll = 0; }
+  if (testES) { testES.close(); testES = null; }
+  if (liveRAF) { cancelAnimationFrame(liveRAF); liveRAF = 0; }
+}
 function startTestPoll() { stopTestPoll(); testPoll = setInterval(refreshTestServer, 2000); refreshTestServer(); }
 function setTestMode(mode) {
   testMode = mode;
@@ -2896,7 +2877,9 @@ function setTestMode(mode) {
   $("t-mode-iran").setAttribute("aria-selected", String(iran));
   $("t-mode-kharej").setAttribute("aria-selected", String(!iran));
   stopTestPoll();
-  if (iran) startTestPoll(); else if (testJobID) startJobPoll();
+  if (iran) startTestPoll();
+  else if (testJobID) startJobPoll();
+  else if (!lastKharejJob) setConsoleIdle();
 }
 function renderTestBest(r) {
   const direct = r.deployments && r.deployments.direct, reverse = r.deployments && r.deployments.reverse;
@@ -2920,36 +2903,41 @@ function testDone() {
   $("t-btn").disabled = false; $("t-btn").removeAttribute("aria-busy");
   $("t-stop-job").hidden = true;
 }
+function applyJobPayload(r) {
+  lastKharejJob = r;
+  const rows = r.rows || [];
+  $("t-kharej-dash").hidden = false;
+  $("t-stop-job").hidden = r.status !== "running";
+  if ($("t-row-controls")) $("t-row-controls").hidden = !rows.length;
+  updateTelemetryConsole(r);
+  renderGraphicalSummary($("t-summary-cards"), rows, r.best_settings);
+  renderTestRows($("t-job-progress"), rows, { filterable: true, allowDeploy: true });
+  $("t-out").hidden = true;
+  if (r.status === "done") { testDone(); renderTestBest(r); if (r.error) formError("test-error", r.error); }
+  else if (r.status === "error" || r.status === "stopped") { testDone(); formError("test-error", r.error || "Test stopped"); }
+}
 async function refreshTestJob() {
   if (!testJobID) return;
   try {
-    const r = await api("/api/linktest/jobs/" + encodeURIComponent(testJobID));
-    lastKharejJob = r;
-    const rows = r.rows || [];
-    $("t-kharej-dash").hidden = false;
-    if (r.status === "running") {
-      $("t-live-bar").hidden = false;
-      $("t-stop-job").hidden = false;
-      const doneCount = rows.filter(x => x.skipped || x.error || (x.sent >= 10 && !x.phase)).length;
-      const pct = rows.length ? Math.min(98, Math.max(5, Math.round((doneCount / rows.length) * 100))) : 10;
-      const activeRow = rows.find(x => x.phase);
-      $("t-live-label").textContent = activeRow ? ("Testing " + activeRow.method + " (" + activeRow.phase + ")…") : ("Testing methods (" + doneCount + "/" + rows.length + ")…");
-      $("t-live-fill").style.width = pct + "%";
-      $("t-live-pct").textContent = pct + "%";
-    } else if (r.status === "done") {
-      $("t-live-label").textContent = "Connection test complete · " + rows.length + " carriers evaluated";
-      $("t-live-fill").style.width = "100%";
-      $("t-live-pct").textContent = "100%";
-    }
-    updateSpeedGauge(r);
-    renderGraphicalSummary($("t-summary-cards"), rows, r.best_settings);
-    renderTestRows($("t-job-progress"), rows, { filterable: true, allowDeploy: true });
-    $("t-out").hidden = true;
-    if (r.status === "done") { testDone(); renderTestBest(r); if (r.error) formError("test-error", r.error); }
-    else if (r.status === "error" || r.status === "stopped") { testDone(); formError("test-error", r.error || "Test stopped"); }
+    applyJobPayload(await api("/api/linktest/jobs/" + encodeURIComponent(testJobID)));
   } catch (err) { testDone(); formError("test-error", err.message); }
 }
-function startJobPoll() { stopTestPoll(); testPoll = setInterval(refreshTestJob, 1000); refreshTestJob(); }
+function startJobPoll() {
+  stopTestPoll();
+  if (typeof EventSource !== "undefined" && testJobID) {
+    testES = new EventSource(BASE_PATH + "/api/linktest/jobs/" + encodeURIComponent(testJobID) + "/stream");
+    testES.addEventListener("telemetry", ev => {
+      try { applyJobPayload(JSON.parse(ev.data)); } catch (_) {}
+    });
+    testES.onerror = () => {
+      if (testES) { testES.close(); testES = null; }
+      if (!testPoll && testJobID) { testPoll = setInterval(refreshTestJob, 1000); refreshTestJob(); }
+    };
+  } else {
+    testPoll = setInterval(refreshTestJob, 1000);
+    refreshTestJob();
+  }
+}
 $("t-stop-job").onclick = async () => {
   if (!testJobID) return;
   try { await api("/api/linktest/jobs/" + encodeURIComponent(testJobID) + "/stop", { method: "POST" }); toast("Connection test stopped", true); testDone(); }
@@ -2991,8 +2979,11 @@ $("test-form").addEventListener("submit", async e => {
   testJobID = ""; testDeploy = { direct: "", reverse: "" }; lastKharejJob = null;
   $("t-best").hidden = true; $("t-job-progress").hidden = true; $("t-job-progress").replaceChildren();
   $("t-summary-cards").hidden = true; $("t-summary-cards").replaceChildren();
+  if ($("t-row-controls")) $("t-row-controls").hidden = true;
   $("t-kharej-dash").hidden = false;
-  $("t-live-bar").hidden = false; $("t-live-label").textContent = "Starting connection test…"; $("t-live-fill").style.width = "4%"; $("t-live-pct").textContent = "0%";
+  resetLiveBuffers("");
+  $("st-dot").className = "ct-dot live"; $("st-method").textContent = "Starting connection test…"; $("st-mode").textContent = "LIVE";
+  $("t-live-label").textContent = "Initializing…"; $("t-live-fill").style.width = "4%"; $("t-live-pct").textContent = "4%";
   $("t-out").hidden = true;
   const reqBody = {
     link: $("t-link").value.trim(),
@@ -3010,7 +3001,7 @@ $("test-form").addEventListener("submit", async e => {
     $("t-stop-job").hidden = false;
     startJobPoll();
   } else {
-    $("t-live-bar").hidden = true;
+    setConsoleIdle();
   }
 });
 $("t-deploy-direct").onclick = () => deployBest("direct");

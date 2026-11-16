@@ -157,18 +157,23 @@ func serveSpeedOrEcho(c net.Conn) {
 // MeasureSpeed4Streams measures download and upload over 4 parallel TCP streams,
 // counting bytes the receiver confirmed.
 func MeasureSpeed4Streams(ctx context.Context, targetAddr string, warmup, duration time.Duration) (downMbps, upMbps float64, err error) {
-	downMbps, err = runDirection4(ctx, targetAddr, 'D', warmup, duration)
+	return MeasureSpeed4StreamsLive(ctx, targetAddr, warmup, duration, nil)
+}
+
+// MeasureSpeed4StreamsLive streams ~150ms bandwidth samples for dir ('D', 'U') via onSample.
+func MeasureSpeed4StreamsLive(ctx context.Context, targetAddr string, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (downMbps, upMbps float64, err error) {
+	downMbps, err = runDirection4(ctx, targetAddr, 'D', warmup, duration, onSample)
 	if err != nil {
 		return 0, 0, err
 	}
-	upMbps, err = runDirection4(ctx, targetAddr, 'U', warmup, duration)
+	upMbps, err = runDirection4(ctx, targetAddr, 'U', warmup, duration, onSample)
 	if err != nil {
 		return downMbps, 0, err
 	}
 	return downMbps, upMbps, nil
 }
 
-func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, duration time.Duration) (float64, error) {
+func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (float64, error) {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	var wg sync.WaitGroup
@@ -275,10 +280,22 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 	}
 	close(start)
 
-	time.Sleep(warmup)
+	if !sleepSample(ctx, warmup, &received, func(mbps float64) {
+		if onSample != nil {
+			onSample(dir, mbps)
+		}
+	}) {
+		return 0, ctx.Err()
+	}
 	baseline := received.Load()
 	t0 := time.Now()
-	time.Sleep(duration)
+	if !sleepSample(ctx, duration, &received, func(mbps float64) {
+		if onSample != nil {
+			onSample(dir, mbps)
+		}
+	}) {
+		return 0, ctx.Err()
+	}
 	total := received.Load() - baseline
 	elapsed := time.Since(t0).Seconds()
 	cancel()
@@ -286,13 +303,22 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 	if elapsed <= 0 {
 		return 0, errors.New("zero elapsed time")
 	}
-	return (float64(total) * 8.0) / elapsed / 1e6, nil
+	finalMbps := (float64(total) * 8.0) / elapsed / 1e6
+	if onSample != nil {
+		onSample(dir, finalMbps)
+	}
+	return finalMbps, nil
 }
 
 // EchoRTTs opens one connection to targetAddr and measures count round trips
 // over that open stream (in milliseconds), so multiplexed or pooled layer-4
 // tunnels are measured on an active stream rather than repeated handshakes.
 func EchoRTTs(targetAddr string, count int) ([]float64, error) {
+	return EchoRTTsLive(targetAddr, count, nil)
+}
+
+// EchoRTTsLive measures echo RTTs and calls onStep after each probe.
+func EchoRTTsLive(targetAddr string, count int, onStep func(sent int, rtts []float64)) ([]float64, error) {
 	c, err := net.DialTimeout("tcp", targetAddr, 3*time.Second)
 	if err != nil {
 		return nil, err
@@ -315,6 +341,9 @@ func EchoRTTs(targetAddr string, count int) ([]float64, error) {
 		_, rErr := io.ReadFull(c, reply[:])
 		if wErr == nil && rErr == nil && bytes.Equal(msg[:], reply[:]) {
 			out = append(out, float64(time.Since(t0).Microseconds())/1000.0)
+		}
+		if onStep != nil {
+			onStep(i+1, out)
 		}
 	}
 	return out, nil
@@ -442,11 +471,16 @@ type Result struct {
 
 // Run probes target (host:port running StartServer) and measures throughput.
 func Run(ctx context.Context, target string, probes int) Result {
+	return RunLive(ctx, target, probes, nil)
+}
+
+// RunLive probes target and streams live download/upload samples via onSample.
+func RunLive(ctx context.Context, target string, probes int, onSample func(dir byte, mbps float64)) Result {
 	r := Result{Target: target}
 	r.MinMs, r.AvgMs, r.MaxMs, r.JitterMs, r.LossPct = ProbeRTTAndLoss(target, probes, 1500*time.Millisecond)
 	if r.LossPct < 100 {
 		var err error
-		r.DownloadMbps, r.UploadMbps, err = MeasureSpeed4Streams(ctx, target, ctSpeedWarmup, ctSpeedDuration)
+		r.DownloadMbps, r.UploadMbps, err = MeasureSpeed4StreamsLive(ctx, target, ctSpeedWarmup, ctSpeedDuration, onSample)
 		if err != nil {
 			r.SpeedError = err.Error()
 		}

@@ -205,12 +205,23 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 	ctx, cancel := context.WithTimeout(context.Background(), l4Measure)
 	defer cancel()
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(fwd))
-	rtts, _ := speedtest.EchoRTTs(addr, Probes)
+	rtts, _ := speedtest.EchoRTTsLive(addr, Probes, func(_ int, cur []float64) {
+		curRTT, curJit := stats(cur)
+		set(packL4(l4Running, len(cur), curRTT, curJit, 0, 0))
+	})
 	received := len(rtts)
 	rtt, jitter := stats(rtts)
 	var down, up float64
 	if received > 0 {
-		res := speedtest.Run(ctx, addr, 2)
+		var liveDown, liveUp float64
+		res := speedtest.RunLive(ctx, addr, 2, func(dir byte, mbps float64) {
+			if dir == 'D' {
+				liveDown = mbps
+			} else {
+				liveUp = mbps
+			}
+			set(packL4(l4Running, received, rtt, jitter, liveDown, liveUp))
+		})
 		down, up = res.DownloadMbps, res.UploadMbps
 	}
 	set(packL4(l4Done, received, rtt, jitter, down, up))
@@ -285,6 +296,10 @@ func freePort() (int, error) {
 }
 
 func (s *session) measureL4(ctx context.Context, l Link, transport string) Result {
+	return s.measureL4Live(ctx, l, transport, nil)
+}
+
+func (s *session) measureL4Live(ctx context.Context, l Link, transport string, onLive func(phase string, r *Result)) Result {
 	m, _ := catalog.LookupMethod(transport)
 	row := Result{Method: transport, Family: string(m.Family), Mode: "REVERSE", Sent: Probes}
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -334,7 +349,7 @@ func (s *session) measureL4(ctx context.Context, l Link, transport string) Resul
 	}
 	end := time.Now().Add(l4Measure + 15*time.Second)
 	for time.Now().Before(end) {
-		if !sleep(ctx, time.Second) {
+		if !sleep(ctx, 200*time.Millisecond) {
 			return row
 		}
 		select {
@@ -351,6 +366,18 @@ func (s *session) measureL4(ctx context.Context, l Link, transport string) Resul
 		}
 		state, received, rtt, jitter, down, up := unpackL4(uint64(v))
 		switch state {
+		case l4Running:
+			if onLive != nil {
+				live := row
+				live.Received, live.RTTms, live.JitterMs, live.DownMbps, live.UpMbps = received, rtt, jitter, up, down
+				phase := "echo"
+				if up > 0 {
+					phase = "download"
+				} else if down > 0 {
+					phase = "upload"
+				}
+				onLive(phase, &live)
+			}
 		case l4Failed:
 			row.Received = 0
 			return row

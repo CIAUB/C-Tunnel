@@ -503,3 +503,54 @@ func TestHTTPAutomaticallySwitchesToValidatedHTTPS(t *testing.T) {
 	httpsClient := &http.Client{Transport: transport, Timeout: 500 * time.Millisecond}
 	waitFor(httpsClient, "https://"+address+path+"/")
 }
+
+func TestLinkTestStreamEmitsLiveTelemetry(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+	originalRun := runMethodTest
+	originalMTU := runPathMTU
+	defer func() { runMethodTest, runPathMTU = originalRun, originalMTU }()
+	release := make(chan struct{})
+	runMethodTest = func(ctx context.Context, _ conntest.Link, progress conntest.Progress) ([]conntest.Result, error) {
+		rows := []conntest.Result{
+			{Method: "turbo+etherip", Mode: "DIRECT", Family: "L2-Direct", Phase: "download", Sent: 10, Received: 10, RTTms: 22.4, JitterMs: 1.1, DownMbps: 412.5},
+		}
+		if progress != nil {
+			progress(rows)
+		}
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+		}
+		rows[0].Phase = ""
+		rows[0].UpMbps = 398.2
+		return rows, nil
+	}
+	runPathMTU = func(context.Context, conntest.Link) int { return 1500 }
+
+	link := conntest.EncodeLink(conntest.Link{Host: "203.0.113.8", UDPPort: 7712, TCPPort: 7711, TokenHex: conntest.NewToken()})
+	res, out := c.do("POST", "/api/linktest/jobs", map[string]any{"link": link, "role": "iran", "local_ip": "198.51.100.2"})
+	if res.StatusCode != http.StatusAccepted {
+		t.Fatalf("start job: %d %v", res.StatusCode, out)
+	}
+	id := out["test_id"].(string)
+	req, _ := http.NewRequest("GET", c.base+"/api/linktest/jobs/"+id+"/stream", nil)
+	req.AddCookie(c.cookie)
+	streamRes, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer streamRes.Body.Close()
+	if ct := streamRes.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("unexpected content-type: %q", ct)
+	}
+	close(release)
+	body, err := io.ReadAll(streamRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "event: telemetry") || !strings.Contains(text, `"status":"done"`) {
+		t.Fatalf("missing SSE telemetry frames: %s", text)
+	}
+}
