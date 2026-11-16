@@ -396,19 +396,25 @@ details[open] summary{margin-bottom:12px}
 .ct-slim-track{width:100%;height:3px;border-radius:999px;background:var(--ct-track);overflow:hidden}
 .ct-slim-fill{display:block;height:100%;width:0%;border-radius:999px;background:var(--ct-ink);transition:width .24s var(--spring),background-color .2s}
 .ct-slim-fill.done{background:var(--ct-ok)}
-.ct-body{display:grid;grid-template-columns:204px minmax(0,1fr);gap:14px;align-items:stretch}
-.ct-dial{padding:10px 12px 12px;border:1px solid var(--ct-ln);border-radius:12px;background:var(--ct-cell);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:0}
-.ct-dial-svg{width:100%;max-width:176px;height:auto;display:block;overflow:visible;stroke:none;fill:none}
-.ct-dial-track{fill:none;stroke:var(--ct-ln);stroke-width:6.5;stroke-linecap:round}
-.ct-dial-arc{fill:none;stroke:var(--ct-ink);stroke-width:6.5;stroke-linecap:round;transition:stroke .2s}
-.ct-dial-arc.ul{stroke:var(--ct-ok)}
-.ct-dial-lbl{fill:var(--ct-mu);stroke:none;font:600 9px/1 var(--mono);text-anchor:middle;dominant-baseline:middle;user-select:none}
-.ct-dial-needle{fill:var(--ct-ink);stroke:none;transition:fill .2s}
-.ct-dial-needle.ul{fill:var(--ct-ok)}
-.ct-dial-hub{fill:var(--ct-bg);stroke:var(--ct-ink);stroke-width:2.2}
-.ct-dial-readout{display:grid;justify-items:center;gap:2px;margin-top:-10px;text-align:center}
-.ct-dial-readout b{font:700 21px/1.05 var(--mono);letter-spacing:-.03em;color:var(--ct-ink);font-variant-numeric:tabular-nums}
-.ct-dial-readout small{font:700 9.5px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ct-mu)}
+.ct-body{display:grid;grid-template-columns:236px minmax(0,1fr);gap:14px;align-items:stretch}
+.ct-dial{padding:10px 12px 12px;border:1px solid var(--ct-ln);border-radius:12px;background:var(--ct-cell);display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;position:relative}
+.ct-dial-svg{width:100%;max-width:210px;height:auto;display:block;overflow:visible;stroke:none;fill:none}
+.ct-dial-track{fill:none;stroke:var(--ct-ln);stroke-width:15;stroke-linecap:butt}
+.ct-dial-glow{fill:none;stroke-width:28;stroke-linecap:butt;pointer-events:none}
+.ct-dial-arc{fill:none;stroke-width:15;stroke-linecap:butt}
+.ct-dial-lbl{fill:var(--ct-mu);stroke:none;font:600 9.5px/1 var(--mono);text-anchor:middle;dominant-baseline:middle;user-select:none;transition:fill .18s}
+.ct-dial-lbl.lit{fill:var(--ct-ink);font-weight:700}
+.ct-dial-readout{display:grid;justify-items:center;gap:3px;margin-top:-18px;text-align:center;position:relative;z-index:1}
+.ct-dial-readout b{font:600 21px/1.05 var(--mono);letter-spacing:-.04em;color:var(--ct-ink);font-variant-numeric:tabular-nums}
+.ct-dial-unit{display:inline-flex;align-items:center;gap:5px;font:600 11px/1 var(--mono);color:var(--ct-mu)}
+.ct-dial-ico{width:15px;height:15px;border-radius:50%;border:1.5px solid currentColor;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;line-height:1}
+.ct-dial-ico.dl{color:#0ea5e9}
+.ct-dial-ico.ul{color:#a855f7}
+.ct-dial-stop-0{stop-color:#111827;stop-opacity:0}
+.ct-dial-stop-1{stop-color:#111827;stop-opacity:.92}
+:root[data-theme=dark] .ct-dial-stop-0{stop-color:#f8fafc;stop-opacity:0}
+:root[data-theme=dark] .ct-dial-stop-1{stop-color:#f8fafc;stop-opacity:.92}
+@media(prefers-color-scheme:dark){:root[data-theme=auto] .ct-dial-stop-0{stop-color:#f8fafc;stop-opacity:0}:root[data-theme=auto] .ct-dial-stop-1{stop-color:#f8fafc;stop-opacity:.92}}
 .ct-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;min-width:0}
 .ct-mcell{padding:13px 14px;border:1px solid var(--ct-ln);border-radius:12px;background:var(--ct-cell);display:grid;gap:8px;align-content:space-between;min-width:0;overflow:hidden}
 .ct-mtop{display:flex;align-items:baseline;justify-content:space-between;gap:4px 8px;flex-wrap:wrap;font:700 10.5px/1.25 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--ct-mu)}
@@ -454,9 +460,9 @@ details[open] summary{margin-bottom:12px}
 .proto-cur{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 11px;border-radius:10px;border:1px dashed var(--ln2);background:var(--s1);font-size:12px}
 .proto-cur code{font-weight:700;color:var(--ac)}
 .v2-pills{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px dashed var(--ln2)}
-@media(max-width:1180px){.ct-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1220px){.ct-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:1023px){.ct-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:820px){.ct-body{grid-template-columns:minmax(0,1fr)}.ct-dial{padding:10px 14px 12px}.ct-dial-svg{max-width:162px}}
+@media(max-width:820px){.ct-body{grid-template-columns:minmax(0,1fr)}.ct-dial{padding:10px 14px 12px}.ct-dial-svg{max-width:196px}}
 @media(max-width:767px){.scope-tabs,.mode-switch{grid-template-columns:minmax(0,1fr)}.proto-search{max-width:none;width:100%;margin-left:0}.ct-console{padding:14px}.ct-mcell{padding:11px 12px}.ct-mval b{font-size:19px}.test-actions{width:100%}.test-actions .btn{flex:1 1 140px;min-height:44px}}
 </style>
 </head>
@@ -654,22 +660,50 @@ details[open] summary{margin-bottom:12px}
             <div class="ct-slim-track"><i id="t-live-fill" class="ct-slim-fill"></i></div>
             <div class="ct-body">
               <div class="ct-dial" aria-label="Live throughput gauge">
-                <svg class="ct-dial-svg" viewBox="0 0 180 124" aria-hidden="true">
-                  <path class="ct-dial-track" d="M 38.04 116 A 60 60 0 1 1 141.96 116"></path>
-                  <path id="st-arc" class="ct-dial-arc" d="M 38.04 116 A 60 60 0 1 1 141.96 116" stroke-dasharray="251.33" stroke-dashoffset="251.33"></path>
-                  <text class="ct-dial-lbl" x="23" y="121">0</text>
-                  <text class="ct-dial-lbl" x="23" y="48">50</text>
-                  <text class="ct-dial-lbl" x="90" y="13">250</text>
-                  <text class="ct-dial-lbl" x="157" y="48">1G</text>
-                  <text class="ct-dial-lbl" x="157" y="121">5G</text>
-                  <g id="st-needle" transform="rotate(-120 90 86)">
-                    <polygon class="ct-dial-needle" points="88.4,86 91.6,86 90.4,34 89.6,34"></polygon>
+                <svg class="ct-dial-svg" viewBox="0 0 220 152" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="dlArcGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#0284c7"/>
+                      <stop offset="100%" stop-color="#38bdf8"/>
+                    </linearGradient>
+                    <linearGradient id="ulArcGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#7c3aed"/>
+                      <stop offset="100%" stop-color="#c084fc"/>
+                    </linearGradient>
+                    <radialGradient id="dlGlowGrad" gradientUnits="userSpaceOnUse" cx="110" cy="100" r="72.5">
+                      <stop offset="56%" stop-color="#0ea5e9" stop-opacity="0"/>
+                      <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.22"/>
+                    </radialGradient>
+                    <radialGradient id="ulGlowGrad" gradientUnits="userSpaceOnUse" cx="110" cy="100" r="72.5">
+                      <stop offset="56%" stop-color="#a855f7" stop-opacity="0"/>
+                      <stop offset="100%" stop-color="#a855f7" stop-opacity="0.26"/>
+                    </radialGradient>
+                    <linearGradient id="needleGrad" x1="0" y1="1" x2="0" y2="0">
+                      <stop offset="0%" class="ct-dial-stop-0"/>
+                      <stop offset="100%" class="ct-dial-stop-1"/>
+                    </linearGradient>
+                  </defs>
+                  <path class="ct-dial-track" d="M 44.47 145.89 A 80 80 0 1 1 175.53 145.89"></path>
+                  <path id="st-glow" class="ct-dial-glow" d="M 62.08 133.55 A 58.5 58.5 0 1 1 157.92 133.55" stroke="url(#dlGlowGrad)" stroke-dasharray="255.25" stroke-dashoffset="255.25"></path>
+                  <path id="st-arc" class="ct-dial-arc" d="M 44.47 145.89 A 80 80 0 1 1 175.53 145.89" stroke="url(#dlArcGrad)" stroke-dasharray="349.07" stroke-dashoffset="349.07"></path>
+                  <g id="st-ticks">
+                    <text class="ct-dial-lbl" data-t="0" x="61.5" y="127">0</text>
+                    <text class="ct-dial-lbl" data-t="0.125" x="53.1" y="102">5</text>
+                    <text class="ct-dial-lbl" data-t="0.25" x="59.4" y="73.7">10</text>
+                    <text class="ct-dial-lbl" data-t="0.375" x="80.4" y="51.3">50</text>
+                    <text class="ct-dial-lbl" data-t="0.5" x="110" y="43">100</text>
+                    <text class="ct-dial-lbl" data-t="0.625" x="139.6" y="51.3">250</text>
+                    <text class="ct-dial-lbl" data-t="0.75" x="160.6" y="73.7">500</text>
+                    <text class="ct-dial-lbl" data-t="0.875" x="166.9" y="102">1G</text>
+                    <text class="ct-dial-lbl" data-t="1" x="158.5" y="127">5G</text>
                   </g>
-                  <circle class="ct-dial-hub" cx="90" cy="86" r="4.5"></circle>
+                  <g id="st-needle" transform="rotate(-125 110 100)">
+                    <polygon fill="url(#needleGrad)" points="107.8,82 112.2,82 114,32 106,32"></polygon>
+                  </g>
                 </svg>
                 <div class="ct-dial-readout">
                   <b id="st-gauge-val" class="num">0.0</b>
-                  <small id="st-gauge-unit">Mbps · Ready</small>
+                  <div class="ct-dial-unit"><span id="st-gauge-ico" class="ct-dial-ico">•</span><span id="st-gauge-unit">Mbps</span></div>
                 </div>
               </div>
               <div class="ct-metrics">
@@ -2513,13 +2547,13 @@ const liveState = {
   key: "", rxSamples: [], txSamples: [], rttSamples: [],
   targetDl: 0, targetUl: 0, targetRtt: 0, targetDial: 0,
   dispDl: 0, dispUl: 0, dispRtt: 0, dialMbps: 0,
-  dialMode: "dl", dialUnit: "Mbps · Ready",
+  dialMode: "idle", dialUnit: "Mbps",
   peakDl: 0, peakUl: 0, running: false, lastSampleKey: ""
 };
 
 function speedNorm(v) {
   if (!(v > 0)) return 0;
-  const stops = [[0, 0], [50, 0.25], [250, 0.5], [1000, 0.75], [5000, 1]];
+  const stops = [[0, 0], [5, 0.125], [10, 0.25], [50, 0.375], [100, 0.5], [250, 0.625], [500, 0.75], [1000, 0.875], [5000, 1]];
   for (let i = 1; i < stops.length; i++) {
     const [x0, y0] = stops[i - 1], [x1, y1] = stops[i];
     if (v <= x1) return y0 + ((v - x0) / (x1 - x0)) * (y1 - y0);
@@ -2527,19 +2561,32 @@ function speedNorm(v) {
   return 1;
 }
 
-function renderSpeedDial(v, isUpload, unitText) {
+function renderSpeedDial(v, mode, unitText) {
   const frac = speedNorm(v);
-  const arc = $("st-arc"), needle = $("st-needle"), val = $("st-gauge-val"), unit = $("st-gauge-unit");
+  const isUpload = mode === "ul";
+  const arc = $("st-arc"), glow = $("st-glow"), needle = $("st-needle"), val = $("st-gauge-val"), ico = $("st-gauge-ico"), unit = $("st-gauge-unit"), ticks = $("st-ticks");
   if (arc) {
-    arc.setAttribute("stroke-dashoffset", (251.33 * (1 - frac)).toFixed(2));
-    arc.setAttribute("class", "ct-dial-arc" + (isUpload ? " ul" : ""));
+    arc.setAttribute("stroke-dashoffset", (349.07 * (1 - frac)).toFixed(2));
+    arc.setAttribute("stroke", isUpload ? "url(#ulArcGrad)" : "url(#dlArcGrad)");
+  }
+  if (glow) {
+    glow.setAttribute("stroke-dashoffset", (255.25 * (1 - frac)).toFixed(2));
+    glow.setAttribute("stroke", isUpload ? "url(#ulGlowGrad)" : "url(#dlGlowGrad)");
   }
   if (needle) {
-    needle.setAttribute("transform", "rotate(" + (-120 + frac * 240).toFixed(2) + " 90 86)");
-    const poly = needle.firstElementChild;
-    if (poly) poly.setAttribute("class", "ct-dial-needle" + (isUpload ? " ul" : ""));
+    needle.setAttribute("transform", "rotate(" + (-125 + frac * 250).toFixed(2) + " 110 100)");
   }
-  if (val) val.textContent = v > 0.05 ? (v >= 1000 ? v.toFixed(0) : v.toFixed(1)) : "0.0";
+  if (ticks) {
+    for (const elTick of ticks.children) {
+      const t = Number(elTick.getAttribute("data-t"));
+      elTick.setAttribute("class", "ct-dial-lbl" + (v > 0.05 && t <= frac + 0.005 ? " lit" : ""));
+    }
+  }
+  if (val) val.textContent = v > 0.05 ? (v >= 100 ? v.toFixed(1) : v.toFixed(2)) : "0.0";
+  if (ico) {
+    ico.textContent = isUpload ? "↑" : (mode === "dl" ? "↓" : "•");
+    ico.className = "ct-dial-ico" + (isUpload ? " ul" : (mode === "dl" ? " dl" : ""));
+  }
   if (unit && unitText) unit.textContent = unitText;
 }
 
@@ -2555,7 +2602,7 @@ function resetLiveBuffers(newKey) {
   renderRollingSpark("st-dl-line", "st-dl-area", []);
   renderRollingSpark("st-ul-line", "st-ul-area", []);
   renderRollingSpark("st-rtt-line", "st-rtt-area", []);
-  renderSpeedDial(0, false, liveState.running ? "Mbps · Probing" : "Mbps · Ready");
+  renderSpeedDial(0, liveState.running ? "dl" : "idle", "Mbps");
 }
 
 function renderRollingSpark(lineId, areaId, samples) {
@@ -2603,7 +2650,7 @@ function startLiveAnimation() {
     if ($("st-down")) $("st-down").textContent = liveState.dispDl > 0.05 ? liveState.dispDl.toFixed(1) : (liveState.running ? "0.0" : "—");
     if ($("st-up")) $("st-up").textContent = liveState.dispUl > 0.05 ? liveState.dispUl.toFixed(1) : (liveState.running ? "0.0" : "—");
     if ($("st-rtt")) $("st-rtt").textContent = liveState.dispRtt > 0.05 ? liveState.dispRtt.toFixed(1) : "—";
-    renderSpeedDial(liveState.dialMbps, liveState.dialMode === "ul", liveState.dialUnit);
+    renderSpeedDial(liveState.dialMbps, liveState.dialMode, liveState.dialUnit);
 
     const settled = Math.abs(liveState.targetDl - liveState.dispDl) < 0.05 &&
       Math.abs(liveState.targetUl - liveState.dispUl) < 0.05 &&
@@ -2621,8 +2668,8 @@ function startLiveAnimation() {
 function setConsoleIdle() {
   liveState.running = false;
   liveState.dialMbps = 0;
-  liveState.dialMode = "dl";
-  liveState.dialUnit = "Mbps · Ready";
+  liveState.dialMode = "idle";
+  liveState.dialUnit = "Mbps";
   resetLiveBuffers("");
   renderProbeLeds(0, 0, false);
   if ($("st-dot")) $("st-dot").className = "ct-dot";
@@ -2716,25 +2763,21 @@ function updateTelemetryConsole(r) {
     if (phase === "upload") {
       liveState.targetDial = ul;
       liveState.dialMode = "ul";
-      liveState.dialUnit = "Mbps · Upload";
     } else if (phase === "download" || dl > 0) {
       liveState.targetDial = dl;
       liveState.dialMode = "dl";
-      liveState.dialUnit = "Mbps · Download";
     } else if (ul > 0) {
       liveState.targetDial = ul;
       liveState.dialMode = "ul";
-      liveState.dialUnit = "Mbps · Upload";
     } else {
       liveState.targetDial = 0;
       liveState.dialMode = "dl";
-      liveState.dialUnit = phase === "echo" ? "Mbps · Probing" : "Mbps · Testing";
     }
   } else {
     liveState.targetDial = dl > 0 ? dl : ul;
-    liveState.dialMode = !(dl > 0) && ul > 0 ? "ul" : "dl";
-    liveState.dialUnit = liveState.targetDial > 0 ? "Mbps · Best" : "Mbps · Done";
+    liveState.dialMode = !(dl > 0) && ul > 0 ? "ul" : (liveState.targetDial > 0 ? "dl" : "idle");
   }
+  liveState.dialUnit = "Mbps";
   if (dl > liveState.peakDl) liveState.peakDl = dl;
   if (ul > liveState.peakUl) liveState.peakUl = ul;
   startLiveAnimation();
