@@ -264,16 +264,16 @@ details[open] summary{margin-bottom:12px}
 .foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .foot-links a:hover{color:var(--tx)}
 .foot-links svg{width:15px;height:15px}
-/* sponsor: full-width slim strip from start to end of the shell, image stretched full-bleed across row */
+/* sponsor: aspect-preserved banner sized cleanly larger without distortion */
 .sponsor-top{display:none!important}
 .sp-tag{flex:none;padding:4px 9px;border-radius:999px;border:1px solid var(--ln2);background:var(--s2);font-size:9.5px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
-.sponsor-strip{display:block;width:100%;height:clamp(56px,6.8vw,96px);max-height:96px;padding:0;border:1px solid var(--ln2);border-radius:14px;background:var(--s1);text-decoration:none;line-height:0;opacity:0;transition:opacity .5s var(--spring),border-color .2s;overflow:hidden}
+.sponsor-strip{display:block;width:fit-content;max-width:100%;height:auto;margin:0 auto;padding:0;border:1px solid var(--ln2);border-radius:14px;background:var(--s1);text-decoration:none;line-height:0;opacity:0;transition:opacity .5s var(--spring),border-color .2s;overflow:hidden}
 .sponsor-strip .sp-tag{display:none}
 .sponsor-strip:hover{border-color:var(--ac)}
-.sponsor-strip img{display:block;width:100%;height:100%;object-fit:fill;object-position:center;border-radius:0;transition:filter .2s}
+.sponsor-strip img{display:block;width:auto;max-width:100%;height:auto;max-height:124px;border-radius:0;transition:filter .2s}
 .sponsor-strip:hover img{filter:brightness(1.06)}
 .sponsor-top.in,.sponsor-strip.in{opacity:1}
-@media(max-width:640px){.sponsor-strip{height:54px;max-height:54px;border-radius:12px}}
+@media(max-width:640px){.sponsor-strip{border-radius:12px}.sponsor-strip img{max-height:92px}}
 .sponsor-top[hidden],.sponsor-strip[hidden]{display:none!important}
 .ip-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .ip-choices:empty{display:none}
