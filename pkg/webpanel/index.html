@@ -264,15 +264,16 @@ details[open] summary{margin-bottom:12px}
 .foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .foot-links a:hover{color:var(--tx)}
 .foot-links svg{width:15px;height:15px}
-/* sponsor: full-width slim strip from start to end of the shell, entire image contained */
+/* sponsor: full-width slim strip from start to end of the shell, image stretched full-bleed across row */
 .sponsor-top{display:none!important}
 .sp-tag{flex:none;padding:4px 9px;border-radius:999px;border:1px solid var(--ln2);background:var(--s2);font-size:9.5px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
-.sponsor-strip{display:flex;align-items:center;justify-content:center;gap:14px;width:100%;height:58px;max-height:58px;padding:5px 16px;border:1px solid var(--ln2);border-radius:14px;background:linear-gradient(90deg,var(--s1),var(--s2),var(--s1));text-decoration:none;line-height:0;opacity:0;transition:opacity .5s var(--spring),border-color .2s;overflow:hidden}
+.sponsor-strip{display:block;width:100%;height:clamp(56px,6.8vw,96px);max-height:96px;padding:0;border:1px solid var(--ln2);border-radius:14px;background:var(--s1);text-decoration:none;line-height:0;opacity:0;transition:opacity .5s var(--spring),border-color .2s;overflow:hidden}
+.sponsor-strip .sp-tag{display:none}
 .sponsor-strip:hover{border-color:var(--ac)}
-.sponsor-strip img{display:block;flex:1;min-width:0;width:100%;height:46px;max-height:46px;object-fit:contain;object-position:center;border-radius:8px;transition:filter .2s}
+.sponsor-strip img{display:block;width:100%;height:100%;object-fit:fill;object-position:center;border-radius:0;transition:filter .2s}
 .sponsor-strip:hover img{filter:brightness(1.06)}
 .sponsor-top.in,.sponsor-strip.in{opacity:1}
-@media(max-width:640px){.sponsor-strip{height:50px;max-height:50px;padding:4px 10px;gap:8px}.sponsor-strip img{height:40px;max-height:40px}.sponsor-strip .sp-tag{display:none}}
+@media(max-width:640px){.sponsor-strip{height:54px;max-height:54px;border-radius:12px}}
 .sponsor-top[hidden],.sponsor-strip[hidden]{display:none!important}
 .ip-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .ip-choices:empty{display:none}
