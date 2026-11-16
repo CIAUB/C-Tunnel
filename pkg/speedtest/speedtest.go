@@ -23,9 +23,9 @@ const (
 	ctSpeedMagic     = "CT-SPEED/1\n"
 	ctSpeedAck       = "CT-SPEED/1 OK\n"
 	ctEchoMagic      = "CT-ECHO/01\n"
-	ctSpeedStreams   = 4
+	ctSpeedStreams   = 8
 	ctSpeedBlock     = 32 << 10
-	ctSpeedWarmup    = 500 * time.Millisecond
+	ctSpeedWarmup    = 800 * time.Millisecond
 	ctSpeedDuration  = 3 * time.Second
 )
 
@@ -129,7 +129,7 @@ func serveSpeedOrEcho(c net.Conn) {
 	if _, err := io.ReadFull(c, start[:]); err != nil || start[0] != 1 {
 		return
 	}
-	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(30 * time.Second))
 	if direction[0] == 'D' {
 		for {
 			if _, err := c.Write(payload); err != nil {
@@ -178,6 +178,8 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 	defer cancel()
 	var wg sync.WaitGroup
 	var received atomic.Uint64
+	var connsMu sync.Mutex
+	var conns []net.Conn
 	ready := make(chan error, ctSpeedStreams)
 	start := make(chan struct{})
 
@@ -190,6 +192,9 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 				ready <- err
 				return
 			}
+			connsMu.Lock()
+			conns = append(conns, c)
+			connsMu.Unlock()
 			defer c.Close()
 			go func() {
 				<-ctx.Done()
@@ -280,7 +285,20 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 	}
 	close(start)
 
-	if !sleepSample(ctx, warmup, &received, func(mbps float64) {
+	readLive := received.Load
+	if dir == 'U' {
+		connsMu.Lock()
+		snapConns := append([]net.Conn(nil), conns...)
+		connsMu.Unlock()
+		readLive = func() uint64 {
+			if acked, ok := sumTCPAcked(snapConns); ok && acked > 0 {
+				return acked
+			}
+			return received.Load()
+		}
+	}
+
+	if !sampleWindow(ctx, warmup, readLive, func(mbps float64) {
 		if onSample != nil {
 			onSample(dir, mbps)
 		}
@@ -289,7 +307,7 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 	}
 	baseline := received.Load()
 	t0 := time.Now()
-	if !sleepSample(ctx, duration, &received, func(mbps float64) {
+	if !sampleWindow(ctx, duration, readLive, func(mbps float64) {
 		if onSample != nil {
 			onSample(dir, mbps)
 		}

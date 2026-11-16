@@ -305,7 +305,16 @@ func carrierDirection(parent context.Context, addr string, dir byte, prefix []by
 			}
 		}(c)
 	}
-	if !sleepSample(ctx, warmup, &got, func(mbps float64) {
+	readLive := got.Load
+	if dir == 'U' {
+		readLive = func() uint64 {
+			if acked, ok := sumTCPAcked(conns); ok && acked > 0 {
+				return acked
+			}
+			return got.Load()
+		}
+	}
+	if !sampleWindow(ctx, warmup, readLive, func(mbps float64) {
 		if onSample != nil {
 			onSample(dir, mbps)
 		}
@@ -313,7 +322,7 @@ func carrierDirection(parent context.Context, addr string, dir byte, prefix []by
 		return 0, ctx.Err()
 	}
 	base, t0 := got.Load(), time.Now()
-	if !sleepSample(ctx, duration, &got, func(mbps float64) {
+	if !sampleWindow(ctx, duration, readLive, func(mbps float64) {
 		if onSample != nil {
 			onSample(dir, mbps)
 		}
@@ -333,18 +342,52 @@ func carrierDirection(parent context.Context, addr string, dir byte, prefix []by
 	return finalMbps, nil
 }
 
-func sleepSample(ctx context.Context, d time.Duration, counter *atomic.Uint64, emit func(mbps float64)) bool {
+type windowSample struct {
+	bytes uint64
+	at    time.Time
+}
+
+func sumTCPAcked(conns []net.Conn) (uint64, bool) {
+	var total uint64
+	anyOK := false
+	for _, c := range conns {
+		if n, ok := tcpAcked(c); ok {
+			total += n
+			anyOK = true
+		}
+	}
+	return total, anyOK
+}
+
+// sampleWindow samples cumulative delivered bytes at 200ms intervals and emits
+// the moving throughput over the trailing ~1-second window (5 ticks), matching
+// NeoTunnel's jitter-free rate smoothing.
+func sampleWindow(ctx context.Context, d time.Duration, readBytes func() uint64, emit func(mbps float64)) bool {
 	if d <= 0 {
 		return ctx.Err() == nil
 	}
-	if emit == nil || counter == nil {
+	if emit == nil || readBytes == nil {
 		return sleepCtx(ctx, d)
 	}
 	end := time.Now().Add(d)
-	tick := time.NewTicker(150 * time.Millisecond)
+	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
-	lastB := counter.Load()
-	lastT := time.Now()
+	ring := []windowSample{{bytes: readBytes(), at: time.Now()}}
+	step := func(now time.Time) {
+		cur := readBytes()
+		last := ring[len(ring)-1].bytes
+		if cur < last {
+			cur = last
+		}
+		ring = append(ring, windowSample{bytes: cur, at: now})
+		if len(ring) > 6 {
+			ring = ring[len(ring)-6:]
+		}
+		first := ring[0]
+		if dt := now.Sub(first.at).Seconds(); dt > 0 && cur >= first.bytes {
+			emit(float64(cur-first.bytes) * 8 / dt / 1e6)
+		}
+	}
 	for {
 		rem := time.Until(end)
 		if rem <= 0 {
@@ -354,20 +397,19 @@ func sleepSample(ctx context.Context, d time.Duration, counter *atomic.Uint64, e
 		case <-ctx.Done():
 			return false
 		case <-time.After(rem):
-			now := time.Now()
-			cur := counter.Load()
-			if dt := now.Sub(lastT).Seconds(); dt > 0 {
-				emit(float64(cur-lastB) * 8 / dt / 1e6)
-			}
+			step(time.Now())
 			return true
 		case now := <-tick.C:
-			cur := counter.Load()
-			if dt := now.Sub(lastT).Seconds(); dt > 0 {
-				emit(float64(cur-lastB) * 8 / dt / 1e6)
-			}
-			lastB, lastT = cur, now
+			step(now)
 		}
 	}
+}
+
+func sleepSample(ctx context.Context, d time.Duration, counter *atomic.Uint64, emit func(mbps float64)) bool {
+	if counter == nil {
+		return sleepCtx(ctx, d)
+	}
+	return sampleWindow(ctx, d, counter.Load, emit)
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {

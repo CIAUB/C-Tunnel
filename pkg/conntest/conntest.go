@@ -598,10 +598,6 @@ func buildProbe(p probe, kind byte, idx int, seq uint16, body, token []byte) []b
 // stream sends full-size packets shaped like method p from several goroutines, as fast
 // as the socket accepts them, for dur. It returns the number of bytes sent.
 func stream(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token []byte, dur time.Duration) int64 {
-	return streamWithCounter(c, dst, p, idx, kind, token, dur, nil)
-}
-
-func streamWithCounter(c net.PacketConn, dst net.Addr, p probe, idx int, kind byte, token []byte, dur time.Duration, counter *atomic.Int64) int64 {
 	workers := min(4, runtime.NumCPU())
 	end := time.Now().Add(dur)
 	var total atomic.Int64
@@ -620,19 +616,14 @@ func streamWithCounter(c net.PacketConn, dst net.Addr, p probe, idx int, kind by
 			seq := uint16(w << 12)
 			var sent int64
 			for time.Now().Before(end) {
-				var batch int64
 				for i := 0; i < 64; i++ {
 					seq++
 					binary.BigEndian.PutUint16(t[2:4], seq)
 					if n, err := c.WriteTo(pkt, dst); err == nil {
-						batch += int64(n)
+						sent += int64(n)
 					} else {
 						time.Sleep(100 * time.Microsecond) // socket buffer full
 					}
-				}
-				sent += batch
-				if counter != nil && batch > 0 {
-					counter.Add(batch)
 				}
 			}
 			total.Add(sent)
@@ -1562,7 +1553,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 		return r
 	}
 	var lastRx, lastTx float64
-	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 200*time.Millisecond, time.Second, func(dir byte, mbps float64) {
+	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 400*time.Millisecond, 1600*time.Millisecond, func(dir byte, mbps float64) {
 		phase := "download"
 		if dir == 'U' {
 			phase = "upload"
@@ -1582,7 +1573,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 }
 
 const (
-	speedDuration = time.Second
+	speedDuration = 1200 * time.Millisecond
 	speedPacket   = 1200
 )
 
@@ -1629,41 +1620,81 @@ func (s *session) throughput(ctx context.Context, idx int) (up, down float64) {
 	return s.throughputLive(ctx, idx, nil)
 }
 
+type rateSample struct {
+	bytes int64
+	at    time.Time
+}
+
+// rateWindow smooths live throughput over a trailing ~1s window (5 ticks at 200ms)
+// matching NeoTunnel's jitter-free bandwidth reporting.
+type rateWindow struct {
+	ring []rateSample
+}
+
+func newRateWindow() *rateWindow {
+	return &rateWindow{ring: []rateSample{{bytes: 0, at: time.Now()}}}
+}
+
+func (w *rateWindow) push(cur int64, now time.Time) (float64, bool) {
+	last := w.ring[len(w.ring)-1].bytes
+	if cur < last {
+		cur = last
+	}
+	w.ring = append(w.ring, rateSample{bytes: cur, at: now})
+	if len(w.ring) > 6 {
+		w.ring = w.ring[len(w.ring)-6:]
+	}
+	first := w.ring[0]
+	dt := now.Sub(first.at).Seconds()
+	if dt <= 0 || cur < first.bytes {
+		return 0, false
+	}
+	return float64(cur-first.bytes) * 8 / dt / 1e6, true
+}
+
 func (s *session) throughputLive(ctx context.Context, idx int, onSample func(phase string, mbps float64)) (up, down float64) {
 	p := s.ps[idx]
 	toMbps := func(b int64) float64 { return float64(b) * 8 / speedDuration.Seconds() / 1e6 }
 
-	// kharej → iran: the responder counts what arrives.
+	// kharej → iran: count verified arrived bytes at the responder instead of local
+	// socket buffer writes, smoothed across a 1-second rolling window.
 	if _, ok := s.control(ctx, ctlCountStart, idx, 0); ok {
 		conn, dst := net.PacketConn(s.udp), net.Addr(s.udpDst)
 		if p.proto != 0 {
 			conn, dst = s.raw[p.proto], &net.IPAddr{IP: s.host}
 		}
-		var txBytes atomic.Int64
-		stopMon := make(chan struct{})
-		doneMon := make(chan struct{})
+		txDone := make(chan struct{})
 		go func() {
-			defer close(doneMon)
-			tick := time.NewTicker(150 * time.Millisecond)
-			defer tick.Stop()
-			lastB, lastT := int64(0), time.Now()
-			for {
-				select {
-				case <-stopMon:
-					return
-				case now := <-tick.C:
-					cur := txBytes.Load()
-					if dt := now.Sub(lastT).Seconds(); dt > 0 && onSample != nil {
-						onSample("upload", float64(cur-lastB)*8/dt/1e6)
-					}
-					lastB, lastT = cur, now
+			defer close(txDone)
+			stream(conn, dst, p, idx, kindUpload, s.token, speedDuration)
+		}()
+		win := newRateWindow()
+		tick := time.NewTicker(200 * time.Millisecond)
+		for running := true; running; {
+			select {
+			case <-txDone:
+				running = false
+			case <-ctx.Done():
+				tick.Stop()
+				<-txDone
+				return 0, 0
+			case now := <-tick.C:
+				if onSample == nil {
+					continue
+				}
+				ctlCtx, cancelCtl := context.WithTimeout(ctx, 180*time.Millisecond)
+				cur, ok := s.control(ctlCtx, ctlCountRead, idx, 0)
+				cancelCtl()
+				if !ok {
+					continue
+				}
+				if mbps, valid := win.push(cur, now); valid {
+					onSample("upload", mbps)
 				}
 			}
-		}()
-		streamWithCounter(conn, dst, p, idx, kindUpload, s.token, speedDuration, &txBytes)
-		close(stopMon)
-		<-doneMon
-		_ = sleep(ctx, 300*time.Millisecond)
+		}
+		tick.Stop()
+		_ = sleep(ctx, 250*time.Millisecond)
 		if n, ok := s.control(ctx, ctlCountRead, idx, 0); ok {
 			up = toMbps(n)
 			if onSample != nil {
@@ -1672,7 +1703,8 @@ func (s *session) throughputLive(ctx context.Context, idx int, onSample func(pha
 		}
 	}
 
-	// iran → kharej: count what arrives here.
+	// iran → kharej: count verified arrivals at 200ms / 1s window during active
+	// streaming only, stopping monitor before straggler drain so needle never drops to 0.
 	var got atomic.Int64
 	s.setHandler(func(kind byte, i int, _ uint16, _ int64, size int) {
 		if kind == kindDownload && i == idx {
@@ -1681,31 +1713,36 @@ func (s *session) throughputLive(ctx context.Context, idx int, onSample func(pha
 	})
 	defer s.setHandler(nil)
 	if _, ok := s.control(ctx, ctlSend, idx, speedDuration); ok {
-		stopMon := make(chan struct{})
-		doneMon := make(chan struct{})
-		go func() {
-			defer close(doneMon)
-			tick := time.NewTicker(150 * time.Millisecond)
-			defer tick.Stop()
-			lastB, lastT := int64(0), time.Now()
-			for {
-				select {
-				case <-stopMon:
-					return
-				case <-ctx.Done():
-					return
-				case now := <-tick.C:
-					cur := got.Load()
-					if dt := now.Sub(lastT).Seconds(); dt > 0 && onSample != nil {
-						onSample("download", float64(cur-lastB)*8/dt/1e6)
+		win := newRateWindow()
+		end := time.Now().Add(speedDuration)
+		tick := time.NewTicker(200 * time.Millisecond)
+		for {
+			rem := time.Until(end)
+			if rem <= 0 {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				tick.Stop()
+				return up, 0
+			case <-time.After(rem):
+				if onSample != nil {
+					if mbps, valid := win.push(got.Load(), time.Now()); valid {
+						onSample("download", mbps)
 					}
-					lastB, lastT = cur, now
+				}
+				goto drain
+			case now := <-tick.C:
+				if onSample != nil {
+					if mbps, valid := win.push(got.Load(), now); valid {
+						onSample("download", mbps)
+					}
 				}
 			}
-		}()
-		_ = sleep(ctx, speedDuration+400*time.Millisecond)
-		close(stopMon)
-		<-doneMon
+		}
+	drain:
+		tick.Stop()
+		_ = sleep(ctx, 250*time.Millisecond)
 		down = toMbps(got.Load())
 		if onSample != nil {
 			onSample("download", down)

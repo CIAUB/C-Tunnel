@@ -2637,29 +2637,34 @@ function renderProbeLeds(sent, recv, isEcho) {
 
 function startLiveAnimation() {
   if (liveRAF) return;
-  const step = () => {
-    liveState.dispDl += (liveState.targetDl - liveState.dispDl) * 0.28;
-    liveState.dispUl += (liveState.targetUl - liveState.dispUl) * 0.28;
-    liveState.dispRtt += (liveState.targetRtt - liveState.dispRtt) * 0.28;
-    liveState.dialMbps += (liveState.targetDial - liveState.dialMbps) * 0.16;
-    if (Math.abs(liveState.targetDl - liveState.dispDl) < 0.05) liveState.dispDl = liveState.targetDl;
-    if (Math.abs(liveState.targetUl - liveState.dispUl) < 0.05) liveState.dispUl = liveState.targetUl;
+  const step = (now) => {
+    const dt = Math.min(100, now - (liveState.lastAt || now));
+    liveState.lastAt = now;
+    const kText = 1 - Math.exp(-dt / 180);
+    const kDial = 1 - Math.exp(-dt / 260);
+    liveState.dispDl += (liveState.targetDl - liveState.dispDl) * kText;
+    liveState.dispUl += (liveState.targetUl - liveState.dispUl) * kText;
+    liveState.dispRtt += (liveState.targetRtt - liveState.dispRtt) * kText;
+    liveState.dialMbps += (liveState.targetDial - liveState.dialMbps) * kDial;
+    if (Math.abs(liveState.targetDl - liveState.dispDl) < Math.max(0.05, liveState.targetDl * 0.001)) liveState.dispDl = liveState.targetDl;
+    if (Math.abs(liveState.targetUl - liveState.dispUl) < Math.max(0.05, liveState.targetUl * 0.001)) liveState.dispUl = liveState.targetUl;
     if (Math.abs(liveState.targetRtt - liveState.dispRtt) < 0.05) liveState.dispRtt = liveState.targetRtt;
-    if (Math.abs(liveState.targetDial - liveState.dialMbps) < 0.05) liveState.dialMbps = liveState.targetDial;
+    if (Math.abs(liveState.targetDial - liveState.dialMbps) < Math.max(0.05, liveState.targetDial * 0.001)) liveState.dialMbps = liveState.targetDial;
 
     if ($("st-down")) $("st-down").textContent = liveState.dispDl > 0.05 ? liveState.dispDl.toFixed(1) : (liveState.running ? "0.0" : "—");
     if ($("st-up")) $("st-up").textContent = liveState.dispUl > 0.05 ? liveState.dispUl.toFixed(1) : (liveState.running ? "0.0" : "—");
     if ($("st-rtt")) $("st-rtt").textContent = liveState.dispRtt > 0.05 ? liveState.dispRtt.toFixed(1) : "—";
     renderSpeedDial(liveState.dialMbps, liveState.dialMode, liveState.dialUnit);
 
-    const settled = Math.abs(liveState.targetDl - liveState.dispDl) < 0.05 &&
-      Math.abs(liveState.targetUl - liveState.dispUl) < 0.05 &&
-      Math.abs(liveState.targetRtt - liveState.dispRtt) < 0.05 &&
-      Math.abs(liveState.targetDial - liveState.dialMbps) < 0.05;
+    const settled = liveState.dispDl === liveState.targetDl &&
+      liveState.dispUl === liveState.targetUl &&
+      liveState.dispRtt === liveState.targetRtt &&
+      liveState.dialMbps === liveState.targetDial;
     if (liveState.running || !settled) {
       liveRAF = requestAnimationFrame(step);
     } else {
       liveRAF = 0;
+      liveState.lastAt = 0;
     }
   };
   liveRAF = requestAnimationFrame(step);
@@ -2760,10 +2765,16 @@ function updateTelemetryConsole(r) {
   liveState.targetUl = ul;
   liveState.targetRtt = rtt;
   if (running) {
-    if (phase === "upload") {
+    if (phase === "upload" && (ul > 0 || !(dl > 0))) {
       liveState.targetDial = ul;
       liveState.dialMode = "ul";
-    } else if (phase === "download" || dl > 0) {
+    } else if (phase === "download" && dl > 0) {
+      liveState.targetDial = dl;
+      liveState.dialMode = "dl";
+    } else if (phase === "download" && ul > 0) {
+      liveState.targetDial = ul;
+      liveState.dialMode = "ul";
+    } else if (dl > 0) {
       liveState.targetDial = dl;
       liveState.dialMode = "dl";
     } else if (ul > 0) {

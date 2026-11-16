@@ -31,6 +31,34 @@ func TestLoopbackLinkTest(t *testing.T) {
 	}
 }
 
+func TestLiveWindowSmoothingSteady(t *testing.T) {
+	addr, stop, err := StartServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+
+	var dlSamples, ulSamples []float64
+	down, up, err := MeasureSpeed4StreamsLive(context.Background(), addr, 200*time.Millisecond, 700*time.Millisecond, func(dir byte, mbps float64) {
+		if dir == 'D' {
+			dlSamples = append(dlSamples, mbps)
+		} else {
+			ulSamples = append(ulSamples, mbps)
+		}
+	})
+	if err != nil || down <= 0 || up <= 0 {
+		t.Fatalf("live speed = %.1f/%.1f, %v", down, up, err)
+	}
+	if len(dlSamples) < 2 || len(ulSamples) < 2 {
+		t.Fatalf("expected live samples, got dl=%d ul=%d", len(dlSamples), len(ulSamples))
+	}
+	for _, s := range append(append([]float64(nil), dlSamples[1:]...), ulSamples[1:]...) {
+		if s <= 0 {
+			t.Fatalf("unexpected zero drop mid-stream: dl=%v ul=%v", dlSamples, ulSamples)
+		}
+	}
+}
+
 func TestUnreachableTarget(t *testing.T) {
 	addr, stop, _ := StartServer("127.0.0.1:0")
 	stop()
