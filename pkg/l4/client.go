@@ -98,6 +98,7 @@ func (c *client) admitDirect(ctx context.Context, conn net.Conn, ip string) {
 		return
 	}
 	c.pending.release(ip)
+	c.st.SetPeerIP(ip)
 	if !Mux(c.cfg.Transport) {
 		c.st.Links.Add(1)
 		stop := context.AfterFunc(ctx, func() { conn.Close() })

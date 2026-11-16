@@ -78,12 +78,16 @@ func writeL4Counters(cfg config, st *l4.Stats, key string) {
 	if cfg.role == "kharej" {
 		rx, tx = tx, rx
 	}
-	for name, v := range map[string]string{
+	files := map[string]string{
 		"ifindex":             key,
 		"links":               strconv.FormatInt(st.Links.Load(), 10),
 		"statistics/rx_bytes": strconv.FormatInt(rx, 10),
 		"statistics/tx_bytes": strconv.FormatInt(tx, 10),
-	} {
+	}
+	if peer := st.GetPeerIP(); peer != "" {
+		files["peer_ip"] = peer
+	}
+	for name, v := range files {
 		writeFileAtomic(filepath.Join(dir, name), v+"\n")
 	}
 }

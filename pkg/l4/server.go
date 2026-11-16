@@ -75,6 +75,21 @@ func sourceIP(c net.Conn) string {
 type Stats struct {
 	Up, Down atomic.Int64
 	Links    atomic.Int64
+	PeerIP   atomic.Value
+}
+
+// SetPeerIP records the latest verified peer IP so ICMP status probes can
+// measure real latency even on passive listener tunnels.
+func (s *Stats) SetPeerIP(ip string) {
+	if p := net.ParseIP(ip); p != nil && !p.IsUnspecified() {
+		s.PeerIP.Store(p.String())
+	}
+}
+
+// GetPeerIP returns the latest recorded peer IP, or "".
+func (s *Stats) GetPeerIP() string {
+	v, _ := s.PeerIP.Load().(string)
+	return v
 }
 
 func smuxConfig() *smux.Config {
@@ -329,6 +344,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 		return
 	}
 	s.pending.release(ip)
+	s.st.SetPeerIP(ip)
 	s.adopt(runID)
 	if !Mux(s.cfg.Transport) {
 		if !s.pool.push(pooledConn{c: c, runID: runID}) {

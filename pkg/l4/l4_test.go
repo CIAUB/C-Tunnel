@@ -72,16 +72,17 @@ func services(t *testing.T) int {
 func tunnel(t *testing.T, transport, kharejToken string, target int) (int, *Stats) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	tunPort, fwd := freePort(t), freePort(t)
 	st := &Stats{}
 	iran := Config{Role: "iran", Transport: transport, Port: tunPort, Token: testToken,
 		Forwards: []Forward{{Listen: fwd, Target: target}}, Logf: t.Logf}
 	kharej := Config{Role: "kharej", Transport: transport, Port: tunPort, RemoteIP: "127.0.0.1",
 		Token: kharejToken, Pool: 4, Conns: 2, Logf: t.Logf}
-	go func() { _ = Run(ctx, iran, st) }()
+	done1, done2 := make(chan struct{}), make(chan struct{})
+	go func() { defer close(done1); _ = Run(ctx, iran, st) }()
 	time.Sleep(200 * time.Millisecond)
-	go func() { _ = Run(ctx, kharej, nil) }()
+	go func() { defer close(done2); _ = Run(ctx, kharej, nil) }()
+	t.Cleanup(func() { cancel(); <-done1; <-done2 })
 	return fwd, st
 }
 

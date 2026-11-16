@@ -7,9 +7,11 @@ import (
 	"io"
 	"math"
 	"net"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"ctunnel/pkg/catalog"
@@ -80,42 +82,70 @@ func ProbeAlive(tc catalog.TunnelConfig) bool {
 	return rxAfter > rxBefore
 }
 
-// MeasurePing measures the live RTT and Jitter of tc using the method best
-// suited to the tunnel's family.
+// MeasurePing measures the live RTT and Jitter of tc, preferring real ICMP
+// echo so the panel's tunnel status badges report genuine ICMP latency and loss.
 func MeasurePing(tc catalog.TunnelConfig) PingResult {
 	eff := Effective(tc)
 	st := GetStatus(eff)
 	if !st.Up() {
 		return PingResult{LossPct: 100}
 	}
+	return measurePingFor(eff)
+}
+
+func measurePingFor(eff catalog.TunnelConfig) PingResult {
 	if catalog.IsL4(eff.Method) {
-		if rtt, jit, ok := measureL4Probe(tc.Name, 3, 1200*time.Millisecond); ok {
+		target := eff.RemoteIP
+		if ip := net.ParseIP(strings.TrimSpace(target)); ip == nil || ip.IsUnspecified() {
+			target = readL4PeerIP(eff.Name)
+		}
+		if res, ok := pingTarget(target, 1200*time.Millisecond); ok {
+			return res
+		}
+		if rtt, jit, ok := measureL4Probe(eff.Name, 3, 1200*time.Millisecond); ok {
 			return PingResult{OK: true, RTTMs: rtt, JitterMs: jit, LossPct: 0, Probe: "l4-stream"}
 		}
-		if eff.RemoteIP != "" && eff.RemoteIP != "0.0.0.0" && eff.RemoteIP != "::" && eff.Port > 0 &&
+		if ip := net.ParseIP(strings.TrimSpace(eff.RemoteIP)); ip != nil && !ip.IsUnspecified() && eff.Port > 0 &&
 			eff.Method != "udp" && eff.Method != "udpmux" && eff.Method != "pck" {
-			if rtt, jit, loss, ok := probeTCPConnect(net.JoinHostPort(eff.RemoteIP, strconv.Itoa(eff.Port)), 3, 1200*time.Millisecond); ok {
+			if rtt, jit, loss, ok := probeTCPConnect(net.JoinHostPort(ip.String(), strconv.Itoa(eff.Port)), 3, 1200*time.Millisecond); ok {
 				return PingResult{OK: true, RTTMs: rtt, JitterMs: jit, LossPct: loss, Probe: "l4-tcp"}
 			}
 		}
 		return PingResult{LossPct: 100}
 	}
+	if res, ok := pingTarget(eff.TunRemote4, 1000*time.Millisecond); ok {
+		return res
+	}
+	if res, ok := pingTarget(eff.CarrierRemote6, 1000*time.Millisecond); ok {
+		return res
+	}
 	if eff.TunRemote4 != "" {
 		if rtt, jit, ok := probeTCPEcho(net.JoinHostPort(eff.TunRemote4, strconv.Itoa(agentBenchPort)), 3, 1000*time.Millisecond); ok {
 			return PingResult{OK: true, RTTMs: rtt, JitterMs: jit, LossPct: 0, Probe: "tunnel-echo"}
 		}
-		res := pingIP(eff.TunRemote4, false, 3, 1000*time.Millisecond)
-		if res.OK {
-			return res
-		}
-	}
-	if eff.CarrierRemote6 != "" {
-		res := pingIP(eff.CarrierRemote6, true, 3, 1000*time.Millisecond)
-		if res.OK {
-			return res
-		}
 	}
 	return PingResult{LossPct: 100}
+}
+
+func pingTarget(raw string, wait time.Duration) (PingResult, bool) {
+	ip := net.ParseIP(strings.TrimSpace(raw))
+	if ip == nil || ip.IsUnspecified() {
+		return PingResult{}, false
+	}
+	res := pingIP(ip.String(), ip.To4() == nil, 3, wait)
+	return res, res.OK
+}
+
+func readL4PeerIP(name string) string {
+	b, err := os.ReadFile(filepath.Join(L4Dir, Dev(name), "peer_ip"))
+	if err != nil {
+		return ""
+	}
+	ip := net.ParseIP(strings.TrimSpace(string(b)))
+	if ip == nil || ip.IsUnspecified() {
+		return ""
+	}
+	return ip.String()
 }
 
 func wakeTunnel(ip string) {

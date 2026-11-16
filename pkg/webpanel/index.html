@@ -1429,7 +1429,7 @@ function updatePingBadge(elPill, s, stCls, family) {
   if (!s || !s.ping_ok || !(s.rtt_ms > 0)) {
     elPill.className = "ping-pill" + (stCls === "up" ? "" : " bad");
     elPill.append(dot, document.createTextNode(stCls === "up" ? "probing…" : "no reply"));
-    elPill.title = "Active tunnel latency probe (" + (family === "Reverse-L4" ? "L4 stream echo" : "tunnel echo / ICMP") + ")";
+    elPill.title = "Active tunnel ICMP ping" + (family === "Reverse-L4" ? " (peer host)" : " (tunnel endpoint)");
     return;
   }
   const rtt = s.rtt_ms, jit = s.jitter_ms || 0;
