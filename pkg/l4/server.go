@@ -1,10 +1,17 @@
 package l4
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -14,21 +21,16 @@ import (
 )
 
 const (
-	streamWait   = 5 * time.Second  // how long a user connection waits for a stream
-	pingInterval = 20 * time.Second // keepalive on idle pool connections
-	idleRead     = 60 * time.Second // Kharej drops a pool connection silent this long
-	udpIdle      = 2 * time.Minute  // a UDP flow with no datagram this long is closed
-	maxPool      = 1024             // idle pool connections Iran holds at most
-	// Connections still in the handshake, at most, per source address and in
-	// all. Each one holds a socket and a goroutine for up to handshakeTimeout,
-	// so without a bound a flood of idle connections to the tunnel port uses
-	// up the engine's file descriptors and starves the forwarded ports. Kharej
-	// opens at most Pool (16) or Conns at a time, well under the per-source cap.
+	streamWait      = 5 * time.Second
+	pingInterval    = 20 * time.Second
+	idleRead        = 60 * time.Second
+	udpIdle         = 2 * time.Minute
+	maxUDPFlows     = 4096
+	maxPool         = 1024
 	maxPendingPerIP = 64
 	maxPending      = 1024
 )
 
-// admission bounds the connections that have not finished the handshake.
 type admission struct {
 	mu    sync.Mutex
 	total int
@@ -58,7 +60,6 @@ func (a *admission) release(ip string) {
 	}
 }
 
-// sourceIP is the address a connection came from, for admission.
 func sourceIP(c net.Conn) string {
 	if a := c.RemoteAddr(); a != nil {
 		if h, _, err := net.SplitHostPort(a.String()); err == nil {
@@ -73,17 +74,15 @@ func sourceIP(c net.Conn) string {
 // download), Down is Iran to Kharej.
 type Stats struct {
 	Up, Down atomic.Int64
-	Links    atomic.Int64 // connections or sessions to the other server now open
+	Links    atomic.Int64
 }
 
 func smuxConfig() *smux.Config {
 	c := smux.DefaultConfig()
 	c.Version = 2
 	c.KeepAliveInterval = 10 * time.Second
-	c.KeepAliveTimeout = 30 * time.Second
+	c.KeepAliveTimeout = 35 * time.Second
 	c.MaxFrameSize = 65535
-	// A stream sends at most MaxStreamBuffer per round trip: 16 MiB is about
-	// 1.3 Gbit/s at 100 ms. Memory is only used while a reader falls behind.
 	c.MaxReceiveBuffer = 64 << 20
 	c.MaxStreamBuffer = 16 << 20
 	return c
@@ -98,36 +97,42 @@ func Run(ctx context.Context, cfg Config, st *Stats) error {
 		st = &Stats{}
 	}
 	if cfg.Role == "iran" {
-		return (&server{cfg: &cfg, st: st, pool: make(chan net.Conn, maxPool)}).run(ctx)
+		return (&server{cfg: &cfg, st: st}).run(ctx)
 	}
 	return (&client{cfg: &cfg, st: st}).run(ctx)
+}
+
+type pooledConn struct {
+	c     net.Conn
+	runID [runIDLen]byte
+}
+
+type muxSession struct {
+	sess  *smux.Session
+	runID [runIDLen]byte
 }
 
 type server struct {
 	cfg  *Config
 	st   *Stats
-	pool chan net.Conn // idle pool connections (tcp, ws, wss)
+	pool connStack
 
 	mu       sync.Mutex
-	sessions []*smux.Session // mux transports
+	sessions []muxSession
 	next     int
-	ready    chan struct{} // closed and replaced when a link arrives
-	// busy counts pool connections carrying a user (tcp, ws, wss). With the
-	// idle ones they are the links to Kharej: a pool emptied by traffic is
-	// a busy tunnel, not a broken one.
-	busy atomic.Int64
+	ready    chan struct{}
+	runID    [runIDLen]byte
+	busy     atomic.Int64
 
-	pending admission // connections still in the handshake
+	pending admission
 }
 
-// countLinks publishes the pool transports' links: idle plus busy.
 func (s *server) countLinks() {
 	if !Mux(s.cfg.Transport) {
-		s.st.Links.Store(int64(len(s.pool)) + s.busy.Load())
+		s.st.Links.Store(int64(s.pool.len()) + s.busy.Load())
 	}
 }
 
-// carry runs fn on a stream from the pool, counting it as a link meanwhile.
 func (s *server) carry(fn func()) {
 	if Mux(s.cfg.Transport) {
 		fn()
@@ -142,17 +147,23 @@ func (s *server) carry(fn func()) {
 
 func (s *server) run(ctx context.Context) error {
 	s.ready = make(chan struct{})
-	ln, err := listen(s.cfg)
-	if err != nil {
-		return fmt.Errorf("tunnel port %d: %w", s.cfg.Port, err)
-	}
-	defer ln.Close()
 	var closers []func()
 	defer func() {
 		for _, c := range closers {
 			c()
 		}
 	}()
+
+	var ln listener
+	if !s.cfg.Direct {
+		var err error
+		ln, err = listen(s.cfg)
+		if err != nil {
+			return fmt.Errorf("tunnel port %d: %w", s.cfg.Port, err)
+		}
+		defer ln.Close()
+	}
+
 	for _, f := range s.cfg.Forwards {
 		tl, err := net.Listen("tcp", ":"+strconv.Itoa(f.Listen))
 		if err != nil {
@@ -167,10 +178,33 @@ func (s *server) run(ctx context.Context) error {
 			go s.serveUDP(ctx, uc, f.Target)
 		}
 	}
-	s.cfg.Logf("%s listening on %d, forwarding %d port(s)", s.cfg.Transport, s.cfg.Port, len(s.cfg.Forwards))
+	if s.cfg.LocalSocket != "" {
+		ul, err := listenUnix(s.cfg.LocalSocket)
+		if err != nil {
+			s.cfg.Logf("socket %s not served: %v", s.cfg.LocalSocket, err)
+		} else {
+			closers = append(closers, func() { _ = ul.Close(); _ = os.Remove(s.cfg.LocalSocket) })
+			go s.serveLocal(ctx, ul)
+		}
+	}
+	if s.cfg.ProbeSocket != "" {
+		pl, err := listenUnix(s.cfg.ProbeSocket)
+		if err != nil {
+			s.cfg.Logf("probe socket %s not served: %v", s.cfg.ProbeSocket, err)
+		} else {
+			closers = append(closers, func() { _ = pl.Close(); _ = os.Remove(s.cfg.ProbeSocket) })
+			go s.serveProbe(ctx, pl)
+		}
+	}
 	if !Mux(s.cfg.Transport) {
 		go s.keepPool(ctx)
 	}
+
+	if s.cfg.Direct {
+		return s.dialDirect(ctx)
+	}
+
+	s.cfg.Logf("%s listening on %d, forwarding %d port(s)", s.cfg.Transport, s.cfg.Port, len(s.cfg.Forwards))
 	go func() { <-ctx.Done(); ln.Close() }()
 	for {
 		c, err := ln.Accept()
@@ -186,38 +220,123 @@ func (s *server) run(ctx context.Context) error {
 		}
 		ip := sourceIP(c)
 		if !s.pending.take(ip) {
-			c.Close() // too many unfinished handshakes: shed it at once
+			c.Close()
 			continue
 		}
 		go s.admit(ctx, c, ip)
 	}
 }
 
-// admit authenticates one connection from Kharej and files it as an idle pool
-// connection or a mux session.
+// dialDirect runs on the Iran server when cfg.Direct is true: Iran dials out to
+// Kharej to maintain the connection pool or multiplexed sessions.
+func (s *server) dialDirect(ctx context.Context) error {
+	var runID [runIDLen]byte
+	_, _ = rand.Read(runID[:])
+	n := s.cfg.Pool
+	if Mux(s.cfg.Transport) {
+		n = s.cfg.Conns
+	}
+	s.cfg.Logf("%s direct to %s:%d, %d connection(s), forwarding %d port(s)", s.cfg.Transport, s.cfg.RemoteIP, s.cfg.Port, n, len(s.cfg.Forwards))
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for ctx.Err() == nil {
+				c, err := dial(ctx, s.cfg)
+				if err != nil {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(2 * time.Second):
+					}
+					continue
+				}
+				if tc, ok := c.(*net.TCPConn); ok {
+					_ = tc.SetNoDelay(true)
+					_ = tc.SetKeepAlive(true)
+					_ = tc.SetKeepAlivePeriod(15 * time.Second)
+				}
+				if err := clientHandshake(c, s.cfg.Token, runID); err != nil {
+					c.Close()
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(2 * time.Second):
+					}
+					continue
+				}
+				if !Mux(s.cfg.Transport) {
+					s.pool.push(pooledConn{c: c, runID: runID})
+					s.countLinks()
+					s.signal()
+					// Wait while pool is full enough before dialing replacements.
+					for ctx.Err() == nil && s.pool.len()+int(s.busy.Load()) >= s.cfg.Pool {
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(200 * time.Millisecond):
+						}
+					}
+					continue
+				}
+				sess, err := smux.Client(c, smuxConfig())
+				if err != nil {
+					c.Close()
+					continue
+				}
+				s.mu.Lock()
+				s.sessions = append(s.sessions, muxSession{sess: sess, runID: runID})
+				s.mu.Unlock()
+				s.st.Links.Add(1)
+				s.signal()
+				select {
+				case <-sess.CloseChan():
+				case <-ctx.Done():
+					sess.Close()
+				}
+				s.mu.Lock()
+				for i, x := range s.sessions {
+					if x.sess == sess {
+						s.sessions = append(s.sessions[:i], s.sessions[i+1:]...)
+						break
+					}
+				}
+				s.mu.Unlock()
+				s.st.Links.Add(-1)
+				select {
+				case <-ctx.Done():
+				case <-time.After(time.Second):
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	return nil
+}
+
 func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetNoDelay(true)
 		_ = tc.SetKeepAlive(true)
 		_ = tc.SetKeepAlivePeriod(15 * time.Second)
 	}
-	err := serverHandshake(c, s.cfg.Token)
+	runID, err := serverHandshake(c, s.cfg.Token)
 	if err != nil {
 		c.Close()
-		// The slot stays taken during the pause, so a guesser cannot open a
-		// new connection for each failed one.
-		time.Sleep(time.Second) // no fast feedback for a guesser
+		time.Sleep(time.Second)
 		s.pending.release(ip)
 		return
 	}
 	s.pending.release(ip)
+	s.adopt(runID)
 	if !Mux(s.cfg.Transport) {
-		select {
-		case s.pool <- c:
-			s.countLinks()
-			s.signal()
-		default:
+		if !s.pool.push(pooledConn{c: c, runID: runID}) {
 			c.Close()
+			return
 		}
+		s.countLinks()
+		s.signal()
 		return
 	}
 	sess, err := smux.Server(c, smuxConfig())
@@ -226,7 +345,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 		return
 	}
 	s.mu.Lock()
-	s.sessions = append(s.sessions, sess)
+	s.sessions = append(s.sessions, muxSession{sess: sess, runID: runID})
 	s.mu.Unlock()
 	s.st.Links.Add(1)
 	s.signal()
@@ -238,7 +357,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 		}
 		s.mu.Lock()
 		for i, x := range s.sessions {
-			if x == sess {
+			if x.sess == sess {
 				s.sessions = append(s.sessions[:i], s.sessions[i+1:]...)
 				break
 			}
@@ -248,7 +367,42 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 	}()
 }
 
-// signal wakes user connections waiting for a stream.
+// adopt drops stale connections from an earlier peer process when the peer
+// reconnects with a new non-zero runID.
+func (s *server) adopt(runID [runIDLen]byte) {
+	var zero [runIDLen]byte
+	if runID == zero {
+		return
+	}
+	s.mu.Lock()
+	if s.runID == runID {
+		s.mu.Unlock()
+		return
+	}
+	hadPrev := s.runID != zero
+	s.runID = runID
+	var stale []*smux.Session
+	kept := s.sessions[:0]
+	for _, m := range s.sessions {
+		if m.runID != zero && m.runID != runID {
+			stale = append(stale, m.sess)
+		} else {
+			kept = append(kept, m)
+		}
+	}
+	s.sessions = kept
+	s.mu.Unlock()
+
+	dropped := s.pool.dropExcept(runID) + len(stale)
+	for _, sess := range stale {
+		_ = sess.Close()
+	}
+	if hadPrev && dropped > 0 {
+		s.cfg.Logf("the Kharej server restarted: dropped %d connection(s) of its last run", dropped)
+	}
+	s.countLinks()
+}
+
 func (s *server) signal() {
 	s.mu.Lock()
 	close(s.ready)
@@ -256,54 +410,49 @@ func (s *server) signal() {
 	s.mu.Unlock()
 }
 
-// keepPool pings idle pool connections, so a dead one is found and dropped
-// before a user is paired with it, and middleboxes see traffic on them.
 func (s *server) keepPool(ctx context.Context) {
 	t := time.NewTicker(pingInterval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			for {
-				select {
-				case c := <-s.pool:
-					c.Close()
-				default:
-					return
-				}
+			for _, pc := range s.pool.takeAll() {
+				_ = pc.c.Close()
 			}
+			return
 		case <-t.C:
 		}
-		alive := 0
-		for n := len(s.pool); n > 0; n-- {
-			var c net.Conn
-			select {
-			case c = <-s.pool:
-			default:
-			}
-			if c == nil {
-				break
-			}
-			_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			err := writeHeader(c, kindPing, 0)
-			_ = c.SetWriteDeadline(time.Time{})
-			if err != nil {
-				c.Close()
+		all := s.pool.takeAll()
+		var keep []pooledConn
+		for _, pc := range all {
+			if !pooledAlive(pc.c) {
+				_ = pc.c.Close()
 				continue
 			}
-			alive++
-			select {
-			case s.pool <- c:
-			default:
-				c.Close()
+			_ = pc.c.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			err := writeHeader(pc.c, kindPing, 0)
+			_ = pc.c.SetWriteDeadline(time.Time{})
+			if err != nil {
+				_ = pc.c.Close()
+				continue
 			}
+			keep = append(keep, pc)
+		}
+		s.mu.Lock()
+		curRun := s.runID
+		s.mu.Unlock()
+		s.pool.putUnder(keep)
+		var zero [runIDLen]byte
+		if curRun != zero {
+			s.pool.dropExcept(curRun)
 		}
 		s.countLinks()
+		if len(keep) > 0 {
+			s.signal()
+		}
 	}
 }
 
-// stream opens a stream to Kharej for one user connection or UDP flow and
-// sends its header.
 func (s *server) stream(ctx context.Context, kind byte, port int) (net.Conn, error) {
 	deadline := time.NewTimer(streamWait)
 	defer deadline.Stop()
@@ -328,23 +477,34 @@ func (s *server) stream(ctx context.Context, kind byte, port int) (net.Conn, err
 	}
 }
 
-// take returns a fresh stream (mux) or an idle pool connection, or nil.
+func pooledAlive(c net.Conn) bool {
+	if kc, ok := c.(*kcpConn); ok {
+		return kc.idle() < 3*kcpKeepalive
+	}
+	return !socketClosed(c)
+}
+
 func (s *server) take() net.Conn {
 	if !Mux(s.cfg.Transport) {
-		select {
-		case c := <-s.pool:
+		for {
+			pc, ok := s.pool.pop()
+			if !ok {
+				s.countLinks()
+				return nil
+			}
 			s.countLinks()
-			return c
-		default:
-			return nil
+			if pooledAlive(pc.c) {
+				return pc.c
+			}
+			_ = pc.c.Close()
 		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for range s.sessions {
-		sess := s.sessions[s.next%len(s.sessions)]
+		m := s.sessions[s.next%len(s.sessions)]
 		s.next++
-		if st, err := sess.OpenStream(); err == nil {
+		if st, err := m.sess.OpenStream(); err == nil {
 			return muxStream{st}
 		}
 	}
@@ -375,7 +535,6 @@ func (s *server) serveTCP(ctx context.Context, ln net.Listener, target int) {
 type udpFlow struct {
 	st   net.Conn
 	wmu  sync.Mutex
-	buf  []byte
 	last atomic.Int64
 }
 
@@ -416,6 +575,9 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 		mu.Lock()
 		f := flows[key]
 		if f == nil && !pending[key] {
+			if len(flows)+len(pending) >= maxUDPFlows {
+				evictOldestFlow(flows)
+			}
 			pending[key] = true
 			first := append([]byte(nil), buf[:n]...)
 			go func() {
@@ -426,13 +588,15 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 					mu.Unlock()
 					return
 				}
-				f := &udpFlow{st: st, buf: make([]byte, 65537)}
+				f := &udpFlow{st: st}
 				f.last.Store(time.Now().UnixNano())
 				flows[key] = f
 				mu.Unlock()
 				f.send(first, s.st)
 				s.carry(func() {
-					rbuf := make([]byte, 65535)
+					bp := dgramBufs.Get().(*[]byte)
+					defer dgramBufs.Put(bp)
+					rbuf := (*bp)[:65535]
 					for {
 						p, err := readDatagram(st, rbuf)
 						if err != nil {
@@ -458,14 +622,194 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 	}
 }
 
+func evictOldestFlow(flows map[string]*udpFlow) {
+	var oldestKey string
+	var oldestTime int64 = 1<<63 - 1
+	for k, f := range flows {
+		if t := f.last.Load(); t < oldestTime {
+			oldestTime = t
+			oldestKey = k
+		}
+	}
+	if oldestKey != "" {
+		flows[oldestKey].st.Close()
+		delete(flows, oldestKey)
+	}
+}
+
 func (f *udpFlow) send(p []byte, st *Stats) {
 	f.last.Store(time.Now().UnixNano())
 	f.wmu.Lock()
-	err := writeDatagram(f.st, f.buf, p)
+	err := writeDatagram(f.st, p)
 	f.wmu.Unlock()
 	if err != nil {
 		f.st.Close()
 		return
 	}
 	st.Down.Add(int64(len(p)))
+}
+
+type connStack struct {
+	mu    sync.Mutex
+	items []pooledConn
+}
+
+func (cs *connStack) push(pc pooledConn) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if len(cs.items) >= maxPool {
+		return false
+	}
+	cs.items = append(cs.items, pc)
+	return true
+}
+
+func (cs *connStack) pop() (pooledConn, bool) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	n := len(cs.items)
+	if n == 0 {
+		return pooledConn{}, false
+	}
+	pc := cs.items[n-1]
+	cs.items = cs.items[:n-1]
+	return pc, true
+}
+
+func (cs *connStack) len() int {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return len(cs.items)
+}
+
+func (cs *connStack) takeAll() []pooledConn {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	out := cs.items
+	cs.items = nil
+	return out
+}
+
+func (cs *connStack) putUnder(pcs []pooledConn) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if len(pcs) == 0 {
+		return
+	}
+	combined := make([]pooledConn, 0, len(pcs)+len(cs.items))
+	combined = append(combined, pcs...)
+	combined = append(combined, cs.items...)
+	if len(combined) > maxPool {
+		for _, extra := range combined[:len(combined)-maxPool] {
+			_ = extra.c.Close()
+		}
+		combined = combined[len(combined)-maxPool:]
+	}
+	cs.items = combined
+}
+
+func (cs *connStack) dropExcept(runID [runIDLen]byte) int {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	var zero [runIDLen]byte
+	kept := cs.items[:0]
+	var dropped []net.Conn
+	for _, pc := range cs.items {
+		if pc.runID != zero && pc.runID != runID {
+			dropped = append(dropped, pc.c)
+		} else {
+			kept = append(kept, pc)
+		}
+	}
+	cs.items = kept
+	for _, c := range dropped {
+		_ = c.Close()
+	}
+	return len(dropped)
+}
+
+func listenUnix(path string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	_ = os.Remove(path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	_ = os.Chmod(path, 0o600)
+	return ln, nil
+}
+
+func (s *server) serveLocal(ctx context.Context, ln net.Listener) {
+	for {
+		u, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		go func() {
+			_ = u.SetDeadline(time.Now().Add(5 * time.Second))
+			var hdr [2]byte
+			if _, err := io.ReadFull(u, hdr[:]); err != nil {
+				u.Close()
+				return
+			}
+			_ = u.SetDeadline(time.Time{})
+			target := int(binary.BigEndian.Uint16(hdr[:]))
+			st, err := s.stream(ctx, kindTCP, target)
+			if err != nil {
+				u.Close()
+				return
+			}
+			s.carry(func() { pipe(u, st, &s.st.Down, &s.st.Up) })
+		}()
+	}
+}
+
+// serveProbe answers active echo/RTT probes on ProbeSocket by opening a real
+// kindEcho stream to the peer, sending 16 random bytes, and timing the echo.
+func (s *server) serveProbe(ctx context.Context, ln net.Listener) {
+	for {
+		u, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		go func() {
+			defer u.Close()
+			_ = u.SetDeadline(time.Now().Add(4 * time.Second))
+			pctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			t0 := time.Now()
+			st, err := s.stream(pctx, kindEcho, 0)
+			if err != nil {
+				_ = json.NewEncoder(u).Encode(map[string]any{"ok": false, "error": err.Error()})
+				return
+			}
+			var msg, reply [16]byte
+			_, _ = rand.Read(msg[:])
+			_ = st.SetDeadline(time.Now().Add(2500 * time.Millisecond))
+			_, werr := st.Write(msg[:])
+			_, rerr := io.ReadFull(st, reply[:])
+			_ = st.Close()
+			if werr != nil || rerr != nil || !bytes.Equal(msg[:], reply[:]) {
+				_ = json.NewEncoder(u).Encode(map[string]any{"ok": false})
+				return
+			}
+			rtt := float64(time.Since(t0).Microseconds()) / 1000.0
+			if rtt <= 0 {
+				rtt = 0.1
+			}
+			s.st.Down.Add(16)
+			s.st.Up.Add(16)
+			_ = json.NewEncoder(u).Encode(map[string]any{"ok": true, "rtt_ms": rtt})
+		}()
+	}
 }

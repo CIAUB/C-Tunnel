@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ctunnel/pkg/catalog"
@@ -40,16 +41,41 @@ func (s *Server) background(ctx context.Context) {
 	t := time.NewTicker(telemetryEvery)
 	defer t.Stop()
 	lastCheckpoint := time.Now()
+	var pingRunning sync.Map
+	samplePings := func(tunnels []catalog.TunnelConfig, statuses []tunnel.Status) {
+		for i, tc := range tunnels {
+			if i >= len(statuses) || statuses[i].Service != "active" {
+				continue
+			}
+			tc := tc
+			if _, loaded := pingRunning.LoadOrStore(tc.Name, true); loaded {
+				continue
+			}
+			go func() {
+				defer pingRunning.Delete(tc.Name)
+				pr := tunnel.MeasurePing(tc)
+				s.setPingResult(tc.Name, pr)
+			}()
+		}
+	}
+	if st, err := s.store(); err == nil {
+		samplePings(st.Tunnels, tunnel.GetStatuses(st.Tunnels))
+	}
+	tick := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-t.C:
+			tick++
 			st, err := s.store()
 			if err != nil {
 				continue
 			}
 			statuses := tunnel.GetStatuses(st.Tunnels)
+			if tick%2 == 1 {
+				samplePings(st.Tunnels, statuses)
+			}
 			views := make([]tunnelView, len(st.Tunnels))
 			for i, tc := range st.Tunnels {
 				views[i] = tunnelView{TunnelConfig: tc, Status: statuses[i]}
@@ -76,7 +102,10 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c, err := s.session(r)
-	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": err == nil && s.validSession(c.Value, st.PanelCode)})
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"authenticated": err == nil && s.validSession(c.Value, st.PanelCode),
+		"totp_enabled":  s.config().TOTPEnabled,
+	})
 }
 
 // findTunnel loads the store and the named tunnel, writing the error response itself.

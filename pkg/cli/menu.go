@@ -15,6 +15,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/conntest"
+	"ctunnel/pkg/hostip"
 	"ctunnel/pkg/localproxy"
 	"ctunnel/pkg/schedule"
 	"ctunnel/pkg/speedtest"
@@ -128,7 +129,7 @@ var methodMenu = []methodFamily{
 			{"Stealth", "TCP look, ping", []string{"faketcp", "icmp"}},
 		}},
 	{catalog.FamilyReverseL4, "Layer 4",
-		"",
+		"high-speed zero-copy splice over tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux (Iran dials Kharej)",
 		"port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux; no tunnel IP",
 		[]methodGroup{
 			{"TCP", "tcp, tcpmux, pck", []string{"tcp", "tcpmux", "pck"}},
@@ -139,6 +140,9 @@ var methodMenu = []methodFamily{
 
 // methodOpt is how a method is listed in the given mode.
 func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
+	if m.L4() && !reverse {
+		return MenuOpt{Title: "direct+" + m.Name, Desc: "Direct L4 " + m.Title + " (Iran dials Kharej, zero-copy splice)"}
+	}
 	if !reverse || m.L4() {
 		return MenuOpt{Title: m.Name, Desc: m.Title}
 	}
@@ -252,27 +256,39 @@ func setupWizard(role string) {
 	modeLabel := m.Name
 	if rev {
 		modeLabel += " (Reverse)"
+	} else if m.L4() {
+		modeLabel = "direct+" + m.Name + " (Direct L4)"
 	}
 	Title("Setup " + role + " — " + modeLabel)
 
-	tc := catalog.TunnelConfig{Role: role, Method: m.Name, Reverse: rev, Index: tunnel.NextIndex(st.Tunnels)}
+	tc := catalog.TunnelConfig{
+		Role:     role,
+		Method:   m.Name,
+		Reverse:  rev,
+		DirectL4: m.L4() && !rev,
+		Index:    tunnel.NextIndex(st.Tunnels),
+	}
+	if !rev && !m.L4() && !m.Crypt() && m.Name != "wireguard" && !m.IPv6Underlay {
+		tc.Carrier = Confirm("Use 8-Stream BBR TCP Turbo Carrier (matches Reverse frp+ speed)?", false)
+	}
 	if m.IPv6Underlay {
-		tc.LocalIP = Ask("This server IPv6", detectIP("udp6", "[2001:4860:4860::8888]:80"))
+		tc.LocalIP = Ask("This server IPv6", publicIP(true))
 		remPrompt := "Remote server IPv6"
 		if tc.Reverse && role == "iran" {
 			remPrompt = "Remote server IPv6 (optional in reverse mode, Enter = dynamic)"
 		}
 		tc.RemoteIP = Ask(remPrompt, "")
 	} else {
-		tc.LocalIP = Ask("This server IP", detectIP("udp4", "8.8.8.8:80"))
+		tc.LocalIP = Ask("This server IP", bindIP())
 		remPrompt := "Remote server IP"
 		if tc.Reverse && role == "iran" {
 			remPrompt = "Remote server IP (optional in reverse mode, Enter = Kharej dials in)"
+		} else if (tc.DirectL4 || tc.Carrier) && role == "kharej" {
+			remPrompt = "Iran server IP (optional, Enter = Iran dials in)"
 		} else if role == "kharej" {
 			remPrompt = "Iran server IP"
 		}
-		// A layer-4 Iran end never uses the Kharej address.
-		if !(m.L4() && role == "iran") {
+		if !(m.L4() && tc.Reverse && role == "iran") && !(m.L4() && tc.DirectL4 && role == "kharej") {
 			tc.RemoteIP = Ask(remPrompt, "")
 		}
 	}
@@ -325,9 +341,13 @@ func setupWizard(role string) {
 		if m.Name == "udp" || m.Name == "udpmux" {
 			proto = "UDP"
 		}
-		tc.Port = askInt("Tunnel port ("+proto+"; Kharej dials it)", probe.Port)
-	case tc.Reverse && !m.NeedsPort:
-		tc.Port = askInt("Reverse carrier TCP port (Iran listens, Kharej dials)", probe.Port)
+		if tc.DirectL4 {
+			tc.Port = askInt("Tunnel port ("+proto+"; Iran dials Kharej)", probe.Port)
+		} else {
+			tc.Port = askInt("Tunnel port ("+proto+"; Kharej dials it)", probe.Port)
+		}
+	case (tc.Reverse || tc.Carrier) && !m.NeedsPort:
+		tc.Port = askInt("Carrier TCP port (8-stream BBR TCP)", probe.Port)
 	case m.NeedsPort:
 		tc.Port = askInt("Tunnel port", probe.Port)
 	case m.SupportsFOU:
@@ -491,7 +511,20 @@ func printStatusTable(st *catalog.Store) {
 }
 
 func methodLabel(t catalog.TunnelConfig) string {
-	if !t.Reverse || catalog.IsL4(t.Method) {
+	return healthMethodLabel(t)
+}
+
+func healthMethodLabel(t catalog.TunnelConfig) string {
+	if catalog.IsL4(t.Method) {
+		if t.DirectL4 {
+			return "direct+" + t.Method
+		}
+		return t.Method
+	}
+	if t.Carrier && !t.Reverse {
+		return "turbo+" + t.Method
+	}
+	if !t.Reverse {
 		return t.Method
 	}
 	if m, ok := catalog.LookupMethod(t.Method); ok && !m.Crypt() && m.Name != "wireguard" {
@@ -520,7 +553,7 @@ func ConnectionTestScreen() {
 func connTestIran() {
 	Header()
 	Title("Connection Test — Iran")
-	host := Ask("This server's public IP", detectIP("udp4", "8.8.8.8:80"))
+	host := Ask("This server's public IP", publicIP(false))
 	udpPort, tcpPort, l4Port := conntest.Ports()
 	link := conntest.Link{Host: host, UDPPort: udpPort, TCPPort: tcpPort, TokenHex: conntest.NewToken(), L4Port: l4Port}
 
@@ -604,20 +637,136 @@ func connTestKharej(raw string) {
 	switch ChooseOpt("Test which methods", []MenuOpt{
 		{"All", "every method, about 5-8 minutes"},
 		{"New in 2.0", strings.Join(conntest.NewMethods, ", ")},
-		{"Choose", "type method names"},
+		{"Select", "choose methods interactively or by group"},
 	}) {
 	case 0:
 		return
 	case 2:
 		only = conntest.NewMethods
 	case 3:
-		only = SplitMethods(Ask("Methods, comma separated", "udp,udpmux"))
+		var ok bool
+		only, ok = selectTestMethods()
+		if !ok || len(only) == 0 {
+			return
+		}
 	}
 	Header()
 	if err := RunConnTest(raw, only); err != nil {
 		Err(err.Error())
 	}
 	Pause()
+}
+
+// selectTestMethods presents an interactive multi-select menu so the user can
+// toggle individual methods, select whole families, or enter comma-separated names.
+func selectTestMethods() ([]string, bool) {
+	selected := map[string]bool{}
+	var all []catalog.MethodSpec
+	for _, m := range catalog.Methods {
+		if !m.IPv6Underlay {
+			all = append(all, m)
+		}
+	}
+	for {
+		Header()
+		Title("Select Methods To Test")
+		Subtle("Enter numbers to toggle (e.g. 1,3,5), F1-F5 for a whole family, A=all, N=none, or type method names.")
+		Subtle("Press Enter when ready to start the test (0 = cancel).\n")
+
+		families := []struct {
+			code string
+			fam  catalog.Family
+			name string
+		}{
+			{"F1", catalog.FamilyReverseL4, "Layer-4 (tcp, tcpmux, pck, ws, wss, udp, udpmux)"},
+			{"F2", catalog.FamilyUDPCrypt, "UDP-Crypt (dtls-1.3, quic-v1, stun-turn, gtp-u, esp-udp, rudp-fec...)"},
+			{"F3", catalog.FamilyStealth, "Stealth (faketcp, icmp)"},
+			{"F4", catalog.FamilyKernelL3, "L3 Kernel (gre, ipip, 6to4, wireguard, bareudp...)"},
+			{"F5", catalog.FamilyKernelL2, "L2 Kernel (vxlan, geneve, eoip, gretap, l2tpv3...)"},
+		}
+		for _, fg := range families {
+			fmt.Printf("  %s[%s]%s %s\n", Bold+Red, fg.code, Reset, fg.name)
+		}
+		fmt.Println()
+		for i, m := range all {
+			mark := Gray + "[ ]" + Reset
+			if selected[m.Name] {
+				mark = Bold + White + "[✓]" + Reset
+			}
+			fmt.Printf("  %s %2d) %-13s %s(%s)%s", mark, i+1, m.Name, Gray, m.Family, Reset)
+			if i%2 == 1 || i == len(all)-1 {
+				fmt.Println()
+			} else {
+				fmt.Print("   ")
+			}
+		}
+		var picked []string
+		for _, m := range all {
+			if selected[m.Name] {
+				picked = append(picked, m.Name)
+			}
+		}
+		fmt.Println()
+		if len(picked) > 0 {
+			Ok(fmt.Sprintf("Selected (%d): %s", len(picked), strings.Join(picked, ", ")))
+		} else {
+			Subtle("No methods selected yet.")
+		}
+		in := strings.TrimSpace(Ask("Toggle [1-"+strconv.Itoa(len(all))+", F1-F5, A, N] or Enter to run", ""))
+		if in == "0" {
+			return nil, false
+		}
+		if in == "" {
+			if len(picked) == 0 {
+				Warn("Select at least one method first.")
+				Pause()
+				continue
+			}
+			return picked, true
+		}
+		for _, tok := range SplitMethods(in) {
+			u := strings.ToUpper(tok)
+			switch u {
+			case "A", "ALL":
+				for _, m := range all {
+					selected[m.Name] = true
+				}
+				continue
+			case "N", "NONE", "CLEAR":
+				selected = map[string]bool{}
+				continue
+			}
+			matchedFam := false
+			for _, fg := range families {
+				if u == fg.code {
+					matchedFam = true
+					anyOff := false
+					for _, m := range all {
+						if m.Family == fg.fam && !selected[m.Name] {
+							anyOff = true
+							break
+						}
+					}
+					for _, m := range all {
+						if m.Family == fg.fam {
+							selected[m.Name] = anyOff
+						}
+					}
+				}
+			}
+			if matchedFam {
+				continue
+			}
+			if idx, err := strconv.Atoi(tok); err == nil && idx >= 1 && idx <= len(all) {
+				name := all[idx-1].Name
+				selected[name] = !selected[name]
+				continue
+			}
+			if m, ok := catalog.LookupMethod(tok); ok && !m.IPv6Underlay {
+				selected[m.Name] = !selected[m.Name]
+			}
+		}
+	}
 }
 
 func speedTestScreen() {
@@ -909,6 +1058,28 @@ func detectIP(network, probe string) string {
 		return a.IP.String()
 	}
 	return ""
+}
+
+func publicIP(v6 bool) string {
+	Info("Finding This Server's Public IP...")
+	if v6 {
+		if ip := hostip.Public6(); ip != "" {
+			return ip
+		}
+		return detectIP("udp6", "[2001:4860:4860::8888]:80")
+	}
+	if ip := hostip.Public4(); ip != "" {
+		return ip
+	}
+	return hostip.Local4()
+}
+
+func bindIP() string {
+	Info("Finding This Server's Public IP...")
+	if ip := hostip.Bind4(); ip != "" {
+		return ip
+	}
+	return detectIP("udp4", "8.8.8.8:80")
 }
 
 // StatusTable prints the tunnel table for `ctunnel status`.

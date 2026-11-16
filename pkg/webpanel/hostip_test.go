@@ -6,14 +6,9 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
-	"time"
-)
 
-func resetIPCache() {
-	ipCache.Lock()
-	ipCache.ip, ipCache.expires, ipCache.retry = "", time.Time{}, time.Time{}
-	ipCache.Unlock()
-}
+	"ctunnel/pkg/hostip"
+)
 
 func answer(body string, hits *atomic.Int32) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -26,10 +21,10 @@ func answer(body string, hits *atomic.Int32) *httptest.Server {
 
 func withServices(t *testing.T, urls ...string) {
 	t.Helper()
-	old := ipServices
-	ipServices = urls
-	resetIPCache()
-	t.Cleanup(func() { ipServices = old; resetIPCache() })
+	old := hostip.Services4
+	hostip.Services4 = urls
+	hostip.ResetCache()
+	t.Cleanup(func() { hostip.Services4 = old; hostip.ResetCache() })
 }
 
 func TestDetectHostIPFallsBackPastBadAnswers(t *testing.T) {

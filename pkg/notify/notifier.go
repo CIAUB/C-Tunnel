@@ -7,48 +7,51 @@ import (
 	"html"
 	"log"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/tgrelay"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
 )
 
 const (
-	tick = 5 * time.Second
-	// downAfter without traffic makes a tunnel down, as for failover.
-	downAfter = 45 * time.Second
-	// pollWait is how long one getUpdates call waits for a message.
-	pollWait = 25 * time.Second
-	// conflictWait is the pause after Telegram says another server reads
-	// this bot's updates.
+	tick         = 5 * time.Second
+	downAfter    = 45 * time.Second
+	pollWait     = 25 * time.Second
 	conflictWait = 5 * time.Minute
 )
 
-// Notifier is the alerting side of the agent. Its hooks are replaced in tests.
+// Notifier is the alerting and bot-admin side of the agent. Its hooks are replaced in tests.
 type Notifier struct {
 	StoreDir string
 	Now      func() time.Time
 	Alive    func(tc catalog.TunnelConfig) bool
-	Enabled  func(tc catalog.TunnelConfig) bool
-	OnBackup func(name string) bool
-	Traffic  func(name string) (rx, tx uint64)
-	Host     string
-	BootID   func() string
+	// Probe sends a real active test payload through tc before declaring an
+	// idle tunnel disconnected. When nil, Alive is called a second time.
+	Probe         func(tc catalog.TunnelConfig) bool
+	Enabled       func(tc catalog.TunnelConfig) bool
+	OnBackup      func(name string) bool
+	Traffic       func(name string) (rx, tx uint64)
+	RestartTunnel func(tc catalog.TunnelConfig) error
+	StartTunnel   func(tc catalog.TunnelConfig) error
+	StopTunnel    func(tc catalog.TunnelConfig) error
+	Logs          func(tc catalog.TunnelConfig, n int) string
+	Since         func(tc catalog.TunnelConfig) string
+	Host          string
+	BootID        func() string
 
-	mu      sync.Mutex
-	stateMu sync.Mutex // the state file, written by the checks and by /report
-	cfg     Config
-	cfgTime time.Time
-	bot     *Bot
-	status  Status
-	watch   map[string]*tunnelWatch
-	started bool
-	// lastDaily is kept here as well as in the state file, so a file that
-	// cannot be written does not repeat the report every few seconds.
+	mu        sync.Mutex
+	stateMu   sync.Mutex
+	cfg       Config
+	cfgTime   time.Time
+	bot       *Bot
+	cmdKey    string
+	status    Status
+	watch     map[string]*tunnelWatch
+	started   bool
 	lastDaily string
 	out       chan outMsg
 }
@@ -64,24 +67,29 @@ type outMsg struct {
 	rows [][]Button
 }
 
-// state is what the agent remembers across restarts.
 type state struct {
 	Version   string               `json:"version"`
 	BootID    string               `json:"boot_id"`
-	LastDaily string               `json:"last_daily"` // date of the last report, server time
+	LastDaily string               `json:"last_daily"`
 	Traffic   map[string][2]uint64 `json:"traffic"`
 }
 
 func New(storeDir string, alive func(catalog.TunnelConfig) bool, enabled func(catalog.TunnelConfig) bool) *Notifier {
 	host, _ := os.Hostname()
 	return &Notifier{
-		StoreDir: storeDir,
-		Now:      time.Now,
-		Alive:    alive,
-		Enabled:  enabled,
-		OnBackup: tunnel.OnBackup,
-		Traffic:  tunnel.TrafficTotal,
-		Host:     host,
+		StoreDir:      storeDir,
+		Now:           time.Now,
+		Alive:         alive,
+		Probe:         tunnel.ProbeAlive,
+		Enabled:       enabled,
+		OnBackup:      tunnel.OnBackup,
+		Traffic:       tunnel.TrafficTotal,
+		RestartTunnel: tunnel.Apply,
+		StartTunnel:   tunnel.Apply,
+		StopTunnel:    tunnel.Stop,
+		Logs:          tunnel.Logs,
+		Since:         tunnel.Since,
+		Host:          host,
 		BootID: func() string {
 			b, _ := os.ReadFile("/proc/sys/kernel/random/boot_id")
 			return strings.TrimSpace(string(b))
@@ -110,12 +118,8 @@ func (n *Notifier) Run(ctx context.Context) {
 // Step reloads the settings and does one round of checks.
 func (n *Notifier) Step() {
 	n.reload()
-	cfg, st, iran := n.current()
-	switch {
-	case iran:
-		n.setState("iran")
-		return
-	case !cfg.Configured():
+	cfg, st, _ := n.current()
+	if !cfg.Configured() {
 		n.setState("off")
 		return
 	}
@@ -147,12 +151,12 @@ func (n *Notifier) reload() {
 		n.cfgTime = fi.ModTime()
 	}
 	if cfg.Token != n.cfg.Token || n.bot == nil {
-		n.bot = NewBot(cfg.Token)
+		dir := n.StoreDir
+		n.bot = NewBot(cfg.Token).Via(func() []tgrelay.Route { return RelayRoutes(dir) })
 	}
 	n.cfg = cfg
 }
 
-// current is the settings, the tunnels, and whether this is an Iran server.
 func (n *Notifier) current() (Config, *catalog.Store, bool) {
 	n.mu.Lock()
 	cfg := n.cfg
@@ -164,8 +168,7 @@ func (n *Notifier) current() (Config, *catalog.Store, bool) {
 	return cfg, st, IranServer(st)
 }
 
-// IranServer reports whether this server is the Iran end of a tunnel; it then
-// sends no alerts, since Telegram is filtered there.
+// IranServer reports whether this server has any Iran-role tunnel.
 func IranServer(st *catalog.Store) bool {
 	for _, tc := range st.Tunnels {
 		if tc.Role == "iran" {
@@ -193,7 +196,6 @@ func (n *Notifier) writeStatus() {
 	_ = writeJSON(StatusPath, s, 0o644)
 }
 
-// send queues a message; a full queue drops it rather than block the checks.
 func (n *Notifier) send(text string, rows [][]Button) {
 	select {
 	case n.out <- outMsg{text, rows}:
@@ -202,8 +204,6 @@ func (n *Notifier) send(text string, rows [][]Button) {
 	}
 }
 
-// sender delivers queued messages, retrying a few times while Telegram is
-// unreachable.
 func (n *Notifier) sender(ctx context.Context) {
 	for {
 		var m outMsg
@@ -245,31 +245,31 @@ func (n *Notifier) sender(ctx context.Context) {
 	}
 }
 
-// ─── events ────────────────────────────────────────────────────────────────
-
 func (n *Notifier) announceStart(cfg Config) {
 	n.stateMu.Lock()
 	defer n.stateMu.Unlock()
 	prev := n.loadState()
 	cur := n.BootID()
-	why := "the service restarted"
+	lang := n.lang()
+	why := tr(lang, "why.svc")
 	switch {
 	case prev.Version != "" && prev.Version != version.Version:
-		why = "updated from " + prev.Version + " to " + version.Version
+		why = tr(lang, "why.upd", esc(prev.Version), esc(version.Version))
 	case prev.BootID != "" && prev.BootID != cur:
-		why = "the server rebooted"
+		why = tr(lang, "why.boot")
 	case prev.Version == "":
-		why = "alerts are on"
+		why = tr(lang, "why.on")
 	}
 	prev.Version, prev.BootID = version.Version, cur
 	n.saveState(prev)
 	if cfg.Restart {
-		n.send(fmt.Sprintf("🔄 <b>%s</b> is up: %s.\nC-Tunnel %s", esc(n.Host), esc(why), esc(version.Version)), nil)
+		n.send(tr(lang, "up", esc(n.Host), why, esc(version.Version)), nil)
 	}
 }
 
 func (n *Notifier) checkTunnels(st *catalog.Store) {
 	now := n.Now()
+	lang := n.lang()
 	seen := map[string]bool{}
 	for _, tc := range st.Tunnels {
 		seen[tc.Name] = true
@@ -279,21 +279,27 @@ func (n *Notifier) checkTunnels(st *catalog.Store) {
 			n.watch[tc.Name] = w
 		}
 		if !n.Enabled(tc) {
-			w.lastOK, w.reported = now, false // stopped on purpose
+			w.lastOK, w.reported = now, false
 			continue
 		}
 		if n.Alive(tc) {
 			if w.reported {
-				n.send(fmt.Sprintf("🟢 <b>%s</b> is back up after %s. (%s)", esc(tc.Name), human(now.Sub(w.downSince)), esc(n.method(tc))), nil)
+				n.send(tr(lang, "back", esc(tc.Name), humanIn(lang, now.Sub(w.downSince)), esc(n.method(tc))), nil)
 			}
 			w.lastOK, w.reported = now, false
 			continue
 		}
 		if !w.reported && now.Sub(w.lastOK) >= downAfter {
+			// Active Data Probe: before claiming the tunnel is down, send a real test
+			// payload through the tunnel to make sure it is not just idle.
+			if (n.Probe != nil && n.Probe(tc)) || n.Alive(tc) {
+				w.lastOK, w.reported = now, false
+				continue
+			}
 			w.reported, w.downSince = true, w.lastOK
-			msg := fmt.Sprintf("🔴 <b>%s</b> is down: nothing through it for %s. (%s on %s)", esc(tc.Name), human(now.Sub(w.lastOK)), esc(n.method(tc)), esc(n.Host))
+			msg := tr(lang, "down", esc(tc.Name), humanIn(lang, now.Sub(w.lastOK)), esc(n.method(tc)), esc(n.Host))
 			if tc.BackupMethod != "" {
-				msg += "\nFailover moves it to " + esc(tc.BackupMethod) + " if it stays down."
+				msg += tr(lang, "down.fo", esc(tc.BackupMethod))
 			}
 			n.send(msg, nil)
 		}
@@ -313,14 +319,12 @@ func (n *Notifier) Failover(tc catalog.TunnelConfig, backup bool, why string) {
 	if !cfg.Configured() || !cfg.Failover {
 		return
 	}
-	if st, err := catalog.LoadStore(n.StoreDir); err == nil && IranServer(st) {
-		return
-	}
+	lang := n.lang()
 	to, icon := tc.Method, "↩️"
 	if backup {
 		to, icon = tc.BackupMethod, "🔀"
 	}
-	n.send(fmt.Sprintf("%s <b>%s</b> switched to %s: %s.", icon, esc(tc.Name), esc(to), esc(why)), nil)
+	n.send(tr(lang, "switched", icon, esc(tc.Name), esc(to), esc(whyIn(lang, why))), nil)
 }
 
 func (n *Notifier) checkDaily(cfg Config, st *catalog.Store) {
@@ -346,42 +350,54 @@ func (n *Notifier) checkDaily(cfg Config, st *catalog.Store) {
 	n.send(text, nil)
 }
 
-// report describes every tunnel, with the traffic since the last report.
 func (n *Notifier) report(st *catalog.Store, s *state) string {
+	lang := n.lang()
 	var b strings.Builder
-	fmt.Fprintf(&b, "📊 <b>%s</b>, %s\n", esc(n.Host), n.Now().Format("2006-01-02 15:04"))
-	if len(st.Tunnels) == 0 {
-		b.WriteString("No tunnels.")
+	b.WriteString(tr(lang, "report.head", esc(n.Host), n.Now().Format("2006-01-02 15:04")) + "\n")
+	b.WriteString(tr(lang, "rule") + "\n")
+	tcs := sorted(st.Tunnels)
+	if len(tcs) == 0 {
+		b.WriteString(tr(lang, "noTunnels"))
 		return b.String()
 	}
-	tcs := append([]catalog.TunnelConfig(nil), st.Tunnels...)
-	sort.Slice(tcs, func(i, j int) bool { return tcs[i].Name < tcs[j].Name })
+	b.WriteString("<pre>")
 	next := map[string][2]uint64{}
+	var allRx, allTx uint64
 	for _, tc := range tcs {
 		rx, tx := n.Traffic(tc.Name)
 		next[tc.Name] = [2]uint64{rx, tx}
-		icon := "🟢"
-		switch {
-		case !n.Enabled(tc):
-			icon = "⏸"
-		case !n.Alive(tc):
-			icon = "🔴"
-		}
-		fmt.Fprintf(&b, "\n%s <b>%s</b> · %s\n", icon, esc(tc.Name), esc(n.method(tc)))
+		allRx += rx
+		allTx += tx
+		icon, _ := n.state("en", tc)
+		fmt.Fprintf(&b, "%s %s · %s\n", icon, esc(tc.Name), esc(n.method(tc)))
 		if old, ok := s.Traffic[tc.Name]; ok && rx >= old[0] && tx >= old[1] {
-			fmt.Fprintf(&b, "    since last report ↓ %s ↑ %s\n", bytesStr(rx-old[0]), bytesStr(tx-old[1]))
+			fmt.Fprintf(&b, "   Δ ↓ %-11s ↑ %s\n", bytesStr(rx-old[0]), bytesStr(tx-old[1]))
 		}
-		fmt.Fprintf(&b, "    total ↓ %s ↑ %s\n", bytesStr(rx), bytesStr(tx))
+		fmt.Fprintf(&b, "   Σ ↓ %-11s ↑ %s\n", bytesStr(rx), bytesStr(tx))
+	}
+	if len(tcs) > 1 {
+		fmt.Fprintf(&b, "%s\nALL Σ ↓ %-11s ↑ %s\n", strings.Repeat("─", 28), bytesStr(allRx), bytesStr(allTx))
 	}
 	s.Traffic = next
-	return strings.TrimRight(b.String(), "\n")
+	return strings.TrimRight(b.String(), "\n") + "</pre>\n" + tr(lang, "report.lgd")
 }
 
 func (n *Notifier) method(tc catalog.TunnelConfig) string {
 	if tc.BackupMethod != "" && n.OnBackup(tc.Name) {
-		return tc.BackupMethod + ", backup of " + tc.Method
+		return tr(n.lang(), "backupOf", tc.BackupMethod, tc.Method)
 	}
 	return tc.Method
+}
+
+func (n *Notifier) state(lang string, tc catalog.TunnelConfig) (icon, word string) {
+	switch {
+	case !n.Enabled(tc):
+		return "⏸", tr(lang, "st.stopped")
+	case n.Alive(tc) || (n.Probe != nil && n.Probe(tc)):
+		return "🟢", tr(lang, "st.up")
+	default:
+		return "🔴", tr(lang, "st.down")
+	}
 }
 
 func (n *Notifier) loadState() state {
@@ -394,18 +410,13 @@ func (n *Notifier) loadState() state {
 
 func (n *Notifier) saveState(s state) { _ = writeJSON(StatePath, s, 0o600) }
 
-// ─── bot commands ─────────────────────────────────────────────────────────
-
-// poller reads what is sent to the bot. Telegram lets one reader take a bot's
-// updates; a second server polling the same bot gets 409 and leaves the
-// buttons to the first.
 func (n *Notifier) poller(ctx context.Context) {
 	var offset int64
 	for ctx.Err() == nil {
 		n.mu.Lock()
-		bot, cfg, state := n.bot, n.cfg, n.status.State
+		bot, cfg, st := n.bot, n.cfg, n.status.State
 		n.mu.Unlock()
-		if bot == nil || cfg.Token == "" || state != "on" {
+		if bot == nil || cfg.Token == "" || st != "on" {
 			if !sleep(ctx, tick) {
 				return
 			}
@@ -420,7 +431,7 @@ func (n *Notifier) poller(ctx context.Context) {
 			buttons := err.Error()
 			if Conflict(err) {
 				wait = conflictWait
-				buttons = "another server reads this bot's messages; give each Kharej server its own bot for the buttons"
+				buttons = "another server reads this bot's messages; give each server its own bot for the buttons"
 			}
 			n.setButtons(buttons)
 			if !sleep(ctx, wait) {
@@ -429,6 +440,7 @@ func (n *Notifier) poller(ctx context.Context) {
 			continue
 		}
 		n.setButtons("ok")
+		n.setCommands(ctx, bot)
 		for _, u := range ups {
 			offset = u.UpdateID + 1
 			n.Handle(ctx, bot, u)
@@ -446,125 +458,6 @@ func (n *Notifier) setButtons(s string) {
 	}
 }
 
-var toggles = []struct{ key, label string }{
-	{"down", "Tunnel down / up"},
-	{"failover", "Failover switch"},
-	{"restart", "Restart and update"},
-	{"daily", "Daily report"},
-}
-
-func toggleOf(c *Config, key string) *bool {
-	switch key {
-	case "down":
-		return &c.Down
-	case "failover":
-		return &c.Failover
-	case "restart":
-		return &c.Restart
-	case "daily":
-		return &c.Daily
-	}
-	return nil
-}
-
-func settingsRows(c Config) [][]Button {
-	var rows [][]Button
-	for _, t := range toggles {
-		mark := "⬜"
-		if *toggleOf(&c, t.key) {
-			mark = "✅"
-		}
-		rows = append(rows, []Button{{Text: mark + " " + t.label, Data: "t:" + t.key}})
-	}
-	return rows
-}
-
-// Handle answers one update. Only the configured chat gets answers beyond its
-// own chat ID: anyone can find a bot and write to it.
-func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
-	n.mu.Lock()
-	cfg := n.cfg
-	n.mu.Unlock()
-	if c := u.Callback; c != nil {
-		if c.Message == nil || fmt.Sprint(c.Message.Chat.ID) != cfg.ChatID {
-			_ = bot.Answer(ctx, c.ID, "Not allowed")
-			return
-		}
-		key := strings.TrimPrefix(c.Data, "t:")
-		p := toggleOf(&cfg, key)
-		if p == nil {
-			_ = bot.Answer(ctx, c.ID, "")
-			return
-		}
-		*p = !*p
-		if err := SaveConfig(cfg); err != nil {
-			_ = bot.Answer(ctx, c.ID, "Could not save: "+err.Error())
-			return
-		}
-		n.mu.Lock()
-		n.cfg = cfg
-		n.mu.Unlock()
-		_ = bot.Edit(ctx, cfg.ChatID, c.Message.MessageID, n.settingsText(), settingsRows(cfg))
-		_ = bot.Answer(ctx, c.ID, "Saved")
-		return
-	}
-	m := u.Message
-	if m == nil {
-		return
-	}
-	chat := fmt.Sprint(m.Chat.ID)
-	cmd, _, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
-	cmd, _, _ = strings.Cut(cmd, "@") // /status@SomeBot in groups
-	if chat != cfg.ChatID {
-		if cmd == "/start" || cmd == "/help" {
-			_, _ = bot.Send(ctx, chat, fmt.Sprintf("This chat's ID is <code>%s</code>. To get C-Tunnel alerts here, enter it in the panel of the Kharej server: Manage → Telegram alerts.", esc(chat)), nil)
-		}
-		return
-	}
-	switch cmd {
-	case "/start", "/help":
-		_, _ = bot.Send(ctx, chat, fmt.Sprintf("C-Tunnel alerts from <b>%s</b>.\n/status: tunnels now\n/report: the daily report now\n/settings: which alerts to send", esc(n.Host)), nil)
-	case "/status":
-		_, st, _ := n.current()
-		_, _ = bot.Send(ctx, chat, n.statusText(st), nil)
-	case "/report":
-		_, st, _ := n.current()
-		n.stateMu.Lock()
-		s := n.loadState()
-		text := n.report(st, &s)
-		n.saveState(s)
-		n.stateMu.Unlock()
-		_, _ = bot.Send(ctx, chat, text, nil)
-	case "/settings":
-		_, _ = bot.Send(ctx, chat, n.settingsText(), settingsRows(cfg))
-	}
-}
-
-func (n *Notifier) settingsText() string {
-	return fmt.Sprintf("⚙️ Alerts from <b>%s</b>. Tap to turn one on or off.", esc(n.Host))
-}
-
-func (n *Notifier) statusText(st *catalog.Store) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "<b>%s</b> · C-Tunnel %s", esc(n.Host), esc(version.Version))
-	if len(st.Tunnels) == 0 {
-		b.WriteString("\nNo tunnels.")
-	}
-	for _, tc := range st.Tunnels {
-		icon := "🟢"
-		switch {
-		case !n.Enabled(tc):
-			icon = "⏸"
-		case !n.Alive(tc):
-			icon = "🔴"
-		}
-		fmt.Fprintf(&b, "\n%s <b>%s</b> · %s", icon, esc(tc.Name), esc(n.method(tc)))
-	}
-	return b.String()
-}
-
-// ─── helpers ──────────────────────────────────────────────────────────────
-
 func esc(s string) string { return html.EscapeString(s) }
 
 func firstLine(s string) string {
@@ -579,17 +472,6 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	case <-time.After(d):
 		return true
 	}
-}
-
-func human(d time.Duration) string {
-	d = d.Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%d s", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%d min", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 func bytesStr(n uint64) string {

@@ -106,8 +106,8 @@ func NextIndex(existing []catalog.TunnelConfig) int {
 // (a second tunnel cannot share it).
 func exclusivePort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
 	// VXLAN/GENEVE demultiplex by VNI, so several tunnels may share 4789/6081.
-	// FOU, WireGuard, UDP-Crypt, Stealth, L2TPv3 and reverse carriers bind a unique socket.
-	return tc.Port > 0 && (tc.Reverse || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
+	// FOU, WireGuard, UDP-Crypt, Stealth, L2TPv3 and reverse/direct carriers bind a unique socket.
+	return tc.Port > 0 && (tc.Reverse || tc.Carrier || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
 }
 
 // Normalize validates tc, fills defaults and allocates the subnet, ports and keys that
@@ -134,7 +134,19 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		return err
 	}
 	if m.L4() {
-		tc.Reverse = true // Kharej always dials Iran
+		if tc.DirectL4 {
+			tc.Reverse = false
+		} else {
+			tc.Reverse = true // Kharej dials Iran unless DirectL4 is explicitly set
+		}
+	} else {
+		tc.DirectL4 = false
+	}
+	if tc.Reverse {
+		tc.Carrier = false
+	}
+	if tc.Carrier && (m.Crypt() || m.Name == "wireguard" || m.L4() || m.IPv6Underlay) {
+		tc.Carrier = false
 	}
 	if tc.Reverse && m.IPv6Underlay {
 		return fmt.Errorf("%s needs an IPv6 path; REVERSE mode works with the IPv4 methods (gre, ipip, vxlan, UDP-Crypt...)", m.Name)
@@ -145,6 +157,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		} else {
 			tc.RemoteIP = "0.0.0.0"
 		}
+	}
+	if (tc.DirectL4 || tc.Carrier) && tc.Role == "kharej" && strings.TrimSpace(tc.RemoteIP) == "" {
+		tc.RemoteIP = "0.0.0.0"
 	}
 	if err := checkIP("remote server IP", tc.RemoteIP, m.IPv6Underlay); err != nil {
 		return err
@@ -188,11 +203,11 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		tc.CarrierLocal6, tc.CarrierRemote6 = "", ""
 	}
 
-	if (!tc.Reverse && !m.NeedsPort && !m.SupportsFOU) || m.Name == "icmp" {
+	if (!tc.Reverse && !tc.Carrier && !m.NeedsPort && !m.SupportsFOU) || m.Name == "icmp" {
 		tc.Port = 0 // icmp has no port in either mode: echo carries an identifier instead
 	}
-	if (tc.Reverse || m.NeedsPort) && tc.Port == 0 && m.Name != "icmp" {
-		if tc.Reverse && !m.NeedsPort {
+	if (tc.Reverse || tc.Carrier || m.NeedsPort) && tc.Port == 0 && m.Name != "icmp" {
+		if (tc.Reverse || tc.Carrier) && !m.NeedsPort {
 			tc.Port = baseUDPPort + tc.Index
 		} else if p := wellKnownPort(m.Name); p > 0 && !portTaken(p, others) {
 			tc.Port = p

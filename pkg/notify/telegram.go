@@ -1,8 +1,6 @@
-// Package notify sends C-Tunnel's alerts to Telegram from a Kharej server:
-// tunnels going down and coming back, failover switches, the service starting
-// after a reboot or an update, and a daily report. The bot also answers
-// /status, /report and /settings, whose buttons turn each kind of alert on or
-// off. Iran servers send nothing: Telegram is filtered there.
+// Package notify sends C-Tunnel's alerts to Telegram and serves the interactive
+// Telegram admin bot on both Kharej and Iran servers (Iran servers talk to
+// Telegram through their tunnels via pkg/tgrelay).
 package notify
 
 import (
@@ -29,8 +27,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("telegram: %d %s", e.Code, e.Description)
 }
 
-// Conflict reports whether err means another process polls the same bot, or
-// the bot has a webhook: Telegram lets only one reader take its updates.
+// Conflict reports whether err means another process polls the same bot.
 func Conflict(err error) bool {
 	var ae *APIError
 	return errors.As(err, &ae) && ae.Code == http.StatusConflict
@@ -58,7 +55,6 @@ func (b *Bot) call(ctx context.Context, method string, params, out any) error {
 	req.Header.Set("Content-Type", "application/json")
 	res, err := b.hc.Do(req)
 	if err != nil {
-		// The URL holds the token; never let it reach a log or the panel.
 		var ue interface{ Unwrap() error }
 		if errors.As(err, &ue) && ue.Unwrap() != nil {
 			err = ue.Unwrap()
@@ -92,6 +88,12 @@ func (b *Bot) call(ctx context.Context, method string, params, out any) error {
 type Button struct {
 	Text string `json:"text"`
 	Data string `json:"callback_data"`
+}
+
+// BotCommand is one command registered with setMyCommands.
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
 }
 
 type keyboard struct {
@@ -137,7 +139,7 @@ func (b *Bot) Edit(ctx context.Context, chat string, id int, text string, rows [
 	err := b.call(ctx, "editMessageText", p, nil)
 	var ae *APIError
 	if errors.As(err, &ae) && ae.Code == http.StatusBadRequest {
-		return nil // "message is not modified": the same toggle pressed twice
+		return nil
 	}
 	return err
 }
@@ -154,4 +156,9 @@ func (b *Bot) Updates(ctx context.Context, offset int64, wait time.Duration) ([]
 		"offset": offset, "timeout": int(wait / time.Second), "allowed_updates": []string{"message", "callback_query"},
 	}, &out)
 	return out, err
+}
+
+// SetCommands registers the bot's command menu in Telegram.
+func (b *Bot) SetCommands(ctx context.Context, cmds []BotCommand) error {
+	return b.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
 }

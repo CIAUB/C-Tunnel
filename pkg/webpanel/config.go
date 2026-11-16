@@ -22,10 +22,26 @@ import (
 
 // PanelConfig contains no certificate contents or private key material.
 type PanelConfig struct {
-	BasePath string `json:"base_path"`
-	Domain   string `json:"domain"`
-	CertFile string `json:"cert_file"`
-	KeyFile  string `json:"key_file"`
+	BasePath       string `json:"base_path"`
+	Domain         string `json:"domain"`
+	CertFile       string `json:"cert_file"`
+	KeyFile        string `json:"key_file"`
+	TOTPEnabled    bool   `json:"totp_enabled,omitempty"`
+	TOTPSecret     string `json:"totp_secret,omitempty"`
+	AllowedIPs     string `json:"allowed_ips,omitempty"`
+	SessionMinutes int    `json:"session_minutes,omitempty"`
+}
+
+func (c PanelConfig) SafeView() PanelConfig {
+	c.TOTPSecret = ""
+	return c
+}
+
+func (c PanelConfig) sessionDuration() time.Duration {
+	if c.SessionMinutes >= 5 && c.SessionMinutes <= 43200 {
+		return time.Duration(c.SessionMinutes) * time.Minute
+	}
+	return 7 * 24 * time.Hour
 }
 
 var panelPathRE = regexp.MustCompile(`^/[A-Za-z0-9][A-Za-z0-9_-]{5,63}$`)
@@ -140,6 +156,17 @@ func validatePanelConfig(c PanelConfig) error {
 	if (c.CertFile == "") != (c.KeyFile == "") {
 		return errors.New("both certificate and private key are required")
 	}
+	if c.AllowedIPs != "" {
+		if _, _, err := parseAllowedIPs(c.AllowedIPs); err != nil {
+			return err
+		}
+	}
+	if c.SessionMinutes != 0 && (c.SessionMinutes < 5 || c.SessionMinutes > 43200) {
+		return errors.New("session timeout must be between 5 and 43200 minutes")
+	}
+	if c.TOTPEnabled && strings.TrimSpace(c.TOTPSecret) == "" {
+		return errors.New("TOTP 2FA requires a valid secret")
+	}
 	if c.CertFile != "" {
 		if !filepath.IsAbs(c.CertFile) || !filepath.IsAbs(c.KeyFile) {
 			return errors.New("certificate paths must be absolute")
@@ -244,14 +271,28 @@ func (s *Server) config() PanelConfig {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		writeJSON(w, 200, s.config())
+		c := s.config()
+		if r.URL.Query().Get("totp_setup") == "1" {
+			sec, err := GenerateTOTPSecret()
+			if err != nil {
+				writeError(w, 500, err)
+				return
+			}
+			writeJSON(w, 200, map[string]any{
+				"secret":      sec,
+				"otpauth_uri": OTPAuthURI(sec, "admin"),
+			})
+			return
+		}
+		writeJSON(w, 200, c.SafeView())
 		return
 	}
 	var req struct {
 		PanelConfig
-		TLSMode string `json:"tls_mode"`
-		CertPEM string `json:"cert_pem"`
-		KeyPEM  string `json:"key_pem"`
+		TLSMode  string `json:"tls_mode"`
+		CertPEM  string `json:"cert_pem"`
+		KeyPEM   string `json:"key_pem"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, 400, err)
@@ -267,6 +308,31 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}()
 	previous := s.panelConfig
 	c := req.PanelConfig
+	if c.AllowedIPs != "" {
+		_, norm, err := parseAllowedIPs(c.AllowedIPs)
+		if err != nil {
+			writeError(w, 400, err)
+			return
+		}
+		c.AllowedIPs = norm
+	}
+	if c.TOTPEnabled {
+		if strings.TrimSpace(c.TOTPSecret) == "" {
+			c.TOTPSecret = previous.TOTPSecret
+		}
+		if strings.TrimSpace(c.TOTPSecret) == "" {
+			writeError(w, 400, errors.New("generate a TOTP secret first"))
+			return
+		}
+		if !previous.TOTPEnabled || c.TOTPSecret != previous.TOTPSecret {
+			if !VerifyTOTP(c.TOTPSecret, req.TOTPCode, time.Now()) {
+				writeError(w, 400, errors.New("enter a valid 6-digit authenticator code to enable 2FA"))
+				return
+			}
+		}
+	} else {
+		c.TOTPSecret = ""
+	}
 	var staging string
 	if req.TLSMode == "http" {
 		c.CertFile, c.KeyFile = "", ""
@@ -352,7 +418,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.configMu.Unlock()
 	locked = false
-	writeJSON(w, 200, map[string]any{"ok": true, "url": configURL(c, host, port), "config": c})
+	writeJSON(w, 200, map[string]any{"ok": true, "url": configURL(c, host, port), "config": c.SafeView()})
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}

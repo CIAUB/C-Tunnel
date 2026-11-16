@@ -25,7 +25,7 @@ load_env() {
     source "${f}"
     : "${NAME:?}" "${DEV:?}" "${KIND:?}" "${ROLE:?}" "${LOCAL_IP:?}" "${REMOTE_IP:?}" "${MTU:?}"
     INDEX="${INDEX:-1}" PORT="${PORT:-0}" LANES="${LANES:-1}" GRE_KEY="${GRE_KEY:-0}" RATE_MBIT="${RATE_MBIT:-0}"
-    REVERSE="${REVERSE:-0}" FORWARDS="${FORWARDS:-}"
+    REVERSE="${REVERSE:-0}" CARRIER="${CARRIER:-0}" FORWARDS="${FORWARDS:-}"
 }
 
 # Wait for the xtables lock rather than losing rules during concurrent updates.
@@ -194,7 +194,7 @@ links_down() {
     local i
     ip link del "${DEV}" 2>/dev/null || true
     ip link del "${DEV}-r" 2>/dev/null || true
-    for ((i = 1; i < 8; i++)); do ip link del "${DEV}.${i}" 2>/dev/null || true; done
+    for ((i = 1; i <= 16; i++)); do ip link del "${DEV}.${i}" 2>/dev/null || true; done
     ip link del "${DEV}-6" 2>/dev/null || true
     if [[ "${PORT:-0}" -gt 0 ]] && uses_fou; then
         ip fou del port "${PORT}" 2>/dev/null || true
@@ -244,7 +244,7 @@ cmd_up() {
     links_down
     fw_clear
     modload ip_gre ip6_gre ipip sit ip6_tunnel tun
-    if [[ "${REVERSE}" == "1" ]]; then
+    if [[ "${REVERSE}" == "1" || "${CARRIER}" == "1" ]]; then
         case "${KIND}" in
             6to4|6to4-gre|sit|ipip|gue-ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|vxlan|geneve|l2tpv3|bareudp)
                 local rev_local="172.31.${INDEX}.1" rev_remote="172.31.${INDEX}.2"

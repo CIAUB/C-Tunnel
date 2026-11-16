@@ -10,12 +10,12 @@ import (
 )
 
 func TestPackL4RoundTrip(t *testing.T) {
-	v := packL4(l4Done, 9, 123.4, 812, 95)
-	state, rec, rtt, down, up := unpackL4(v)
-	if state != l4Done || rec != 9 || rtt != 123.4 || down != 812 || up != 95 {
-		t.Fatalf("got %d %d %v %v %v", state, rec, rtt, down, up)
+	v := packL4(l4Done, 9, 123.4, 4.2, 812, 95)
+	state, rec, rtt, jit, down, up := unpackL4(v)
+	if state != l4Done || rec != 9 || rtt != 123.4 || jit != 4.2 || down != 812 || up != 95 {
+		t.Fatalf("got %d %d %v %v %v %v", state, rec, rtt, jit, down, up)
 	}
-	if s, _, _, _, _ := unpackL4(packL4(l4Failed, 0, -1, 1e9, 0)); s != l4Failed {
+	if s, _, _, _, _, _ := unpackL4(packL4(l4Failed, 0, -1, -1, 1e9, 0)); s != l4Failed {
 		t.Fatal("state lost on out-of-range values")
 	}
 }

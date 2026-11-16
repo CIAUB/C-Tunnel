@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/conntest"
 	"ctunnel/pkg/sysinfo"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
@@ -135,6 +136,10 @@ func (s *Server) Handler() http.Handler {
 			return
 		}
 		c := s.config()
+		if !ipAllowed(c.AllowedIPs, clientIP(r)) {
+			http.NotFound(w, r)
+			return
+		}
 		if c.Domain != "" {
 			host := r.Host
 			if h, _, err := net.SplitHostPort(host); err == nil {
@@ -300,7 +305,8 @@ func (s *Server) session(r *http.Request) (*http.Cookie, error) {
 }
 
 func (s *Server) newSession(code string) string {
-	expiry := strconv.FormatInt(time.Now().Add(7*24*time.Hour).Unix(), 10)
+	dur := s.config().sessionDuration()
+	expiry := strconv.FormatInt(time.Now().Add(dur).Unix(), 10)
 	return expiry + "." + s.sign(code+"|"+expiry)
 }
 func (s *Server) validSession(value, code string) bool {
@@ -310,7 +316,8 @@ func (s *Server) validSession(value, code string) bool {
 	}
 	n, err := strconv.ParseInt(expiry, 10, 64)
 	now := time.Now().Unix()
-	if err != nil || n <= now || n > now+7*86400 {
+	maxSec := int64(s.config().sessionDuration().Seconds())
+	if err != nil || n <= now || n > now+maxSec {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(signature), []byte(s.sign(code+"|"+expiry))) == 1
@@ -372,6 +379,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Code string `json:"code"`
+		TOTP string `json:"totp"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	if err := decodeJSON(r, &req); err != nil {
@@ -388,10 +396,22 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "wrong login code"})
 		return
 	}
+	cfg := s.config()
+	if cfg.TOTPEnabled {
+		if strings.TrimSpace(req.TOTP) == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "2FA authenticator code required", "totp_required": true})
+			return
+		}
+		if !VerifyTOTP(cfg.TOTPSecret, req.TOTP, time.Now()) {
+			s.limiter.fail(ip)
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid 2FA authenticator code", "totp_required": true})
+			return
+		}
+	}
 	s.limiter.reset(ip)
 	http.SetCookie(w, &http.Cookie{
-		Name: panelCookieName(r, s.config().BasePath), Value: s.newSession(st.PanelCode), Path: s.config().BasePath + "/",
-		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: 7 * 86400,
+		Name: panelCookieName(r, cfg.BasePath), Value: s.newSession(st.PanelCode), Path: cfg.BasePath + "/",
+		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(cfg.sessionDuration().Seconds()),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -441,13 +461,14 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version":    version.Version,
-		"system":     s.sampler.Sample(),
-		"csrf_token": s.csrfToken,
-		"methods":    catalog.Methods,
-		"tunnels":    views,
-		"panel":      s.config(),
-		"telemetry":  s.currentTelemetry(views, time.Now()),
+		"version":     version.Version,
+		"system":      s.sampler.Sample(),
+		"csrf_token":  s.csrfToken,
+		"methods":     catalog.Methods,
+		"new_methods": conntest.NewMethods,
+		"tunnels":     views,
+		"panel":       s.config().SafeView(),
+		"telemetry":   s.currentTelemetry(views, time.Now()),
 	})
 }
 

@@ -52,6 +52,12 @@ func Env(tc catalog.TunnelConfig) string {
 	} else {
 		put("REVERSE", 0)
 	}
+	if tc.Carrier {
+		put("CARRIER", 1)
+	}
+	if tc.DirectL4 {
+		put("DIRECT_L4", 1)
+	}
 	put("FORWARDS", strings.Join(tc.Ports, " "))
 	if tc.SNI != "" {
 		put("SNI", tc.SNI)

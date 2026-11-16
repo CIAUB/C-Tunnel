@@ -264,9 +264,16 @@ details[open] summary{margin-bottom:12px}
 .foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .foot-links a:hover{color:var(--tx)}
 .foot-links svg{width:15px;height:15px}
-.sponsor{display:flex;justify-content:center}
-.sponsor[hidden]{display:none}
-.sponsor img{display:block;max-width:100%;height:auto;border-radius:10px}
+/* sponsor: centred in the sticky header on wide screens, a strip under it on narrow ones */
+.sponsor-top{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;line-height:0;text-decoration:none;opacity:0;transition:opacity .6s cubic-bezier(.22,1,.36,1)}
+.sponsor-top img{display:block;height:46px;width:auto;border-radius:9px;box-shadow:0 0 0 1px var(--ln);transition:filter .2s}
+.sponsor-top:hover img{filter:brightness(1.06)}
+.sp-tag{font-size:9.5px;line-height:1;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
+.sponsor-strip{display:none}
+.sponsor-top.in,.sponsor-strip.in{opacity:1}
+@media(max-width:999px){.sponsor-top{display:none}.sponsor-strip{display:block;line-height:0;opacity:0;transition:opacity .6s cubic-bezier(.22,1,.36,1)}.sponsor-strip img{display:block;width:100%;height:auto;max-height:72px;object-fit:contain;border-radius:10px}}
+@media(max-width:1279px){.sponsor-top .sp-tag{display:none}}
+.sponsor-top[hidden],.sponsor-strip[hidden]{display:none}
 .ip-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .ip-choices:empty{display:none}
 .ip-choices .btn{font-size:12px;padding:4px 8px}
@@ -316,6 +323,60 @@ details[open] summary{margin-bottom:12px}
 .bench-wrap table{min-width:560px}
 .bench-wrap tr.best td{background:color-mix(in srgb,var(--ac) 10%,transparent)}
 .bench-wrap td.num{font-variant-numeric:tabular-nums}
+.tun-badges{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.ping-pill{display:inline-flex;align-items:center;gap:5px;min-height:24px;padding:0 9px;border:1px solid var(--ln2);border-radius:999px;font:600 11px/1.4 var(--mono);background:var(--s2);color:var(--tx2);white-space:nowrap}
+.ping-pill .pdot{width:6px;height:6px;border-radius:50%;background:var(--mu)}
+.ping-pill.ok{border-color:color-mix(in srgb,var(--ok) 42%,transparent);background:color-mix(in srgb,var(--ok) 9%,var(--s1));color:var(--ok)}.ping-pill.ok .pdot{background:var(--ok)}
+.ping-pill.warn{border-color:color-mix(in srgb,var(--wr) 45%,transparent);background:color-mix(in srgb,var(--wr) 9%,var(--s1));color:var(--wr)}.ping-pill.warn .pdot{background:var(--wr)}
+.ping-pill.bad{border-color:color-mix(in srgb,var(--er) 45%,transparent);background:color-mix(in srgb,var(--er) 9%,var(--s1));color:var(--er)}.ping-pill.bad .pdot{background:var(--er)}
+.ping-pill small{color:var(--mu);font-weight:500}
+.tun .spark .rtt{stroke:var(--ok);stroke-width:1.4;opacity:.65}
+.fwd-pills{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.port-pill{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border:1px solid var(--ln2);border-radius:7px;background:var(--s2);font:600 11px/1.5 var(--mono);color:var(--tx2);white-space:nowrap}
+.port-more{cursor:pointer;border-color:color-mix(in srgb,var(--ac) 40%,var(--ln2));background:color-mix(in srgb,var(--ac) 8%,var(--s2));color:var(--tx);transition:background-color .15s,border-color .15s}
+.port-more:hover{background:color-mix(in srgb,var(--ac) 16%,var(--s2));border-color:var(--ac)}
+.ports-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(135px,1fr));gap:8px;max-height:46vh;overflow:auto;padding:4px 2px}
+.port-card{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 11px;border:1px solid var(--ln);border-radius:10px;background:var(--s2);font:600 12px/1.4 var(--mono);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s}
+.port-card:hover{border-color:var(--ac);background:var(--s3)}
+.port-card small{font:500 10px var(--sans);color:var(--mu)}
+.method-scope{display:grid;gap:12px;padding:14px;border:1px solid var(--ln);border-radius:var(--r);background:var(--s2)}
+.scope-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.scope-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--ln2);border-radius:11px;background:var(--s1);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s}
+.scope-btn b{font-size:12.5px;color:var(--tx)}
+.scope-btn span{font-size:11px;color:var(--mu);white-space:normal;line-height:1.35}
+.scope-btn[aria-pressed=true]{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 10%,var(--s1));box-shadow:0 0 0 1px var(--ac)}
+.picker-box{display:grid;gap:10px;padding-top:8px;border-top:1px dashed var(--ln2)}
+.picker-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.picker-bar .chip-btn{min-height:28px;padding:0 10px;border:1px solid var(--ln2);border-radius:999px;background:var(--s1);font-size:11.5px;font-weight:600;color:var(--tx2);cursor:pointer}
+.picker-bar .chip-btn:hover{border-color:var(--ac);color:var(--tx)}
+.picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:6px;max-height:220px;overflow:auto;padding:4px 2px}
+.m-check{display:flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid var(--ln);border-radius:9px;background:var(--s1);cursor:pointer;font-size:12px;margin:0;user-select:none}
+.m-check:hover{border-color:var(--ln3)}
+.m-check input{width:14px;min-height:14px;margin:0;accent-color:var(--ac);flex:none}
+.m-check code{background:none;padding:0;font-weight:600;color:var(--tx)}
+.m-check small{margin-left:auto;font-size:10px;color:var(--mu)}
+.ct-dash{display:grid;gap:16px}
+.ct-progress{display:flex;align-items:center;gap:12px;padding:12px 15px;border:1px solid var(--ln2);border-radius:12px;background:var(--s2)}
+.ct-pbar{flex:1;height:8px;border-radius:999px;background:var(--sunk);overflow:hidden}
+.ct-pbar i{display:block;height:100%;width:0%;background:var(--ac);border-radius:999px;transition:width .3s var(--spring)}
+.ct-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.ct-mcard{padding:14px 16px;border:1px solid var(--ln);border-radius:14px;background:var(--s2);display:grid;gap:6px;align-content:start}
+.ct-mcard.win{border-color:color-mix(in srgb,var(--ok) 45%,var(--ln));background:color-mix(in srgb,var(--ok) 6%,var(--s2))}
+.ct-mcard .k{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mu)}
+.ct-mcard .v{font:700 18px/1.2 var(--mono);color:var(--tx);overflow-wrap:anywhere}
+.ct-mcard .sub{font-size:12px;color:var(--mu);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.ct-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ct-SpeedCell{min-width:130px}
+.sbar-wrap{display:flex;align-items:center;gap:8px}
+.sbar{flex:1;min-width:54px;height:6px;border-radius:999px;background:var(--sunk);overflow:hidden}
+.sbar i{display:block;height:100%;border-radius:999px;background:var(--ac)}
+.sbar.up i{background:var(--ok)}
+.probe-pill{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:999px;border:1px solid var(--ln);font:600 11px/1.3 var(--mono);background:var(--s2)}
+.probe-pill.ok{border-color:color-mix(in srgb,var(--ok) 40%,transparent);color:var(--ok)}
+.probe-pill.warn{border-color:color-mix(in srgb,var(--wr) 40%,transparent);color:var(--wr)}
+.probe-pill.bad{border-color:color-mix(in srgb,var(--er) 40%,transparent);color:var(--er)}
+.sec-box{padding:14px;border:1px solid var(--ln);border-radius:12px;background:var(--s2);display:grid;gap:12px}
+@media(max-width:720px){.scope-tabs{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body>
@@ -352,6 +413,7 @@ details[open] summary{margin-bottom:12px}
     <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><h1>C-Tunnel</h1></div></div>
     <p>Enter the login code shown in the CLI under Web Panel.</p>
     <div><label for="login-code">Login code</label><input id="login-code" type="password" autocomplete="current-password" required></div>
+    <div id="login-totp-wrap" hidden><label for="login-totp">2FA Authenticator code (6 digits)</label><input id="login-totp" class="mono" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" placeholder="000000"></div>
     <button class="btn primary" type="submit">Log in</button>
   </form>
 </main>
@@ -359,15 +421,13 @@ details[open] summary{margin-bottom:12px}
 <div id="app" class="shell" hidden>
   <header class="top">
     <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b id="h-host">C-Tunnel</b><span id="h-ver" class="num">—</span></div></div>
+    <a class="sponsor-top" id="sponsor-top" hidden href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer" aria-label="Sponsor"><span class="sp-tag">Sponsor</span><img id="sponsor-img" alt="Sponsor" decoding="async"></a>
     <button id="update-pill" class="update-pill" type="button" hidden>Update <b id="update-version"></b></button>
     <button id="theme-btn" class="btn" type="button" aria-label="Appearance: follow the system"><svg aria-hidden="true"><use href="#i-contrast"/></svg><span class="lbl">Auto</span></button>
     <a class="btn icon tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg></a>
     <button id="btn-logout" class="btn icon" type="button" aria-label="Log out"><svg aria-hidden="true"><use href="#i-exit"/></svg></button>
   </header>
-
-  <section class="sponsor" id="sponsor" hidden aria-label="Sponsor">
-    <a href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer"><img id="sponsor-img" alt="Sponsor" decoding="async"></a>
-  </section>
+  <a class="sponsor-strip" id="sponsor-strip" hidden href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer" aria-label="Sponsor"><img id="sponsor-img2" alt="Sponsor" decoding="async"></a>
 
   <div class="rule">Server</div>
   <section class="card meters" aria-label="Resource usage">
@@ -452,11 +512,35 @@ details[open] summary{margin-bottom:12px}
             <div class="copy-row"><input id="t-iran-link" class="mono" readonly autocomplete="off"><button id="t-copy" class="btn" type="button">Copy link</button></div></div>
           <p id="t-iran-meta" class="hint"></p>
         </div>
-        <div id="t-iran-progress" class="table-wrap" hidden></div>
+        <div id="t-iran-dash" class="ct-dash" hidden>
+          <div id="t-iran-summary" class="ct-cards" hidden></div>
+          <div id="t-iran-progress" class="table-wrap" hidden></div>
+        </div>
         <pre id="t-iran-report" class="out" hidden></pre>
       </section>
       <form id="test-form" role="tabpanel" aria-labelledby="t-mode-kharej" novalidate hidden>
         <div><label for="t-link">Iran test link</label><input id="t-link" class="mono" required autocomplete="off" placeholder="ctunnel-test://..."></div>
+        <div class="method-scope" role="group" aria-label="Methods to test">
+          <label>Methods to test</label>
+          <div class="scope-tabs">
+            <button type="button" class="scope-btn" data-scope="all" aria-pressed="true"><b>1 · All methods</b><span>Every Direct, Reverse, Turbo &amp; Layer-4 method</span></button>
+            <button type="button" class="scope-btn" data-scope="v2" aria-pressed="false"><b>2 · New in 2.0</b><span>Only methods &amp; carriers introduced in v2.0</span></button>
+            <button type="button" class="scope-btn" data-scope="custom" aria-pressed="false"><b>3 · Select methods</b><span>Pick specific families or individual protocols</span></button>
+          </div>
+          <div id="t-picker-box" class="picker-box" hidden>
+            <div class="picker-bar">
+              <button type="button" class="chip-btn" data-pick-fam="all">Select all</button>
+              <button type="button" class="chip-btn" data-pick-fam="none">Clear</button>
+              <button type="button" class="chip-btn" data-pick-fam="Reverse-L4">Layer 4</button>
+              <button type="button" class="chip-btn" data-pick-fam="UDP-Crypt">UDP-Crypt</button>
+              <button type="button" class="chip-btn" data-pick-fam="Stealth">Stealth</button>
+              <button type="button" class="chip-btn" data-pick-fam="L3-Direct">L3 Kernel</button>
+              <button type="button" class="chip-btn" data-pick-fam="L2-Direct">L2 Kernel</button>
+              <span id="t-pick-count" class="hint" style="margin-left:auto">0 selected</span>
+            </div>
+            <div id="t-picker-grid" class="picker-grid"></div>
+          </div>
+        </div>
         <div class="grid2">
           <div><label for="t-role">Create endpoint as</label><select id="t-role"><option value="kharej">Kharej — use matching Iran configuration</option><option value="iran">Iran — create first endpoint</option></select></div>
           <div><label for="t-local">This server IPv4</label><input id="t-local" class="mono" placeholder="Auto-detect"><div class="ip-choices" id="t-ips"></div></div>
@@ -466,9 +550,29 @@ details[open] summary{margin-bottom:12px}
           <div><label for="t-forwards">Forward ports on Iran</label><input id="t-forwards" class="mono" placeholder="443, 2053=8443"></div>
         </div>
         <p class="hint">The test link is not a tunnel setup link. Deploying returns a separate <code>ctunnel://</code> link for the peer.</p>
-        <div class="test-actions"><button id="t-btn" class="btn primary" type="submit">Run test</button></div>
+        <div class="test-actions">
+          <button id="t-btn" class="btn primary" type="submit">Run connection test</button>
+          <button id="t-stop-job" class="btn danger" type="button" hidden>Stop test</button>
+        </div>
+        <div id="t-kharej-dash" class="ct-dash" hidden>
+          <div id="t-live-bar" class="ct-progress" hidden>
+            <span id="t-live-label" class="mono" style="font-size:12px;font-weight:600">Probing methods…</span>
+            <div class="ct-pbar"><i id="t-live-fill"></i></div>
+            <span id="t-live-pct" class="num mono" style="font-size:12px">0%</span>
+          </div>
+          <div id="t-summary-cards" class="ct-cards" hidden></div>
+          <div class="ct-toolbar">
+            <div class="filters" id="t-row-filters" role="group" aria-label="Filter test results">
+              <button type="button" data-rfilter="all" aria-pressed="true">All</button>
+              <button type="button" data-rfilter="ok" aria-pressed="false">Passed</button>
+              <button type="button" data-rfilter="direct" aria-pressed="false">Direct</button>
+              <button type="button" data-rfilter="reverse" aria-pressed="false">Reverse</button>
+            </div>
+            <input id="t-row-search" type="search" placeholder="Filter method or family…" style="max-width:240px;min-height:34px;margin-left:auto;border-radius:999px">
+          </div>
+          <div id="t-job-progress" class="table-wrap" hidden></div>
+        </div>
         <pre id="t-out" class="out" hidden></pre>
-        <div id="t-job-progress" class="table-wrap" hidden></div>
         <section id="t-best" class="test-choice" hidden aria-live="polite">
           <h4 id="t-best-title"></h4>
           <p id="t-best-stats"></p>
@@ -590,6 +694,9 @@ details[open] summary{margin-bottom:12px}
       <div><label for="f-l4port" id="f-l4port-l">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
       <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="the Iran IP"></div>
     </div>
+    <div id="turbo-wrap" class="sec-box" hidden>
+      <label class="switch"><input id="f-carrier" type="checkbox"><span><b>8-Stream BBR TCP Turbo Carrier (turbo+)</b> — carries L2/L3 packets over 8 parallel encrypted TCP streams for Reverse-grade Direct throughput</span></label>
+    </div>
     <div id="token-slot"></div>
     <div id="backup-wrap"><label for="f-backup">Backup method (failover)</label><select id="f-backup"><option value="">None</option></select>
       <p class="hint">If the method stops carrying traffic, both servers switch to this one within about a minute and try the first again every hour. Set it on both servers, or create the other end from the setup link.</p></div>
@@ -620,7 +727,7 @@ details[open] summary{margin-bottom:12px}
           <div id="pad-wrap"><label for="f-padding">Random padding (bytes)</label><input id="f-padding" type="number" min="0" max="64" placeholder="default"></div>
         </div>
         <div class="grid2">
-          <div id="lanes-wrap"><label for="f-lanes">GRE lanes</label><input id="f-lanes" type="number" min="1" max="8"></div>
+          <div id="lanes-wrap"><label for="f-lanes">ECMP / GRE lanes (up to 16)</label><input id="f-lanes" type="number" min="1" max="16"></div>
           <div id="tid-wrap"><label for="f-tid">Tunnel ID (EoIP / L2TPv3)</label><input id="f-tid" type="number" min="0" max="65535"></div>
         </div>
         <div id="bport-wrap"><label for="f-bport">Backup method port</label><input id="f-bport" type="number" min="0" max="65535" placeholder="default for the method"></div>
@@ -691,8 +798,50 @@ details[open] summary{margin-bottom:12px}
       <p class="hint">Give existing server paths, or upload a matching PEM pair over HTTPS or a loopback connection. The certificate must be current and cover the domain.</p>
       <div class="grid2"><div><label for="p-cert-upload">Upload fullchain.pem</label><input id="p-cert-upload" type="file" accept=".pem,.crt"></div><div><label for="p-key-upload">Upload privkey.pem</label><input id="p-key-upload" type="file" accept=".pem,.key"></div></div>
     </section>
+    <div class="rule">Security &amp; Access Control</div>
+    <section class="sec-box">
+      <div class="grid2">
+        <div>
+          <label for="p-allowed-ips">Allowed IPv4 / IPv6 / CIDR allowlist (optional)</label>
+          <input id="p-allowed-ips" class="mono" placeholder="e.g. 198.51.100.0/24, 203.0.113.5 (empty = allow all)" autocomplete="off">
+          <p class="hint">Unlisted IPs receive a stealth 404 response. Localhost is always allowed.</p>
+        </div>
+        <div>
+          <label for="p-session-min">Session timeout</label>
+          <select id="p-session-min">
+            <option value="60">1 hour</option>
+            <option value="360">6 hours</option>
+            <option value="1440">24 hours</option>
+            <option value="10080" selected>7 days (default)</option>
+            <option value="43200">30 days</option>
+          </select>
+        </div>
+      </div>
+      <div style="border-top:1px dashed var(--ln2);padding-top:10px;display:grid;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <label class="switch"><input id="p-totp-on" type="checkbox"><span><b>Two-Factor Authentication (TOTP 2FA)</b> — Google Authenticator / Authy / 1Password</span></label>
+          <button id="p-totp-gen" class="btn sm" type="button">Generate new 2FA secret</button>
+        </div>
+        <div id="p-totp-box" class="stack" hidden>
+          <div class="grid2">
+            <div><label for="p-totp-secret">Base32 Secret Key</label><input id="p-totp-secret" class="mono" readonly autocomplete="off" placeholder="Keep existing or click Generate"></div>
+            <div><label for="p-totp-code">Verify 6-digit code from app</label><input id="p-totp-code" class="mono" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="off"></div>
+          </div>
+          <div><label for="p-totp-uri">Authenticator URI (copy into app)</label><input id="p-totp-uri" class="mono" readonly autocomplete="off"></div>
+        </div>
+      </div>
+    </section>
     <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Save settings</button></div>
   </form>
+</dialog>
+
+<dialog id="dlg-ports" aria-labelledby="ports-title">
+  <div class="dbody">
+    <div class="dhead"><div><h3 id="ports-title">Forwarded ports</h3><p id="ports-sub">Click any port rule to copy it.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <input id="ports-search" type="search" placeholder="Search port number…" aria-label="Search ports" autocomplete="off">
+    <div id="ports-list" class="ports-grid"></div>
+    <div class="dfoot"><span id="ports-count" class="note"></span><button id="ports-copy-all" class="btn" type="button">Copy all</button><button class="btn primary" type="button" data-close>Done</button></div>
+  </div>
 </dialog>
 
 <dialog id="dlg-proxy" aria-labelledby="px-title">
@@ -710,9 +859,10 @@ details[open] summary{margin-bottom:12px}
 <dialog id="dlg-telegram" aria-labelledby="tg-title">
   <form id="tg-form" class="dbody" novalidate>
     <div class="dhead"><div><h3 id="tg-title">Telegram alerts</h3><p>Sent by this server's agent. Create a bot with @BotFather, then send it /start to see your chat ID.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
-    <div id="tg-iran" class="form-error" role="note" hidden>This is an Iran server, where Telegram is filtered. Set up the alerts in the panel of each Kharej server; they report the tunnels from their side.</div>
+    <p id="tg-iran" class="hint" role="note" hidden>This is an Iran server, where Telegram is filtered: its alerts go out through one of its tunnels and the Kharej server at the other end, which needs C-Tunnel 2.0.0 or later.</p>
     <div id="tg-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div class="grid2"><div><label for="tg-token">Bot token</label><input id="tg-token" class="mono" type="password" autocomplete="off" placeholder="123456789:AA…"></div><div><label for="tg-chat">Chat ID</label><input id="tg-chat" class="mono" autocomplete="off" placeholder="the number /start shows, or @channel"></div></div>
+    <div><label for="tg-lang">Bot language</label><select id="tg-lang"><option value="fa">فارسی</option><option value="en">English</option></select></div>
     <div><label id="tg-ev-l">Send an alert when</label>
       <div class="tg-events" role="group" aria-labelledby="tg-ev-l">
         <label class="switch"><input id="tg-down" type="checkbox">a tunnel goes down or comes back</label>
@@ -720,7 +870,7 @@ details[open] summary{margin-bottom:12px}
         <label class="switch"><input id="tg-restart" type="checkbox">the server restarts or is updated</label>
         <div class="tg-row"><label class="switch"><input id="tg-daily" type="checkbox">a daily report, at</label><input id="tg-daily-at" type="time" class="mono tg-time" value="09:00" aria-label="Daily report time"></div>
       </div></div>
-    <p class="hint">The same switches are in the bot: send it /settings. /status lists the tunnels and /report sends the daily report now. Each Kharej server needs a bot of its own for the buttons; alerts work with a shared bot too.</p>
+    <p class="hint">The bot is a full admin panel: send it /start for its menu, with each tunnel's state, traffic and log, restart and stop, the traffic report, server resources and these switches. Each server needs a bot of its own for the buttons; alerts work with a shared bot too.</p>
     <p id="tg-status" class="note" aria-live="polite"></p>
     <div class="dfoot"><button id="tg-remove" type="button" class="btn ghost">Remove</button><button id="tg-test" type="button" class="btn">Send test</button><button type="submit" class="btn primary">Save</button></div>
   </form>
@@ -753,8 +903,8 @@ details[open] summary{margin-bottom:12px}
 const $ = id => document.getElementById(id);
 const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
 const HISTORY = 24;
-let csrf = "", methods = [], timer = 0, refreshTask = null, panel = {}, telemetry = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false, loaded = false;
-let testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" };
+let csrf = "", methods = [], newMethods = [], timer = 0, refreshTask = null, panel = {}, telemetry = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false, loaded = false;
+let testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" }, testScope = "all", selectedTestMethods = new Set(), testRowFilter = "all", testRowQuery = "", lastKharejJob = null, lastIranView = null, activePortsTunnel = null;
 const meterHistory = {};
 
 /* ---------- small helpers ---------- */
@@ -831,7 +981,15 @@ async function api(path, opts = {}) {
   try {
     const res = await fetch(BASE_PATH + path, { ...request, headers, credentials: "same-origin", redirect: "error", signal: controller.signal });
     const data = await res.json().catch(() => { throw new Error("The server returned an unexpected response."); });
-    if (res.status === 401) { showGate(); throw new Error(path === "/api/login" ? (data.error || "Wrong login code") : "Session expired. Log in again."); }
+    if (res.status === 401) {
+      if (data && data.totp_required) {
+        $("login-totp-wrap").hidden = false;
+        $("login-totp").required = true;
+        $("login-totp").focus();
+      }
+      showGate();
+      throw new Error(path === "/api/login" ? (data.error || "Wrong login code") : "Session expired. Log in again.");
+    }
     if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
     return data;
   } catch (err) {
@@ -1005,8 +1163,89 @@ function tunnelState(t) {
   }
 }
 function methodLabel(t) {
-  if (!t.reverse || t.family === "Reverse-L4") return t.method;
+  if (t.family === "Reverse-L4") return (t.direct_l4 && !t.reverse ? "dir-l4+" : "") + t.method;
+  if (!t.reverse) return (t.carrier ? "turbo+" : "") + t.method;
   return (t.family === "UDP-Crypt" || t.family === "Stealth" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
+}
+function openPortsModal(t) {
+  activePortsTunnel = t;
+  $("ports-title").textContent = "Forwarded ports · " + t.name;
+  $("ports-sub").textContent = (t.ports || []).length + " forwarded port rules on " + t.name + ". Click any rule to copy it.";
+  $("ports-search").value = "";
+  renderPortsModal();
+  $("dlg-ports").showModal();
+}
+function renderPortsModal() {
+  const t = activePortsTunnel;
+  if (!t) return;
+  const ports = t.ports || [], q = $("ports-search").value.trim().toLowerCase();
+  const shown = ports.filter(p => !q || p.toLowerCase().includes(q));
+  const list = $("ports-list");
+  list.replaceChildren();
+  for (const p of shown) {
+    const [listen, target] = p.includes("=") ? p.split("=") : [p, p];
+    const btn = el("button", "port-card");
+    btn.type = "button";
+    const left = el("span", "", listen === target ? ":" + listen : ":" + listen + " → :" + target);
+    const right = el("small", "", listen === target ? "TCP/UDP" : "remap");
+    btn.append(left, right);
+    btn.onclick = async () => {
+      try { await copyText(p); toast("Copied port rule " + p, true); } catch (_) { toast("Copy failed"); }
+    };
+    list.appendChild(btn);
+  }
+  $("ports-count").textContent = shown.length + (shown.length === ports.length ? " port rules" : " of " + ports.length + " rules");
+}
+$("ports-search").addEventListener("input", renderPortsModal);
+$("ports-copy-all").onclick = async () => {
+  if (!activePortsTunnel) return;
+  try { await copyText((activePortsTunnel.ports || []).join(", ")); toast("All forwarded ports copied", true); } catch (_) { toast("Copy failed"); }
+};
+function renderForwardsCompact(box, t) {
+  box.replaceChildren();
+  const ports = t.ports || [];
+  if (!ports.length) { box.textContent = "—"; return; }
+  const wrap = el("div", "fwd-pills");
+  const maxShow = 3;
+  for (const p of ports.slice(0, maxShow)) {
+    const label = p.includes("=") ? p.replace("=", "→") : p;
+    const pill = el("span", "port-pill", label);
+    pill.title = "Forwarded port " + p;
+    wrap.appendChild(pill);
+  }
+  if (ports.length > maxShow) {
+    const more = el("button", "port-pill port-more", "+" + (ports.length - maxShow) + " more");
+    more.type = "button";
+    more.title = "View all " + ports.length + " forwarded ports";
+    more.onclick = () => openPortsModal(t);
+    wrap.appendChild(more);
+  }
+  box.appendChild(wrap);
+}
+function updatePingBadge(elPill, s, stCls, family) {
+  elPill.replaceChildren();
+  const dot = el("span", "pdot");
+  if (stCls === "off") {
+    elPill.className = "ping-pill";
+    elPill.append(dot, document.createTextNode("stopped"));
+    elPill.title = "Tunnel is stopped";
+    return;
+  }
+  if (!s || !s.ping_ok || !(s.rtt_ms > 0)) {
+    elPill.className = "ping-pill" + (stCls === "up" ? "" : " bad");
+    elPill.append(dot, document.createTextNode(stCls === "up" ? "probing…" : "no reply"));
+    elPill.title = "Active tunnel latency probe (" + (family === "Reverse-L4" ? "L4 stream echo" : "tunnel echo / ICMP") + ")";
+    return;
+  }
+  const rtt = s.rtt_ms, jit = s.jitter_ms || 0;
+  const cls = rtt < 45 ? "ok" : rtt < 110 ? "warn" : "bad";
+  elPill.className = "ping-pill " + cls;
+  elPill.append(dot, document.createTextNode(rtt.toFixed(rtt < 10 ? 1 : 0) + " ms"));
+  if (jit > 0.2) {
+    elPill.appendChild(el("small", "", "±" + jit.toFixed(jit < 10 ? 1 : 0)));
+  }
+  const probeKind = s.ping_probe === "l4-stream" ? "L4 stream echo" : s.ping_probe === "icmp" ? "ICMP tunnel ping" : "Tunnel data echo";
+  elPill.title = probeKind + " · RTT " + rtt.toFixed(1) + " ms" + (jit > 0 ? " · Jitter " + jit.toFixed(1) + " ms" : "") + (s.loss_pct > 0 ? " · Loss " + s.loss_pct.toFixed(0) + "%" : "");
 }
 function smallButton(label, iconID, onClick, cls) {
   const b = el("button", "btn sm " + (cls || ""));
@@ -1035,7 +1274,8 @@ function tunnelCard(t) {
   const fill = document.createElementNS(ns, "path"); fill.setAttribute("class", "fill");
   const line = document.createElementNS(ns, "path"); line.setAttribute("class", "line down"); line.setAttribute("stroke", "currentColor");
   const upLine = document.createElementNS(ns, "path"); upLine.setAttribute("class", "line up"); upLine.setAttribute("stroke", "currentColor");
-  spark.append(fill, upLine, line);
+  const rttLine = document.createElementNS(ns, "path"); rttLine.setAttribute("class", "line rtt");
+  spark.append(fill, upLine, line, rttLine);
   field.append(el("div", "grid"), spark);
 
   const inner = el("div", "inner");
@@ -1044,15 +1284,18 @@ function tunnelCard(t) {
   const name = el("h3", "name");
   const meth = el("div", "meth");
   title.append(name, meth);
+  const badges = el("div", "tun-badges");
+  const ping = el("span", "ping-pill");
   const state = el("span", "state");
-  top.append(title, state);
+  badges.append(ping, state);
+  top.append(title, badges);
   const rates = el("div", "rates");
   const rxB = el("b"), txB = el("b"), rxS = el("small"), txS = el("small");
   const rxD = el("div", "dn"), txD = el("div", "upr");
   rxD.append(el("i"), rxB, rxS, el("small", "", "down")); txD.append(el("i"), txB, txS, el("small", "", "up"));
   rates.append(rxD, txD);
   const info = el("div", "kv");
-  const c = { card, name, meth, state, line, upLine, fill, rxB, rxS, txB, txS, t,
+  const c = { card, name, meth, ping, state, line, upLine, rttLine, fill, rxB, rxS, txB, txS, t,
     peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Total RX / TX") };
   inner.append(top, rates, info, field);
 
@@ -1093,16 +1336,20 @@ function updateTunnel(c, t) {
     t.backup_method && !onBackup ? "backup " + t.backup_method : ""].filter(Boolean).join(" · ");
   c.state.textContent = st.label + (onBackup ? " · on backup" : "");
   c.peer.textContent = (t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any (dials in)") + (t.port ? " :" + t.port : "");
-  c.tunnelIP.textContent = t.family === "Reverse-L4" ? "none (layer 4)" : t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
-  c.forwards.textContent = (t.ports || []).join(", ") || "—";
+  c.tunnelIP.textContent = t.family === "Reverse-L4" ? (t.direct_l4 && !t.reverse ? "none (direct L4)" : "none (layer 4)") : t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
+  renderForwardsCompact(c.forwards, t);
   c.io.textContent = bytes(t.status && t.status.rx_bytes) + " / " + bytes(t.status && t.status.tx_bytes);
   const s = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
+  updatePingBadge(c.ping, s, st.cls, t.family);
   const [rv, ru] = bitrate((s && s.rx_mbps || 0) * 125000), [tv, tu] = bitrate((s && s.tx_mbps || 0) * 125000);
   c.rxB.textContent = rv; c.rxS.textContent = ru; c.txB.textContent = tv; c.txS.textContent = tu;
   const { rx, tx, max } = series(s);
   c.line.setAttribute("d", chartPath(rx, max, 300, 80));
   c.upLine.setAttribute("d", chartPath(tx, max, 300, 80));
   c.fill.setAttribute("d", areaPath(rx, max, 300, 80));
+  const rttH = s && s.rtt_history && s.rtt_history.length ? s.rtt_history : [];
+  const rttMax = Math.max(50, ...rttH);
+  c.rttLine.setAttribute("d", rttH.some(v => v > 0) ? chartPath(rttH, rttMax, 300, 80) : "");
   const off = st.cls === "off";
   c.toggle.replaceChildren(icon(off ? "i-play" : "i-stop"), el("span", "lbl", off ? "Start" : "Stop"));
   c.toggle.title = off ? "Start" : "Stop";
@@ -1169,6 +1416,7 @@ async function refresh({ force = false, reportErrors = false } = {}) {
     allTunnels = data.tunnels || [];
     $("boot").hidden = true; $("gate").hidden = true; $("app").hidden = false;
     $("btn-backup").href = BASE_PATH + "/api/backup";
+    newMethods = data.new_methods || [];
     if (!methods.length) fillMethods(data.methods || []);
     renderSystem(data.system, data.version);
     renderTelemetry(telemetry, allTunnels);
@@ -1296,8 +1544,60 @@ function fillMethods(list) {
       groups[m.Family].appendChild(o);
     }
   }
+  if (!selectedTestMethods.size) {
+    for (const m of methods) selectedTestMethods.add(m.Name);
+  }
+  renderMethodPicker();
   syncForm();
 }
+function renderMethodPicker() {
+  const grid = $("t-picker-grid");
+  if (!grid) return;
+  grid.replaceChildren();
+  for (const m of methods) {
+    const lbl = el("label", "m-check");
+    const cb = el("input");
+    cb.type = "checkbox";
+    cb.checked = selectedTestMethods.has(m.Name);
+    cb.onchange = () => {
+      if (cb.checked) selectedTestMethods.add(m.Name);
+      else selectedTestMethods.delete(m.Name);
+      updatePickerCount();
+    };
+    const code = el("code", "", m.Name);
+    const fam = el("small", "", m.Family.replace("Reverse-", "").replace("-Direct", ""));
+    lbl.append(cb, code, fam);
+    lbl.title = m.Title;
+    grid.appendChild(lbl);
+  }
+  updatePickerCount();
+}
+function updatePickerCount() {
+  const c = $("t-pick-count");
+  if (c) c.textContent = selectedTestMethods.size + " of " + methods.length + " selected";
+}
+function setTestScope(scope) {
+  testScope = scope;
+  document.querySelectorAll("[data-scope]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.scope === scope)));
+  $("t-picker-box").hidden = scope !== "custom";
+}
+document.querySelectorAll("[data-scope]").forEach(b => { b.onclick = () => setTestScope(b.dataset.scope); });
+document.querySelectorAll("[data-pick-fam]").forEach(b => {
+  b.onclick = () => {
+    const fam = b.dataset.pickFam;
+    if (fam === "all") { for (const m of methods) selectedTestMethods.add(m.Name); }
+    else if (fam === "none") { selectedTestMethods.clear(); }
+    else {
+      const famList = methods.filter(m => m.Family === fam);
+      const allIn = famList.every(m => selectedTestMethods.has(m.Name));
+      for (const m of famList) {
+        if (allIn) selectedTestMethods.delete(m.Name);
+        else selectedTestMethods.add(m.Name);
+      }
+    }
+    renderMethodPicker();
+  };
+});
 const familyLabel = {
   "Stealth": "Stealth — faketcp (TCP look), icmp (ping)",
   "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)",
@@ -1305,8 +1605,7 @@ const familyLabel = {
 function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && mm.Family === "Reverse-L4"); }
 function syncForm() {
   const l4 = isL4($("f-method").value);
-  if (l4) $("f-reverse").value = "1";
-  $("f-reverse").disabled = l4;
+  $("f-reverse").disabled = false;
   const rev = $("f-reverse").value === "1";
   for (const o of $("f-method").options) {
     const mm = methods.find(x => x.Name === o.value);
@@ -1333,9 +1632,12 @@ function syncForm() {
   $("sni-wrap").hidden = !(l4 && $("f-method").value.startsWith("ws"));
   $("f-l4port").required = l4 && !iran;
   $("f-l4port").placeholder = iran ? "3080 + index" : "the Iran tunnel port";
+  const canTurbo = !rev && !l4 && m && (m.Family === "L3-Direct" || m.Family === "L2-Direct") && !m.IPv6Underlay;
+  $("turbo-wrap").hidden = !canTurbo;
+  if (!canTurbo) $("f-carrier").checked = false;
   const method = $("f-method").value;
   $("port-wrap").hidden = l4 || method === "icmp";
-  $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : "Port (UDP or Reverse TCP)";
+  $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : $("f-carrier").checked ? "Turbo Carrier TCP Port" : "Port (UDP or Reverse TCP)";
   $("f-l4port-l").textContent = method === "udp" || method === "udpmux" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;
@@ -1350,6 +1652,7 @@ $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
 $("f-reverse").onchange = syncForm;
 $("f-backup").onchange = syncForm;
+$("f-carrier").onchange = syncForm;
 
 function openCreate(t) {
   const form = $("create-form");
@@ -1360,6 +1663,7 @@ function openCreate(t) {
   form.querySelector('[type="submit"]').textContent = t ? "Save and restart" : "Create and start";
   if (t) {
     $("f-role").value = t.role; $("f-reverse").value = t.reverse ? "1" : "0"; $("f-method").value = t.method;
+    $("f-carrier").checked = !!t.carrier;
     $("f-remote").value = t.remote_ip === "0.0.0.0" || t.remote_ip === "::" ? "" : (t.remote_ip || "");
     $("f-local").value = t.local_ip || ""; $("f-name").value = t.name;
     $("f-index").value = t.index || ""; $("f-port").value = t.port || ""; $("f-token").value = t.token || "";
@@ -1425,8 +1729,11 @@ $("create-form").addEventListener("submit", async e => {
   e.preventDefault();
   const iran = $("f-role").value === "iran";
   const a = $("f-tun-iran").value.trim(), b = $("f-tun-kharej").value.trim();
+  const rev = $("f-reverse").value === "1", l4 = isL4($("f-method").value);
   const body = {
-    role: $("f-role").value, method: $("f-method").value, reverse: $("f-reverse").value === "1",
+    role: $("f-role").value, method: $("f-method").value, reverse: rev,
+    carrier: !rev && !l4 && $("f-carrier").checked,
+    direct_l4: !rev && l4,
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
     index: num("f-index"), port: isL4($("f-method").value) ? num("f-l4port") : num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
@@ -1618,7 +1925,6 @@ async function loadManageExtras() {
 
 /* ---------- Telegram alerts ---------- */
 function telegramState(t) {
-  if (t.iran) return "Sent by the Kharej servers";
   if (!t.chat_id || !t.token) return "Off";
   const st = t.status || {};
   if (st.last_error) return "Error: " + st.last_error;
@@ -1631,8 +1937,8 @@ function fillTelegram(t) {
   $("tg-chat").value = t.chat_id || "";
   for (const k of ["down", "failover", "restart", "daily"]) $("tg-" + k).checked = !!t[k];
   $("tg-daily-at").value = t.daily_at || "09:00";
+  $("tg-lang").value = t.lang === "en" ? "en" : "fa";
   $("tg-iran").hidden = !t.iran;
-  for (const i of $("tg-form").querySelectorAll("input, #tg-test, [type=submit]")) i.disabled = t.iran;
   $("tg-remove").hidden = !t.token;
   const st = t.status || {}, buttons = st.buttons && st.buttons !== "ok" ? " Bot buttons: " + st.buttons + "." : "";
   $("tg-status").textContent = telegramState(t) + "." + buttons;
@@ -1645,7 +1951,7 @@ async function openTelegram() {
 }
 function telegramBody() {
   return { token: $("tg-token").value.trim(), chat_id: $("tg-chat").value.trim(), down: $("tg-down").checked, failover: $("tg-failover").checked,
-    restart: $("tg-restart").checked, daily: $("tg-daily").checked, daily_at: $("tg-daily-at").value || "09:00" };
+    restart: $("tg-restart").checked, daily: $("tg-daily").checked, daily_at: $("tg-daily-at").value || "09:00", lang: $("tg-lang").value };
 }
 async function saveTelegram(btn, body, done) {
   const errBox = $("tg-error");
@@ -1823,6 +2129,18 @@ $("btn-logout").onclick = async () => { await api("/api/logout", { method: "POST
 
 /* ---------- settings ---------- */
 $("p-mode").onchange = () => { $("p-tls").hidden = $("p-mode").value !== "https"; };
+$("p-totp-on").onchange = () => { $("p-totp-box").hidden = !$("p-totp-on").checked; };
+$("p-totp-gen").onclick = async () => {
+  try {
+    const r = await api("/api/settings?totp_setup=1");
+    $("p-totp-on").checked = true;
+    $("p-totp-box").hidden = false;
+    $("p-totp-secret").value = r.secret || "";
+    $("p-totp-uri").value = r.otpauth_uri || "";
+    $("p-totp-code").focus();
+    toast("New 2FA secret generated — add it to your Authenticator app and enter the 6-digit code to save.", true);
+  } catch (err) { toast(err.message); }
+};
 async function openSettings() {
   let r;
   try { r = await api("/api/settings"); } catch (err) { toast(err.message); history.replaceState(null, "", "#/manage"); return; }
@@ -1830,6 +2148,14 @@ async function openSettings() {
   $("p-path").value = r.base_path; $("p-domain").value = r.domain;
   $("p-cert").value = r.cert_file; $("p-key").value = r.key_file;
   $("p-mode").value = r.cert_file ? "https" : "http"; $("p-mode").onchange();
+  $("p-allowed-ips").value = r.allowed_ips || "";
+  $("p-session-min").value = String(r.session_minutes || 10080);
+  $("p-totp-on").checked = !!r.totp_enabled;
+  $("p-totp-secret").value = "";
+  $("p-totp-secret").placeholder = r.totp_enabled ? "Configured (click Generate to rotate)" : "Click Generate new 2FA secret";
+  $("p-totp-uri").value = "";
+  $("p-totp-code").value = "";
+  $("p-totp-box").hidden = !$("p-totp-on").checked;
   const uploadAllowed = location.protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
   $("p-cert-upload").disabled = $("p-key-upload").disabled = !uploadAllowed;
   openRouteDialog("dlg-settings");
@@ -1843,7 +2169,18 @@ $("settings-form").addEventListener("submit", async e => {
     const cert = $("p-cert-upload").files[0], key = $("p-key-upload").files[0];
     if ((cert && !key) || (!cert && key)) throw new Error("Upload both the certificate and the key.");
     if ((cert && cert.size > 48000) || (key && key.size > 16000)) throw new Error("The certificate or key file is too large.");
-    const r = await api("/api/settings", { method: "POST", body: JSON.stringify({ base_path: $("p-path").value.trim(), domain: $("p-domain").value.trim(), cert_file: $("p-cert").value.trim(), key_file: $("p-key").value.trim(), tls_mode: $("p-mode").value, cert_pem: cert ? await cert.text() : "", key_pem: key ? await key.text() : "" }) });
+    const payload = {
+      base_path: $("p-path").value.trim(), domain: $("p-domain").value.trim(),
+      cert_file: $("p-cert").value.trim(), key_file: $("p-key").value.trim(),
+      tls_mode: $("p-mode").value,
+      cert_pem: cert ? await cert.text() : "", key_pem: key ? await key.text() : "",
+      allowed_ips: $("p-allowed-ips").value.trim(),
+      session_minutes: Number($("p-session-min").value) || 10080,
+      totp_enabled: $("p-totp-on").checked,
+      totp_secret: $("p-totp-secret").value.trim(),
+      totp_code: $("p-totp-code").value.trim()
+    };
+    const r = await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
     routeDialog = null; $("dlg-settings").close(); toast("Settings saved. Opening the new address…", true);
     clearInterval(timer); timer = 0;
     setTimeout(() => window.location.assign(r.url), 1500);
@@ -1853,37 +2190,172 @@ $("settings-form").addEventListener("submit", async e => {
 
 /* ---------- connection test ---------- */
 function testBadge(r) {
+  if (r.phase === "echo") return ["ECHO " + (r.sent || 0) + "/10", "warn", "Sending echo probes"];
+  if (r.phase === "speed") return ["SPEED…", "warn", "Measuring bidirectional throughput"];
   if (r.skipped) return ["SKIP", "warn", r.skipped];
   if (r.error) return ["ERROR", "bad", r.error];
   if (!r.sent) return ["WAIT", "idle", ""];
   if (!r.received) return ["BLOCKED", "bad", "no echo came back"];
-  if (r.received < r.sent) return ["UNSTABLE", "warn", (r.sent - r.received) + " probes lost"];
-  return ["OK", "ok", ""];
+  if (r.received < r.sent) return ["LOSSY", "warn", (r.sent - r.received) + " probes lost"];
+  return ["PASSED", "ok", ""];
 }
 function mbps(v) { return v > 0 ? Number(v).toFixed(1) + " Mbps" : "—"; }
-function renderTestRows(box, rows) {
+function stripPrefix(m) { return (m || "").replace(/^(frp\+|rev\+|turbo\+)/, ""); }
+function pickBestRow(rows, mode) {
+  let best = null, bestScore = -1;
+  for (const r of rows || []) {
+    if (mode && r.mode !== mode) continue;
+    if (r.skipped || r.error || !r.sent || r.received < r.sent || !(r.down_mbps > 0) || !(r.up_mbps > 0)) continue;
+    const score = (r.down_mbps + r.up_mbps) / (1 + ((r.rtt_ms || 0) + (r.jitter_ms || 0)) / 20);
+    if (score > bestScore) { bestScore = score; best = r; }
+  }
+  return best;
+}
+function makeMetricCard(k, v, subText, cls) {
+  const card = el("div", "ct-mcard" + (cls ? " " + cls : ""));
+  card.append(el("div", "k", k), el("div", "v", v), el("div", "sub", subText));
+  return card;
+}
+function renderGraphicalSummary(box, rows, bestSettings) {
   box.replaceChildren();
   if (!rows || !rows.length) { box.hidden = true; return; }
   box.hidden = false;
+  const passed = rows.filter(r => !r.skipped && !r.error && r.sent > 0 && r.received === r.sent).length;
+  const lossy = rows.filter(r => !r.skipped && !r.error && r.received > 0 && r.received < r.sent).length;
+  const blocked = rows.filter(r => !r.skipped && (r.error || (r.sent > 0 && !r.received))).length;
+  const bestDir = pickBestRow(rows, "DIRECT");
+  const bestRev = pickBestRow(rows, "REVERSE");
+  box.appendChild(makeMetricCard(
+    "Best Direct Method",
+    bestDir ? bestDir.method : "None passed",
+    bestDir ? ("↓ " + mbps(bestDir.down_mbps) + " · ↑ " + mbps(bestDir.up_mbps) + " · " + Number(bestDir.rtt_ms || 0).toFixed(1) + " ms") : "No lossless Direct carrier",
+    bestDir ? "win" : ""
+  ));
+  box.appendChild(makeMetricCard(
+    "Best Reverse Method",
+    bestRev ? bestRev.method : "None passed",
+    bestRev ? ("↓ " + mbps(bestRev.down_mbps) + " · ↑ " + mbps(bestRev.up_mbps) + " · " + Number(bestRev.rtt_ms || 0).toFixed(1) + " ms") : "No lossless Reverse carrier",
+    bestRev ? "win" : ""
+  ));
+  const bs = bestSettings || {};
+  box.appendChild(makeMetricCard(
+    "Optimal Path & Tunnel MTU",
+    bs.tunnel_mtu ? (bs.tunnel_mtu + " B") : (bs.path_mtu ? bs.path_mtu + " B" : "Auto"),
+    (bs.path_mtu ? "Path MTU " + bs.path_mtu + " B" : "PMTU discovery") + (bs.method ? " · Winner: " + bs.method : ""),
+    ""
+  ));
+  box.appendChild(makeMetricCard(
+    "Carrier Health Breakdown",
+    passed + " Passed",
+    lossy + " Lossy · " + blocked + " Blocked · " + rows.length + " Total",
+    passed > 0 ? "win" : ""
+  ));
+}
+function speedCell(val, maxMbps, isUp) {
+  const td = el("td", "num ct-SpeedCell");
+  if (!(val > 0)) { td.textContent = "—"; return td; }
+  const wrap = el("div", "sbar-wrap");
+  const bar = el("div", "sbar" + (isUp ? " up" : ""));
+  const fill = el("i");
+  fill.style.width = Math.max(6, Math.min(100, Math.round((val / maxMbps) * 100))) + "%";
+  bar.appendChild(fill);
+  wrap.append(bar, el("span", "", Number(val).toFixed(1) + " M"));
+  td.appendChild(wrap);
+  return td;
+}
+function deployFromRow(r) {
+  const base = stripPrefix(r.method);
+  const mm = methods.find(x => x.Name === base);
+  const l4 = !!(mm && mm.Family === "Reverse-L4");
+  const rev = r.mode === "REVERSE";
+  openCreate(null);
+  $("f-role").value = $("t-role").value || "iran";
+  $("f-reverse").value = rev ? "1" : "0";
+  $("f-method").value = base;
+  $("f-carrier").checked = !rev && !l4 && (r.method || "").startsWith("turbo+");
+  const linkVal = $("t-link").value.trim();
+  const hostMatch = /^ctunnel-test:\/\/([^:/?#]+)/i.exec(linkVal);
+  if (hostMatch && hostMatch[1]) $("f-remote").value = hostMatch[1];
+  $("f-local").value = $("t-local").value.trim();
+  $("f-token").value = $("t-secret").value.trim();
+  $("f-ports").value = $("t-forwards").value.trim();
+  if (lastKharejJob && lastKharejJob.best_settings && lastKharejJob.best_settings.tunnel_mtu > 0) {
+    $("f-mtu").value = lastKharejJob.best_settings.tunnel_mtu;
+  }
+  syncForm();
+  toast("Pre-filled tunnel form with " + r.method + " (" + r.mode + ")", true);
+}
+function renderTestRows(box, rows, opts = {}) {
+  box.replaceChildren();
+  if (!rows || !rows.length) { box.hidden = true; return; }
+  let list = rows;
+  if (opts.filterable) {
+    const q = testRowQuery.trim().toLowerCase();
+    list = rows.filter(r => {
+      const [label] = testBadge(r);
+      if (testRowFilter === "ok" && label !== "PASSED") return false;
+      if (testRowFilter === "direct" && r.mode !== "DIRECT") return false;
+      if (testRowFilter === "reverse" && r.mode !== "REVERSE") return false;
+      if (!q) return true;
+      return [(r.method || ""), (r.family || ""), (r.mode || ""), label].join(" ").toLowerCase().includes(q);
+    });
+  }
+  box.hidden = false;
+  const maxSpeed = Math.max(10, ...rows.map(r => Math.max(r.down_mbps || 0, r.up_mbps || 0)));
   const table = el("table"), head = el("tr");
-  for (const h of ["Mode", "Method", "Family", "Status", "Echo", "Latency", "Down", "Up"]) head.appendChild(el("th", "", h));
+  const cols = ["Mode", "Method", "Family", "Status", "Probes", "RTT / Jitter", "Download", "Upload"];
+  if (opts.allowDeploy) cols.push("Action");
+  for (const h of cols) head.appendChild(el("th", "", h));
   const thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
   const body = el("tbody");
-  for (const r of rows) {
+  for (const r of list) {
     const [label, cls, title] = testBadge(r);
     const tr = el("tr");
-    tr.append(el("td", "", r.mode || "—"), el("td", "mono", r.method || "—"), el("td", "", r.family || "—"));
+    const modeBadge = el("span", "badge " + (r.mode === "REVERSE" ? "ok" : "idle"), r.mode || "—");
+    const modeCell = el("td"); modeCell.appendChild(modeBadge);
+    tr.append(modeCell, el("td", "mono", r.method || "—"), el("td", "", r.family || "—"));
     const st = el("span", "badge " + cls, label); if (title) st.title = title;
     const stCell = el("td"); stCell.appendChild(st); tr.appendChild(stCell);
-    tr.append(el("td", "num", (r.received || 0) + "/" + (r.sent || 0)), el("td", "num", r.rtt_ms > 0 ? Number(r.rtt_ms).toFixed(1) + " ms" : "—"), el("td", "num", mbps(r.down_mbps)), el("td", "num", mbps(r.up_mbps)));
+    const probeCls = !r.sent ? "" : r.received === r.sent ? " ok" : r.received > 0 ? " warn" : " bad";
+    const probeCell = el("td", "num");
+    probeCell.appendChild(el("span", "probe-pill" + probeCls, (r.received || 0) + "/" + (r.sent || 0)));
+    tr.appendChild(probeCell);
+    const rttText = r.rtt_ms > 0 ? Number(r.rtt_ms).toFixed(1) + " ms" + (r.jitter_ms > 0 ? " ±" + Number(r.jitter_ms).toFixed(1) : "") : "—";
+    tr.append(el("td", "num mono", rttText), speedCell(r.down_mbps, maxSpeed, false), speedCell(r.up_mbps, maxSpeed, true));
+    if (opts.allowDeploy) {
+      const actCell = el("td");
+      if (!r.skipped && !r.error && r.sent > 0 && r.received > 0) {
+        const b = el("button", "btn sm");
+        b.type = "button";
+        b.textContent = "Use";
+        b.title = "Configure tunnel with " + r.method;
+        b.onclick = () => deployFromRow(r);
+        actCell.appendChild(b);
+      }
+      tr.appendChild(actCell);
+    }
     body.appendChild(tr);
   }
   table.appendChild(body); box.appendChild(table);
 }
+document.querySelectorAll("[data-rfilter]").forEach(b => {
+  b.onclick = () => {
+    testRowFilter = b.dataset.rfilter;
+    document.querySelectorAll("[data-rfilter]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.rfilter === testRowFilter)));
+    if (lastKharejJob) renderTestRows($("t-job-progress"), lastKharejJob.rows || [], { filterable: true, allowDeploy: true });
+  };
+});
+$("t-row-search").addEventListener("input", () => {
+  testRowQuery = $("t-row-search").value;
+  if (lastKharejJob) renderTestRows($("t-job-progress"), lastKharejJob.rows || [], { filterable: true, allowDeploy: true });
+});
 function renderTestServer(r) {
+  lastIranView = r;
   const active = !!r.active;
   $("t-start").disabled = active; $("t-stop").disabled = !active; $("t-iran-status").hidden = !active;
   if (!active) {
+    $("t-iran-dash").hidden = true;
+    $("t-iran-summary").hidden = true; $("t-iran-summary").replaceChildren();
     $("t-iran-progress").hidden = true; $("t-iran-progress").replaceChildren();
     $("t-iran-report").hidden = true; $("t-iran-report").textContent = "";
     return;
@@ -1895,9 +2367,11 @@ function renderTestServer(r) {
   $("t-l4").textContent = r.l4_port ? ":" + r.l4_port : "—";
   $("t-expires").textContent = r.expires_at ? new Date(r.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
   $("t-iran-meta").textContent = "Raw IP protocols: " + ((r.raw_open || []).length ? r.raw_open.join(", ") : (r.raw_error || "none — UDP-only methods still work"));
-  renderTestRows($("t-iran-progress"), r.rows);
-  $("t-iran-report").hidden = !r.report_text;
-  $("t-iran-report").textContent = r.report_text || "";
+  const rows = (r.report_rows && r.report_rows.length) ? r.report_rows : (r.rows || []);
+  $("t-iran-dash").hidden = !rows.length;
+  renderGraphicalSummary($("t-iran-summary"), rows, r.report_best);
+  renderTestRows($("t-iran-progress"), rows, { filterable: false, allowDeploy: false });
+  $("t-iran-report").hidden = true;
 }
 async function refreshTestServer() {
   try { const r = await api("/api/linktest/server"); renderTestServer(r); if (!r.active) stopTestPoll(); }
@@ -1927,23 +2401,46 @@ function renderTestBest(r) {
   if (bs.path_mtu > 0) stats.push("Path MTU " + bs.path_mtu);
   if (bs.tunnel_mtu > 0) stats.push("Tunnel MTU " + bs.tunnel_mtu);
   if (bs.rtt_ms > 0) stats.push(Number(bs.rtt_ms).toFixed(1) + " ms");
-  $("t-best-stats").textContent = stats.length ? stats.join(" · ") : "Measured on this path. Review the table before deploying.";
-  $("t-deploy-direct").disabled = !direct; $("t-deploy-direct").textContent = direct ? "Deploy Best Direct" : "No Direct result";
-  $("t-deploy-reverse").disabled = !reverse; $("t-deploy-reverse").textContent = reverse ? "Deploy Best Reverse" : "No Reverse result";
+  $("t-best-stats").textContent = stats.length ? stats.join(" · ") : "Measured on this path. Review the graphical dashboard or deploy with one click.";
+  $("t-deploy-direct").disabled = !direct; $("t-deploy-direct").textContent = direct ? "Deploy Best Direct (" + direct.best.method + ")" : "No Direct result";
+  $("t-deploy-reverse").disabled = !reverse; $("t-deploy-reverse").textContent = reverse ? "Deploy Best Reverse (" + reverse.best.method + ")" : "No Reverse result";
 }
-function testDone() { stopTestPoll(); $("t-btn").disabled = false; $("t-btn").removeAttribute("aria-busy"); }
+function testDone() {
+  stopTestPoll();
+  $("t-btn").disabled = false; $("t-btn").removeAttribute("aria-busy");
+  $("t-stop-job").hidden = true;
+  $("t-live-bar").hidden = true;
+}
 async function refreshTestJob() {
   if (!testJobID) return;
   try {
     const r = await api("/api/linktest/jobs/" + encodeURIComponent(testJobID));
-    renderTestRows($("t-job-progress"), r.rows);
-    if (r.text) { $("t-out").hidden = false; $("t-out").textContent = r.text; }
-    else if (r.status === "running") { $("t-out").hidden = false; $("t-out").textContent = "Running live method tests…"; }
+    lastKharejJob = r;
+    const rows = r.rows || [];
+    $("t-kharej-dash").hidden = false;
+    if (r.status === "running") {
+      $("t-live-bar").hidden = false;
+      $("t-stop-job").hidden = false;
+      const doneCount = rows.filter(x => x.skipped || x.error || (x.sent >= 10 && !x.phase)).length;
+      const pct = rows.length ? Math.min(98, Math.max(5, Math.round((doneCount / rows.length) * 100))) : 10;
+      const activeRow = rows.find(x => x.phase);
+      $("t-live-label").textContent = activeRow ? ("Testing " + activeRow.method + " (" + activeRow.phase + ")…") : ("Testing methods (" + doneCount + "/" + rows.length + ")…");
+      $("t-live-fill").style.width = pct + "%";
+      $("t-live-pct").textContent = pct + "%";
+    }
+    renderGraphicalSummary($("t-summary-cards"), rows, r.best_settings);
+    renderTestRows($("t-job-progress"), rows, { filterable: true, allowDeploy: true });
+    $("t-out").hidden = true;
     if (r.status === "done") { testDone(); renderTestBest(r); if (r.error) formError("test-error", r.error); }
     else if (r.status === "error" || r.status === "stopped") { testDone(); formError("test-error", r.error || "Test stopped"); }
   } catch (err) { testDone(); formError("test-error", err.message); }
 }
 function startJobPoll() { stopTestPoll(); testPoll = setInterval(refreshTestJob, 1000); refreshTestJob(); }
+$("t-stop-job").onclick = async () => {
+  if (!testJobID) return;
+  try { await api("/api/linktest/jobs/" + encodeURIComponent(testJobID) + "/stop", { method: "POST" }); toast("Connection test stopped", true); testDone(); }
+  catch (err) { toast(err.message); }
+};
 async function deployBest(mode) {
   const id = testDeploy[mode], btn = $("t-deploy-" + mode);
   if (!id || !btn) return;
@@ -1973,14 +2470,33 @@ $("t-copy").onclick = async () => {
 $("test-form").addEventListener("submit", async e => {
   e.preventDefault();
   if (!validateForm(e.currentTarget, "test-error") || $("t-btn").disabled) return;
-  testJobID = ""; testDeploy = { direct: "", reverse: "" };
+  if (testScope === "custom" && !selectedTestMethods.size) {
+    formError("test-error", "Select at least one method to test.");
+    return;
+  }
+  testJobID = ""; testDeploy = { direct: "", reverse: "" }; lastKharejJob = null;
   $("t-best").hidden = true; $("t-job-progress").hidden = true; $("t-job-progress").replaceChildren();
-  $("t-out").hidden = false; $("t-out").textContent = "Starting the live test…";
-  const r = await run($("t-btn"), () => api("/api/linktest/jobs", { method: "POST", body: JSON.stringify({ link: $("t-link").value.trim(), role: $("t-role").value, local_ip: $("t-local").value.trim(), token: $("t-secret").value.trim(), ports: $("t-forwards").value.split(/[\s,]+/).filter(Boolean) }) }), "Test started");
+  $("t-summary-cards").hidden = true; $("t-summary-cards").replaceChildren();
+  $("t-kharej-dash").hidden = false;
+  $("t-live-bar").hidden = false; $("t-live-label").textContent = "Starting connection test…"; $("t-live-fill").style.width = "4%"; $("t-live-pct").textContent = "0%";
+  $("t-out").hidden = true;
+  const reqBody = {
+    link: $("t-link").value.trim(),
+    role: $("t-role").value,
+    local_ip: $("t-local").value.trim(),
+    token: $("t-secret").value.trim(),
+    ports: $("t-forwards").value.split(/[\s,]+/).filter(Boolean),
+    mode: testScope,
+    methods: testScope === "custom" ? Array.from(selectedTestMethods) : undefined
+  };
+  const r = await run($("t-btn"), () => api("/api/linktest/jobs", { method: "POST", body: JSON.stringify(reqBody) }), "Test started");
   if (r && r.test_id) {
     testJobID = r.test_id;
     $("t-btn").disabled = true; $("t-btn").setAttribute("aria-busy", "true");
+    $("t-stop-job").hidden = false;
     startJobPoll();
+  } else {
+    $("t-live-bar").hidden = true;
   }
 });
 $("t-deploy-direct").onclick = () => deployBest("direct");
@@ -1995,18 +2511,28 @@ $("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").valu
 // cannot be reached, the section stays hidden. The image must not be lazy: it
 // sits in a hidden section, and a lazy image there is never fetched.
 const SPONSOR_URL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/assets/sponsor.png";
+// It sits in the middle of the sticky header, so it stays in view without
+// covering anything, and on narrow screens as a strip under the header. It
+// cannot be closed. It fades in softly a moment after the panel has drawn.
+let sponsorTimer = 0;
+function setSponsor(on) {
+  clearTimeout(sponsorTimer);
+  for (const id of ["sponsor-top", "sponsor-strip"]) { $(id).classList.remove("in"); $(id).hidden = !on; }
+  if (on) sponsorTimer = setTimeout(() => { $("sponsor-top").classList.add("in"); $("sponsor-strip").classList.add("in"); }, 500);
+}
 function showSponsor() {
-  const img = $("sponsor-img"), box = $("sponsor");
-  box.hidden = true;
-  img.onload = () => { box.hidden = false; };
-  img.onerror = () => { box.hidden = true; };
+  const img = $("sponsor-img");
+  setSponsor(false);
+  img.onload = () => { $("sponsor-img2").src = img.src; setSponsor(true); };
+  img.onerror = () => setSponsor(false);
   img.src = SPONSOR_URL + "?t=" + Date.now();
 }
 
 /* ---------- this server's addresses ---------- */
 // The public IPv4 and the addresses on this server are both offered; the user
 // picks the one a tunnel should use. Nothing is filled in silently: a field left
-// empty lets the server choose its local address to bind to.
+// empty lets the server choose, the public address when it is on this server,
+// else the local one.
 let hostIPs = null;
 async function loadHostIPs() {
   try { hostIPs = await api("/api/hostips"); } catch (_) { hostIPs = { public: "", local: [] }; }
@@ -2039,7 +2565,11 @@ $("login-form").addEventListener("submit", async e => {
   e.preventDefault(); const form = e.currentTarget, btn = form.querySelector('[type="submit"]');
   if (form.busy || !form.reportValidity()) return;
   form.busy = true; btn.disabled = true; btn.setAttribute("aria-busy", "true");
-  try { await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value }) }); onLoggedIn(); await refresh({ force: true, reportErrors: true }); $("login-code").value = ""; }
+  try {
+    await api("/api/login", { method: "POST", body: JSON.stringify({ code: $("login-code").value, totp: $("login-totp").value.trim() }) });
+    onLoggedIn(); await refresh({ force: true, reportErrors: true });
+    $("login-code").value = ""; $("login-totp").value = "";
+  }
   catch (err) { toast(err.message); }
   finally { form.busy = false; btn.disabled = false; btn.removeAttribute("aria-busy"); }
 });
@@ -2047,6 +2577,7 @@ $("login-form").addEventListener("submit", async e => {
 (async () => {
   try {
     const s = await api("/api/session");
+    if (s.totp_enabled) { $("login-totp-wrap").hidden = false; $("login-totp").required = true; }
     if (!s.authenticated) { showGate(); return; }
     onLoggedIn();
   } catch (_) { /* an older server without /api/session: ask the overview */ }

@@ -18,6 +18,7 @@ import (
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/localproxy"
 	"ctunnel/pkg/netscore"
+	"ctunnel/pkg/notify"
 	"ctunnel/pkg/schedule"
 	"ctunnel/pkg/tunnel"
 )
@@ -37,6 +38,7 @@ func manageMenu() {
 			{"Restart All", "every tunnel at once"},
 			{"Auto Refresh", "restart all every N hours — " + refreshLabel()},
 			{"Built-in Proxy", "SOCKS5/HTTP backend — " + proxyLabel()},
+			{"Telegram Alerts", "bot admin panel and alerts — " + telegramLabel()},
 			{"File Locations", "configs, services, backups"},
 		})
 		switch idx {
@@ -63,6 +65,8 @@ func manageMenu() {
 		case 10:
 			builtinProxyMenu()
 		case 11:
+			telegramMenu()
+		case 12:
 			fileLocations()
 		default:
 			return
@@ -595,9 +599,11 @@ func fileLocations() {
 		{"Tunnel env files", filepath.Join(StoreDir, "tunnels")},
 		{"Panel certificate", filepath.Join(StoreDir, "panel.crt")},
 		{"Built-in proxy config", filepath.Join(StoreDir, "proxy.json")},
+		{"Telegram config", notify.ConfigPath},
 		{"Kernel tunnel unit", "/etc/systemd/system/ctunnel@.service"},
 		{"Engine unit", "/etc/systemd/system/ctunnel-engine@.service"},
 		{"Panel unit", "/etc/systemd/system/ctunnel-panel.service"},
+		{"Agent unit", "/etc/systemd/system/ctunnel-agent.service"},
 		{"Proxy unit", "/etc/systemd/system/ctunnel-proxy.service"},
 		{"Sysctl tuning", "/etc/sysctl.d/99-ctunnel.conf"},
 	}

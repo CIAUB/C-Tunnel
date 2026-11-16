@@ -29,14 +29,16 @@ type Config struct {
 	Daily    bool `json:"daily"`
 	// DailyAt is when the daily report goes out, HH:MM on the server's clock.
 	DailyAt string `json:"daily_at"`
+	// Lang is the bot's language: "fa" (default) or "en".
+	Lang string `json:"lang,omitempty"`
 }
 
 // Configured reports whether there is somewhere to send to.
 func (c Config) Configured() bool { return c.Token != "" && c.ChatID != "" }
 
-// DefaultConfig has every alert on and the report at nine in the morning.
+// DefaultConfig has every alert on, the report at nine in the morning, and Persian.
 func DefaultConfig() Config {
-	return Config{Down: true, Failover: true, Restart: true, Daily: true, DailyAt: "09:00"}
+	return Config{Down: true, Failover: true, Restart: true, Daily: true, DailyAt: "09:00", Lang: "fa"}
 }
 
 var (
@@ -44,9 +46,16 @@ var (
 	chatRE  = regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$`)
 )
 
-// Validate checks the token, chat and report time.
+// Validate checks the token, chat, language and report time.
 func (c *Config) Validate() error {
 	c.Token, c.ChatID, c.DailyAt = strings.TrimSpace(c.Token), strings.TrimSpace(c.ChatID), strings.TrimSpace(c.DailyAt)
+	c.Lang = strings.ToLower(strings.TrimSpace(c.Lang))
+	if c.Lang == "" {
+		c.Lang = "fa"
+	}
+	if c.Lang != "fa" && c.Lang != "en" {
+		return errors.New("bot language must be fa or en")
+	}
 	if c.Token != "" && !tokenRE.MatchString(c.Token) {
 		return errors.New("the bot token looks like 123456789:AA… as @BotFather gives it")
 	}
@@ -84,6 +93,9 @@ func LoadConfig() (Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return DefaultConfig(), err
 	}
+	if c.Lang != "en" && c.Lang != "fa" {
+		c.Lang = "fa"
+	}
 	return c, nil
 }
 
@@ -103,9 +115,6 @@ func writeJSON(path string, v any, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	// A fresh temporary file each time: os.WriteFile keeps the mode of a file
-	// that already exists, so a stale world-readable .tmp would hand that mode
-	// to the bot token.
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*.tmp")
 	if err != nil {
 		return err
@@ -128,14 +137,11 @@ func writeJSON(path string, v any, mode os.FileMode) error {
 
 // Status is what the agent last did, for the panel.
 type Status struct {
-	// State is "off" (no token or chat), "iran" (this server does not send)
-	// or "on".
 	State     string    `json:"state"`
 	LastSent  time.Time `json:"last_sent,omitempty"`
 	LastError string    `json:"last_error,omitempty"`
-	// Buttons is "ok" when this server answers the bot's commands, or why not.
-	Buttons string    `json:"buttons,omitempty"`
-	Updated time.Time `json:"updated"`
+	Buttons   string    `json:"buttons,omitempty"`
+	Updated   time.Time `json:"updated"`
 }
 
 // ReadStatus is the agent's last report; empty when the agent never wrote one.

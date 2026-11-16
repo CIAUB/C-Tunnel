@@ -83,7 +83,7 @@ func runReverseCarrier(cfg config) error {
 	r.l2 = carrierCfg.kind == "eoip" || carrierCfg.kind == "etherip"
 
 	transport := r.dialKharej
-	if cfg.role == "iran" {
+	if cfg.isPassive() {
 		transport = r.serveIran
 	}
 	return r.run(transport)

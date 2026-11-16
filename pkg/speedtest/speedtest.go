@@ -289,6 +289,37 @@ func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, 
 	return (float64(total) * 8.0) / elapsed / 1e6, nil
 }
 
+// EchoRTTs opens one connection to targetAddr and measures count round trips
+// over that open stream (in milliseconds), so multiplexed or pooled layer-4
+// tunnels are measured on an active stream rather than repeated handshakes.
+func EchoRTTs(targetAddr string, count int) ([]float64, error) {
+	c, err := net.DialTimeout("tcp", targetAddr, 3*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetNoDelay(true)
+	}
+	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.WriteString(c, ctEchoMagic); err != nil {
+		return nil, err
+	}
+	var out []float64
+	var msg, reply [32]byte
+	for i := 0; i < count; i++ {
+		_, _ = rand.Read(msg[:])
+		t0 := time.Now()
+		_ = c.SetDeadline(t0.Add(1500 * time.Millisecond))
+		_, wErr := c.Write(msg[:])
+		_, rErr := io.ReadFull(c, reply[:])
+		if wErr == nil && rErr == nil && bytes.Equal(msg[:], reply[:]) {
+			out = append(out, float64(time.Since(t0).Microseconds())/1000.0)
+		}
+	}
+	return out, nil
+}
+
 // ProbeEcho measures echo count, RTT, jitter and worst RTT over a target connection.
 func ProbeEcho(targetAddr string, count int, onStep func(tried, okCount int)) (okCount, rttMs, jitterMs, worstMs int, err error) {
 	c, err := net.DialTimeout("tcp", targetAddr, 3*time.Second)

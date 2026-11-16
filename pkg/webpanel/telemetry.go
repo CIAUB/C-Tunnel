@@ -2,17 +2,25 @@ package webpanel
 
 import (
 	"time"
+
+	"ctunnel/pkg/tunnel"
 )
 
 const telemetrySamples = 60
 
 type telemetrySeries struct {
-	RXMbps    float64   `json:"rx_mbps"`
-	TXMbps    float64   `json:"tx_mbps"`
-	RXTotal   uint64    `json:"rx_total"`
-	TXTotal   uint64    `json:"tx_total"`
-	RXHistory []float64 `json:"rx_history"`
-	TXHistory []float64 `json:"tx_history"`
+	RXMbps     float64   `json:"rx_mbps"`
+	TXMbps     float64   `json:"tx_mbps"`
+	RXTotal    uint64    `json:"rx_total"`
+	TXTotal    uint64    `json:"tx_total"`
+	RXHistory  []float64 `json:"rx_history"`
+	TXHistory  []float64 `json:"tx_history"`
+	RTTMs      float64   `json:"rtt_ms"`
+	JitterMs   float64   `json:"jitter_ms"`
+	LossPct    float64   `json:"loss_pct"`
+	PingOK     bool      `json:"ping_ok"`
+	PingProbe  string    `json:"ping_probe,omitempty"`
+	RTTHistory []float64 `json:"rtt_history"`
 }
 
 type telemetryView struct {
@@ -25,6 +33,7 @@ type telemetryState struct {
 	last      time.Time
 	aggregate telemetrySeries
 	tunnels   map[string]*telemetryTunnel
+	pings     map[string]tunnel.PingResult
 }
 
 type telemetryTunnel struct {
@@ -35,13 +44,30 @@ type telemetryTunnel struct {
 
 func newSeries() telemetrySeries {
 	return telemetrySeries{
-		RXHistory: make([]float64, telemetrySamples),
-		TXHistory: make([]float64, telemetrySamples),
+		RXHistory:  make([]float64, telemetrySamples),
+		TXHistory:  make([]float64, telemetrySamples),
+		RTTHistory: make([]float64, telemetrySamples),
 	}
 }
 
 func newTelemetryState() *telemetryState {
-	return &telemetryState{aggregate: newSeries(), tunnels: map[string]*telemetryTunnel{}}
+	return &telemetryState{
+		aggregate: newSeries(),
+		tunnels:   map[string]*telemetryTunnel{},
+		pings:     map[string]tunnel.PingResult{},
+	}
+}
+
+func (s *Server) setPingResult(name string, pr tunnel.PingResult) {
+	s.telemetryMu.Lock()
+	if s.telemetry == nil {
+		s.telemetry = newTelemetryState()
+	}
+	if s.telemetry.pings == nil {
+		s.telemetry.pings = map[string]tunnel.PingResult{}
+	}
+	s.telemetry.pings[name] = pr
+	s.telemetryMu.Unlock()
 }
 
 func appendSample(history []float64, value float64) []float64 {
@@ -90,6 +116,20 @@ func (s *Server) observeTelemetry(views []tunnelView, now time.Time) telemetryVi
 		t.series.RXTotal, t.series.TXTotal = view.Status.RxBytes, view.Status.TxBytes
 		t.series.RXHistory = appendSample(t.series.RXHistory, rx)
 		t.series.TXHistory = appendSample(t.series.TXHistory, tx)
+		if pr, ok := st.pings[view.Name]; ok && view.Status.Service == "active" {
+			t.series.PingOK = pr.OK
+			t.series.RTTMs = pr.RTTMs
+			t.series.JitterMs = pr.JitterMs
+			t.series.LossPct = pr.LossPct
+			t.series.PingProbe = pr.Probe
+			t.series.RTTHistory = appendSample(t.series.RTTHistory, pr.RTTMs)
+		} else {
+			t.series.PingOK = false
+			t.series.RTTMs = 0
+			t.series.JitterMs = 0
+			t.series.LossPct = 0
+			t.series.RTTHistory = appendSample(t.series.RTTHistory, 0)
+		}
 		aggRX += rx
 		aggTX += tx
 		totalRX += view.Status.RxBytes
@@ -99,6 +139,7 @@ func (s *Server) observeTelemetry(views []tunnelView, now time.Time) telemetryVi
 	for name := range st.tunnels {
 		if !seen[name] {
 			delete(st.tunnels, name)
+			delete(st.pings, name)
 		}
 	}
 	for name, t := range next {
@@ -123,6 +164,7 @@ func (s *Server) observeTelemetry(views []tunnelView, now time.Time) telemetryVi
 func copyTelemetrySeries(s telemetrySeries) telemetrySeries {
 	s.RXHistory = append([]float64(nil), s.RXHistory...)
 	s.TXHistory = append([]float64(nil), s.TXHistory...)
+	s.RTTHistory = append([]float64(nil), s.RTTHistory...)
 	return s
 }
 

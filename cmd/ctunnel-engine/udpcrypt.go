@@ -18,7 +18,7 @@ import (
 const (
 	maxPacket         = 65535
 	keepaliveInterval = 10 * time.Second
-	socketBuffer      = 8 << 20
+	socketBuffer      = 16 << 20
 )
 
 type udpTunnel struct {
@@ -346,7 +346,9 @@ func (t *udpTunnel) keepalive() {
 			} else {
 				t.framer.PutHeader(out[:hlen], len(ct))
 			}
-			_ = c.send([][]byte{out[:hlen+len(ct)]}, addrPort(peer))
+			if err := c.send([][]byte{out[:hlen+len(ct)]}, addrPort(peer)); errors.Is(err, net.ErrClosed) {
+				return
+			}
 		}
 		time.Sleep(interval)
 	}

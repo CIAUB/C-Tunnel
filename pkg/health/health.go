@@ -63,9 +63,18 @@ func HumanBytes(n uint64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
-// MethodLabel names the transport as the menus show it: frp+ or rev+ for reverse tunnels.
+// MethodLabel names the transport as the menus show it: frp+, rev+, turbo+ or direct+ for carrier/L4 tunnels.
 func MethodLabel(t catalog.TunnelConfig) string {
-	if !t.Reverse || catalog.IsL4(t.Method) {
+	if catalog.IsL4(t.Method) {
+		if t.DirectL4 {
+			return "direct+" + t.Method
+		}
+		return t.Method
+	}
+	if t.Carrier && !t.Reverse {
+		return "turbo+" + t.Method
+	}
+	if !t.Reverse {
 		return t.Method
 	}
 	if m, ok := catalog.LookupMethod(t.Method); ok && !m.Crypt() && m.Name != "wireguard" {

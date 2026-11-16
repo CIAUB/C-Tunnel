@@ -26,10 +26,17 @@ type config struct {
 	tunnelID          uint16
 	padding           uint8
 	reverse           bool
+	carrier           bool
 	forwards, sni     string // layer-4 transports only
 }
 
 func (c config) isPassive() bool {
+	if c.carrier && !c.reverse {
+		return c.role == "kharej"
+	}
+	if catalog.IsL4(c.kind) && !c.reverse {
+		return c.role == "kharej"
+	}
 	return c.reverse && c.role == "iran"
 }
 
@@ -62,7 +69,7 @@ func main() {
 	switch {
 	case catalog.IsL4(cfg.kind):
 		err = runL4(cfg)
-	case cfg.reverse && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard":
+	case (cfg.reverse || cfg.carrier) && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard":
 		err = runReverseCarrier(cfg)
 	case cfg.kind == "eoip" || cfg.kind == "etherip":
 		err = runRawBridge(cfg)
@@ -80,8 +87,10 @@ func loadConfig(path string) (config, error) {
 		return config{}, err
 	}
 	rev := env["REVERSE"] == "1" || env["REVERSE"] == "true"
+	car := env["CARRIER"] == "1" || env["CARRIER"] == "true"
+	directL4 := env["DIRECT_L4"] == "1" || env["DIRECT_L4"] == "true"
 	m, ok := catalog.LookupMethod(env["KIND"])
-	if !ok || (!m.Userspace && !rev) {
+	if !ok || (!m.Userspace && !rev && !car) {
 		return config{}, fmt.Errorf("%s: KIND %q is not an engine transport", path, env["KIND"])
 	}
 	port, _ := strconv.Atoi(env["PORT"])
@@ -98,14 +107,15 @@ func loadConfig(path string) (config, error) {
 		secret:   env["SECRET"],
 		tunnelID: uint16(tid),
 		padding:  uint8(min(max(pad, 0), 255)),
-		reverse:  rev || m.L4(),
+		reverse:  rev || (m.L4() && !directL4),
+		carrier:  car,
 		forwards: env["FORWARDS"],
 		sni:      env["SNI"],
 	}
 	if cfg.dev == "" || (cfg.remoteIP == "" && !cfg.isPassive()) || (cfg.role != "iran" && cfg.role != "kharej") {
 		return config{}, fmt.Errorf("%s: DEV, REMOTE_IP and ROLE are required", path)
 	}
-	if (m.Crypt() || cfg.reverse || m.L4()) && (cfg.secret == "" || (cfg.port <= 0 && m.NeedsPort)) {
+	if (m.Crypt() || cfg.reverse || cfg.carrier || m.L4()) && (cfg.secret == "" || (cfg.port <= 0 && m.NeedsPort)) {
 		return config{}, fmt.Errorf("%s: SECRET and PORT are required for %s", path, m.Name)
 	}
 	if cfg.name == "" {

@@ -19,11 +19,9 @@ import (
 
 const testToken = "123456789:AAEexampleexampleexampleexample123"
 
-// fakeAPI is a Telegram Bot API that records every call.
 type fakeAPI struct {
-	mu    sync.Mutex
-	calls []call
-	// status answers every call with this HTTP code when not zero.
+	mu     sync.Mutex
+	calls  []call
 	status int
 }
 
@@ -71,6 +69,8 @@ type rig struct {
 	n       *Notifier
 	now     time.Time
 	alive   map[string]bool
+	probe   map[string]bool
+	probed  map[string]int
 	tunnels []catalog.TunnelConfig
 }
 
@@ -78,17 +78,32 @@ func newRig(t *testing.T, mut func(*Config), tunnels ...catalog.TunnelConfig) *r
 	t.Helper()
 	dir := t.TempDir()
 	ConfigPath, StatePath, StatusPath = filepath.Join(dir, "telegram.json"), filepath.Join(dir, "telegram-state.json"), filepath.Join(dir, "telegram-status.json")
-	configure(t, mut)
+	configure(t, func(c *Config) {
+		c.Lang = "en"
+		if mut != nil {
+			mut(c)
+		}
+	})
 	st, _ := catalog.LoadStore(dir)
 	st.Tunnels = tunnels
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
 	}
-	r := &rig{now: time.Date(2026, 11, 8, 8, 0, 0, 0, time.UTC), alive: map[string]bool{}}
+	r := &rig{
+		now:    time.Date(2026, 11, 8, 8, 0, 0, 0, time.UTC),
+		alive:  map[string]bool{},
+		probe:  map[string]bool{},
+		probed: map[string]int{},
+	}
 	for _, tc := range tunnels {
 		r.alive[tc.Name] = true
+		r.probe[tc.Name] = false
 	}
 	n := New(dir, func(tc catalog.TunnelConfig) bool { return r.alive[tc.Name] }, func(catalog.TunnelConfig) bool { return true })
+	n.Probe = func(tc catalog.TunnelConfig) bool {
+		r.probed[tc.Name]++
+		return r.probe[tc.Name]
+	}
 	n.Now = func() time.Time { return r.now }
 	n.Host = "kh-1"
 	n.BootID = func() string { return "boot-a" }
@@ -110,7 +125,6 @@ func configure(t *testing.T, mut func(*Config)) {
 	}
 }
 
-// drain returns the messages queued so far.
 func (r *rig) drain() []string {
 	var out []string
 	for {
@@ -138,6 +152,7 @@ func TestDownAndBackUpAlerts(t *testing.T) {
 		t.Fatalf("start: %q", msgs)
 	}
 	r.alive["kh443"] = false
+	r.probe["kh443"] = false
 	r.run(40 * time.Second)
 	if msgs := r.drain(); len(msgs) != 0 {
 		t.Fatalf("alert before 45 s: %q", msgs)
@@ -147,10 +162,40 @@ func TestDownAndBackUpAlerts(t *testing.T) {
 	if len(msgs) != 1 || !strings.Contains(msgs[0], "kh443</b> is down") || !strings.Contains(msgs[0], "quic-v1") {
 		t.Fatalf("one down alert with the failover note: %q", msgs)
 	}
+	if r.probed["kh443"] == 0 {
+		t.Fatal("expected active data probe before reporting down")
+	}
 	r.alive["kh443"] = true
 	r.run(10 * time.Second)
 	if msgs := r.drain(); len(msgs) != 1 || !strings.Contains(msgs[0], "back up after") {
 		t.Fatalf("back up: %q", msgs)
+	}
+}
+
+// Idle tunnel regression test: when passive Alive() is false (no traffic
+// passing) but the active data probe succeeds, the bot must NOT declare the
+// tunnel disconnected.
+func TestIdleTunnelSavedByActiveDataProbe(t *testing.T) {
+	r := newRig(t, nil, kharej)
+	r.run(time.Minute)
+	r.drain() // clear start message
+
+	// Simulate idle tunnel: passive Alive is false, but active data probe succeeds.
+	r.alive["kh443"] = false
+	r.probe["kh443"] = true
+	r.run(5 * time.Minute)
+	if msgs := r.drain(); len(msgs) != 0 {
+		t.Fatalf("idle tunnel falsely reported as down: %q", msgs)
+	}
+	if r.probed["kh443"] == 0 {
+		t.Fatal("active data probe was not called for idle tunnel")
+	}
+
+	// Now simulate real outage: active data probe also fails.
+	r.probe["kh443"] = false
+	r.run(time.Minute)
+	if msgs := r.drain(); len(msgs) != 1 || !strings.Contains(msgs[0], "is down") {
+		t.Fatalf("expected down alert once active probe also failed, got %q", msgs)
 	}
 }
 
@@ -160,21 +205,6 @@ func TestDownAlertsCanBeTurnedOff(t *testing.T) {
 	r.run(5 * time.Minute)
 	if msgs := r.drain(); len(msgs) != 0 {
 		t.Fatalf("sent with the alerts off: %q", msgs)
-	}
-}
-
-func TestIranServerSendsNothing(t *testing.T) {
-	iran := kharej
-	iran.Role = "iran"
-	r := newRig(t, nil, iran)
-	r.alive["kh443"] = false
-	r.run(5 * time.Minute)
-	r.n.Failover(iran, true, "test")
-	if msgs := r.drain(); len(msgs) != 0 {
-		t.Fatalf("an Iran server sent %q", msgs)
-	}
-	if s := ReadStatus(); s.State != "iran" {
-		t.Fatalf("status %+v", s)
 	}
 }
 
@@ -198,21 +228,21 @@ func TestStartMessageSaysWhy(t *testing.T) {
 
 func TestDailyReportOnceADay(t *testing.T) {
 	r := newRig(t, func(c *Config) { c.Restart, c.DailyAt = false, "09:30" }, kharej)
-	r.run(time.Hour) // 08:00-09:00
+	r.run(time.Hour)
 	if msgs := r.drain(); len(msgs) != 0 {
 		t.Fatalf("report before 09:30: %q", msgs)
 	}
-	r.run(time.Hour) // past 09:30
+	r.run(time.Hour)
 	msgs := r.drain()
-	if len(msgs) != 1 || !strings.Contains(msgs[0], "kh443") || !strings.Contains(msgs[0], "total ↓ 3.0 GiB ↑ 1.0 GiB") {
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "kh443") || !strings.Contains(msgs[0], "Σ ↓ 3.0 GiB") {
 		t.Fatalf("one report: %q", msgs)
 	}
 	r.run(20 * time.Hour)
 	if msgs := r.drain(); len(msgs) != 0 {
 		t.Fatalf("a second report the same day: %q", msgs)
 	}
-	r.run(4 * time.Hour) // the next day's 09:30
-	if msgs := r.drain(); len(msgs) != 1 || !strings.Contains(msgs[0], "since last report ↓ 0 B ↑ 0 B") {
+	r.run(4 * time.Hour)
+	if msgs := r.drain(); len(msgs) != 1 || !strings.Contains(msgs[0], "Δ ↓ 0 B") {
 		t.Fatalf("next day: %q", msgs)
 	}
 }
@@ -237,19 +267,17 @@ func TestBotButtonsAnswerOnlyTheConfiguredChat(t *testing.T) {
 	bot := NewBot(testToken)
 	ctx := context.Background()
 
-	// A stranger learns its own chat ID and nothing else.
 	r.n.Handle(ctx, bot, Update{Message: &Message{Chat: Chat{ID: 99}, Text: "/status"}})
 	r.n.Handle(ctx, bot, Update{Message: &Message{Chat: Chat{ID: 99}, Text: "/start"}})
 	if s := api.sent("sendMessage"); len(s) != 1 || !strings.Contains(s[0].params["text"].(string), "<code>99</code>") || strings.Contains(s[0].params["text"].(string), "kh443") {
 		t.Fatalf("stranger: %+v", s)
 	}
-	r.n.Handle(ctx, bot, Update{Callback: &Callback{ID: "c1", Data: "t:down", Message: &Message{MessageID: 5, Chat: Chat{ID: 99}}}})
+	r.n.Handle(ctx, bot, Update{Callback: &Callback{ID: "c1", Data: "x:down", Message: &Message{MessageID: 5, Chat: Chat{ID: 99}}}})
 	if c, _ := LoadConfig(); !c.Down {
 		t.Fatal("a stranger turned an alert off")
 	}
 
-	// The owner toggles an alert with a button.
-	r.n.Handle(ctx, bot, Update{Callback: &Callback{ID: "c2", Data: "t:down", Message: &Message{MessageID: 5, Chat: Chat{ID: 424242}}}})
+	r.n.Handle(ctx, bot, Update{Callback: &Callback{ID: "c2", Data: "x:down", Message: &Message{MessageID: 5, Chat: Chat{ID: 424242}}}})
 	if c, _ := LoadConfig(); c.Down {
 		t.Fatal("the owner's button did not turn the alert off")
 	}
@@ -305,8 +333,6 @@ func TestConfigValidation(t *testing.T) {
 
 func mustJSON(v any) string { b, _ := json.Marshal(v); return string(b) }
 
-// The settings file holds the bot token: it is 0600 even when a stale,
-// world-readable temporary file of the old naming is lying next to it.
 func TestConfigFileStaysPrivate(t *testing.T) {
 	dir := t.TempDir()
 	ConfigPath = filepath.Join(dir, "telegram.json")

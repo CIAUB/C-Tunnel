@@ -18,9 +18,9 @@ import (
 	"ctunnel/pkg/tunnel"
 )
 
-// runL4 serves a layer-4 reverse tunnel (pkg/l4). With no interface to count
-// on, it publishes its byte counters where an interface keeps them, under
-// tunnel.L4Dir/<dev>, so traffic totals and the panel read it the same way.
+// runL4 serves a layer-4 tunnel (pkg/l4) in either Reverse or Direct mode.
+// With no interface to count on, it publishes its byte counters and local
+// control/probe sockets under tunnel.L4Dir/<dev>.
 func runL4(cfg config) error {
 	forwards, err := l4.ParseForwards(strings.Fields(cfg.forwards))
 	if err != nil {
@@ -30,24 +30,26 @@ func runL4(cfg config) error {
 	defer stop()
 	st := &l4.Stats{}
 	done := make(chan struct{})
+	dir := filepath.Join(tunnel.L4Dir, cfg.dev)
 	go publishL4(cfg, st, done)
 	err = l4.Run(ctx, l4.Config{
-		Role:      cfg.role,
-		Transport: cfg.kind,
-		Port:      cfg.port,
-		RemoteIP:  cfg.remoteIP,
-		Token:     cfg.secret,
-		Forwards:  forwards,
-		SNI:       cfg.sni,
-		Logf:      log.Printf,
+		Role:        cfg.role,
+		Transport:   cfg.kind,
+		Direct:      !cfg.reverse,
+		Port:        cfg.port,
+		RemoteIP:    cfg.remoteIP,
+		Token:       cfg.secret,
+		Forwards:    forwards,
+		SNI:         cfg.sni,
+		LocalSocket: filepath.Join(dir, "tg.sock"),
+		ProbeSocket: filepath.Join(dir, "probe.sock"),
+		Logf:        log.Printf,
 	}, st)
 	close(done)
 	writeL4Counters(cfg, st, l4Key)
 	return err
 }
 
-// l4Key changes with every engine start, as an ifindex does when an
-// interface is recreated, so a restart starts its counters afresh.
 var l4Key = func() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
@@ -67,8 +69,6 @@ func publishL4(cfg config, st *l4.Stats, done <-chan struct{}) {
 	}
 }
 
-// writeL4Counters writes ifindex, links and statistics/{rx,tx}_bytes. rx is
-// what this server received through the tunnel: Kharej→Iran on Iran.
 func writeL4Counters(cfg config, st *l4.Stats, key string) {
 	dir := filepath.Join(tunnel.L4Dir, cfg.dev)
 	if err := os.MkdirAll(filepath.Join(dir, "statistics"), 0o755); err != nil {

@@ -1,6 +1,8 @@
-// Package agent is the small service (ctunnel agent) that runs on both servers
-// next to the tunnels: it answers the tunnel benchmark on every tunnel IP and
-// switches tunnels with a backup method between their two methods.
+// Package agent is the background service (ctunnel agent) that runs on both
+// servers next to the tunnels: it serves the tunnel benchmark responder, relays
+// Telegram traffic from Iran servers through Kharej servers, sends Telegram
+// alerts, and switches tunnels with a backup method when both passive and
+// active data probes confirm the primary is down.
 package agent
 
 import (
@@ -13,28 +15,21 @@ import (
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/notify"
 	"ctunnel/pkg/speedtest"
+	"ctunnel/pkg/tgrelay"
 	"ctunnel/pkg/tunlisten"
 	"ctunnel/pkg/tunnel"
 )
 
 // BenchPort is where the benchmark responder listens, on the tunnel IPs and
-// 127.0.0.1 only. It is not 7711, which the connection test may hold.
+// 127.0.0.1 only.
 const BenchPort = 7719
 
 const (
-	checkEvery = 5 * time.Second
-	// downAfter without an answer from the other end makes a tunnel down.
-	downAfter = 45 * time.Second
-	// settle is how long a switched tunnel gets before it is judged again.
-	settle = 40 * time.Second
-	// While down, both servers run the method this picks for the current
-	// two-minute window, so they agree without talking to each other: whatever
-	// each ran before, they are on the same method within one window.
+	checkEvery   = 5 * time.Second
+	downAfter    = 45 * time.Second
+	settle       = 40 * time.Second
 	outageWindow = 2 * time.Minute
-	// A tunnel on its backup tries its primary again at the top of every hour
-	// on the clock, on both servers at once; if the primary does not answer
-	// within downAfter both go straight back.
-	retryEvery = time.Hour
+	retryEvery   = time.Hour
 )
 
 // Monitor decides failover switches. Its hooks are replaced in tests.
@@ -42,14 +37,14 @@ type Monitor struct {
 	StoreDir string
 	Now      func() time.Time
 	Probe    func(ip string) bool
-	// Links is how many connections a layer-4 tunnel holds to the other
-	// server; such a tunnel has no tunnel IP to ping, and none means down.
-	Links    func(name string) int
-	Enabled  func(tc catalog.TunnelConfig) bool
-	OnBackup func(name string) bool
-	Switch   func(storeDir string, tc catalog.TunnelConfig, backup bool) error
-	// Switched, when set, hears of every switch made (Telegram alerts).
-	Switched func(tc catalog.TunnelConfig, backup bool, why string)
+	// ActiveProbe sends a real test payload through the tunnel before
+	// declaring it down, so an idle tunnel is not mistaken for a broken one.
+	ActiveProbe func(tc catalog.TunnelConfig) bool
+	Links       func(name string) int
+	Enabled     func(tc catalog.TunnelConfig) bool
+	OnBackup    func(name string) bool
+	Switch      func(storeDir string, tc catalog.TunnelConfig, backup bool) error
+	Switched    func(tc catalog.TunnelConfig, backup bool, why string)
 
 	state map[string]*watch
 }
@@ -57,19 +52,20 @@ type Monitor struct {
 type watch struct {
 	lastOK, lastSwitch time.Time
 	lastRetry          int64
-	retrying           bool // on the primary for an hourly retry
+	retrying           bool
 }
 
 func NewMonitor(storeDir string) *Monitor {
 	return &Monitor{
-		StoreDir: storeDir,
-		Now:      time.Now,
-		Probe:    ping,
-		Links:    tunnel.L4Links,
-		Enabled:  enabled,
-		OnBackup: tunnel.OnBackup,
-		Switch:   tunnel.SwitchMethod,
-		state:    map[string]*watch{},
+		StoreDir:    storeDir,
+		Now:         time.Now,
+		Probe:       ping,
+		ActiveProbe: tunnel.ProbeAlive,
+		Links:       tunnel.L4Links,
+		Enabled:     enabled,
+		OnBackup:    tunnel.OnBackup,
+		Switch:      tunnel.SwitchMethod,
+		state:       map[string]*watch{},
 	}
 }
 
@@ -78,13 +74,11 @@ func ping(ip string) bool {
 	return err == nil
 }
 
-// enabled: a tunnel the operator stopped is left alone.
 func enabled(tc catalog.TunnelConfig) bool {
 	out, _ := tunnel.Run("systemctl", "is-enabled", tunnel.Unit(tc))
 	return strings.TrimSpace(out) == "enabled"
 }
 
-// outageBackup reports whether the method for now's outage window is the backup.
 func outageBackup(now time.Time) bool {
 	return (now.Unix()/int64(outageWindow/time.Second))%2 == 1
 }
@@ -105,8 +99,6 @@ func (m *Monitor) Check() {
 		seen[tc.Name] = true
 		w := m.state[tc.Name]
 		if w == nil {
-			// Start as if it had just answered: a fresh agent gives the tunnel
-			// downAfter to come up before judging it.
 			w = &watch{lastOK: now}
 			m.state[tc.Name] = w
 		}
@@ -115,9 +107,6 @@ func (m *Monitor) Check() {
 			continue
 		}
 		onBackup := m.OnBackup(tc.Name)
-		// The hourly retry goes by the clock and by how the backup did up to
-		// now, not by this probe: the end that switches first cuts the link for
-		// the other, which must still follow within the same minute.
 		slot := now.Unix() / int64(retryEvery/time.Second)
 		if onBackup && now.Unix()%int64(retryEvery/time.Second) < 60 && slot != w.lastRetry &&
 			now.Sub(w.lastOK) < 30*time.Second && now.Sub(w.lastSwitch) >= settle {
@@ -127,6 +116,14 @@ func (m *Monitor) Check() {
 			continue
 		}
 		if m.alive(tc, l4) {
+			w.lastOK = now
+			if w.retrying && now.Sub(w.lastSwitch) >= downAfter {
+				w.retrying = false
+				log.Printf("%s: %s works again", tc.Name, tc.Method)
+			}
+			continue
+		}
+		if now.Sub(w.lastOK) >= downAfter && m.ActiveProbe != nil && m.ActiveProbe(tc) {
 			w.lastOK = now
 			if w.retrying && now.Sub(w.lastSwitch) >= downAfter {
 				w.retrying = false
@@ -157,14 +154,11 @@ func (m *Monitor) Check() {
 	}
 }
 
-// layer4 reports whether method forwards ports (pkg/l4) rather than packets.
 func layer4(method string) bool {
 	m, ok := catalog.LookupMethod(method)
 	return ok && m.L4()
 }
 
-// alive reports whether the tunnel carries traffic now: the other end answers
-// ping on its tunnel IP, or a layer-4 tunnel holds a connection to it.
 func (m *Monitor) alive(tc catalog.TunnelConfig, l4 bool) bool {
 	if l4 {
 		return m.Links(tc.Name) > 0
@@ -188,7 +182,8 @@ func (m *Monitor) switchTo(tc catalog.TunnelConfig, w *watch, backup bool, why s
 	}
 }
 
-// Run serves the benchmark responder and checks failover until ctx ends.
+// Run serves the benchmark responder, the Telegram relay for Iran peers,
+// Telegram alerts, and failover checks until ctx ends.
 func Run(ctx context.Context, storeDir string) {
 	go func() {
 		err := tunlisten.ServeAll(ctx, BenchPort, func() []string { return tunlisten.TunnelIPs(storeDir) }, func(lctx context.Context, ln net.Listener) {
@@ -200,12 +195,15 @@ func Run(ctx context.Context, storeDir string) {
 			log.Printf("benchmark responder: %v", err)
 		}
 	}()
+	go tgrelay.ServeTunnels(ctx, func() []tgrelay.Tunnel { return relayTunnels(storeDir) })
+
 	m := NewMonitor(storeDir)
 	n := notify.New(storeDir, func(tc catalog.TunnelConfig) bool {
-		if layer4(tc.Method) {
+		eff := tunnel.Effective(tc)
+		if layer4(eff.Method) {
 			return tunnel.L4Links(tc.Name) > 0
 		}
-		return tc.TunRemote4 == "" || ping(tc.TunRemote4)
+		return eff.TunRemote4 == "" || ping(eff.TunRemote4)
 	}, enabled)
 	m.Switched = n.Failover
 	go n.Run(ctx)
@@ -219,4 +217,27 @@ func Run(ctx context.Context, storeDir string) {
 			m.Check()
 		}
 	}
+}
+
+func relayTunnels(storeDir string) []tgrelay.Tunnel {
+	st, err := catalog.LoadStore(storeDir)
+	if err != nil {
+		return nil
+	}
+	var out []tgrelay.Tunnel
+	for _, tc := range st.Tunnels {
+		if tc.Role != "kharej" || tc.Token == "" {
+			continue
+		}
+		if m, ok := catalog.LookupMethod(tc.Method); ok && m.L4() {
+			out = append(out, tgrelay.Tunnel{Name: tc.Name, BindIP: "127.0.0.1", Token: tc.Token})
+			continue
+		}
+		ip := net.ParseIP(strings.TrimSpace(tc.TunLocal4)).To4()
+		if ip == nil {
+			continue
+		}
+		out = append(out, tgrelay.Tunnel{Name: tc.Name, BindIP: ip.String(), Token: tc.Token})
+	}
+	return out
 }

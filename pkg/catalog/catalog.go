@@ -142,8 +142,10 @@ type TunnelConfig struct {
 	Lanes          int      `json:"lanes,omitempty"`
 	RateMbps       int      `json:"rate_mbps,omitempty"`
 	Padding        int      `json:"padding,omitempty"`
-	Reverse        bool     `json:"reverse,omitempty"` // kharej initiates the connection to iran
-	Ports          []string `json:"ports,omitempty"`   // forwarded on the iran side: "443" or "2053=8443"
+	Reverse        bool     `json:"reverse,omitempty"`   // kharej initiates the connection to iran
+	Carrier        bool     `json:"carrier,omitempty"`   // 8-stream BBR TCP carrier in Direct mode
+	DirectL4       bool     `json:"direct_l4,omitempty"` // Layer-4 in Direct mode (iran dials kharej)
+	Ports          []string `json:"ports,omitempty"`     // forwarded on the iran side: "443" or "2053=8443"
 	// SNI is the TLS server name and WebSocket Host of the ws/wss transports;
 	// empty means the Iran IP.
 	SNI string `json:"sni,omitempty"`

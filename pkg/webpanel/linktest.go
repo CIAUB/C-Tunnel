@@ -298,6 +298,10 @@ func (s *Server) handleLinkTestStart(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("invalid local IP"))
 		return
 	}
+	if _, err := resolveTestMethods(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	cookie, err := s.session(r)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session changed; log in again"})
@@ -343,13 +347,23 @@ func (s *Server) handleLinkTestStart(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conntest.Link, req methodTestRequest) {
 	defer func() { <-s.testSlot }()
 	defer job.cancel()
-	rows, err := runMethodTest(ctx, link, func(progress []conntest.Result) {
+	only, _ := resolveTestMethods(req)
+	progressFn := func(progress []conntest.Result) {
 		s.jobMu.Lock()
 		if s.jobs[job.ID] == job && job.Status == "running" {
 			job.Rows = append([]conntest.Result(nil), progress...)
 		}
 		s.jobMu.Unlock()
-	})
+	}
+	var (
+		rows []conntest.Result
+		err  error
+	)
+	if len(only) > 0 {
+		rows, err = runMethodTestOnly(ctx, link, progressFn, only)
+	} else {
+		rows, err = runMethodTest(ctx, link, progressFn)
+	}
 	if err != nil {
 		s.finishLinkTestJob(job, "error", err.Error(), nil, nil, conntest.Result{}, conntest.Best{})
 		return
@@ -368,9 +382,14 @@ func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conn
 			deploymentErr = "this server has no IPv4 address for deployment"
 			return
 		}
+		base := stripTestMethodPrefix(result.Method)
+		m, _ := catalog.LookupMethod(base)
 		tc := catalog.TunnelConfig{
-			Role: req.Role, Method: strings.TrimPrefix(strings.TrimPrefix(result.Method, "frp+"), "rev+"),
-			Reverse: result.Mode == "REVERSE", LocalIP: localIP, RemoteIP: link.Host,
+			Role: req.Role, Method: base,
+			Reverse:  result.Mode == "REVERSE",
+			Carrier:  result.Mode == "DIRECT" && strings.HasPrefix(result.Method, "turbo+"),
+			DirectL4: result.Mode == "DIRECT" && m.Family == catalog.FamilyReverseL4,
+			LocalIP: localIP, RemoteIP: link.Host,
 			Token: req.Token, Ports: req.Ports,
 		}
 		if tc.Role != "iran" {

@@ -23,20 +23,19 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 
 	"ctunnel/pkg/pck"
+	"ctunnel/pkg/tcpmss"
 )
 
-// listener accepts raw connections between the servers, before the handshake.
 type listener interface {
 	Accept() (net.Conn, error)
 	Close() error
 }
 
-// listen opens the Iran end of cfg's transport on its port.
 func listen(cfg *Config) (listener, error) {
 	addr := ":" + strconv.Itoa(cfg.Port)
 	switch cfg.Transport {
 	case "tcp", "tcpmux":
-		return net.Listen("tcp", addr)
+		return tcpmss.Listen(addr)
 	case "ws", "wsmux", "wss", "wssmux":
 		return listenWS(cfg, addr)
 	case "pck":
@@ -47,12 +46,11 @@ func listen(cfg *Config) (listener, error) {
 	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
 }
 
-// dial opens one Kharej connection to the Iran server.
 func dial(ctx context.Context, cfg *Config) (net.Conn, error) {
 	addr := net.JoinHostPort(cfg.RemoteIP, strconv.Itoa(cfg.Port))
 	switch cfg.Transport {
 	case "tcp", "tcpmux":
-		d := net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second}
+		d := net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second, Control: tcpmss.Control}
 		return d.DialContext(ctx, "tcp", addr)
 	case "ws", "wsmux", "wss", "wssmux":
 		return dialWS(ctx, cfg, addr)
@@ -66,8 +64,6 @@ func dial(ctx context.Context, cfg *Config) (net.Conn, error) {
 
 func tlsTransport(t string) bool { return t == "wss" || t == "wssmux" }
 
-// wsListener serves WebSocket upgrades on the token's path and hands each
-// upgraded connection to Accept. Anything else gets a plain 404.
 type wsListener struct {
 	ln    net.Listener
 	srv   *http.Server
@@ -77,7 +73,7 @@ type wsListener struct {
 }
 
 func listenWS(cfg *Config, addr string) (listener, error) {
-	ln, err := net.Listen("tcp", addr)
+	ln, err := tcpmss.Listen(addr)
 	if err != nil {
 		return nil, err
 	}
@@ -138,14 +134,12 @@ func dialWS(ctx context.Context, cfg *Config, addr string) (net.Conn, error) {
 		ReadBufferSize:   64 << 10,
 		WriteBufferSize:  64 << 10,
 		NetDialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			nd := net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second}
-			return nd.DialContext(ctx, network, addr) // always the Iran IP, whatever Host says
+			nd := net.Dialer{Timeout: 10 * time.Second, KeepAlive: 15 * time.Second, Control: tcpmss.Control}
+			return nd.DialContext(ctx, network, addr)
 		},
 	}
 	if tlsTransport(cfg.Transport) {
 		scheme = "wss"
-		// The tunnel's own handshake authenticates the server; the certificate is
-		// self-signed and only gives the connection the look of HTTPS.
 		d.TLSClientConfig = &tls.Config{ServerName: host, InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}
 	}
 	if _, port, _ := net.SplitHostPort(addr); port != "" && host != "" {
@@ -161,7 +155,6 @@ func dialWS(ctx context.Context, cfg *Config, addr string) (net.Conn, error) {
 	return newWSConn(c), nil
 }
 
-// selfSignedCert makes a throwaway certificate for wss, named after sni.
 func selfSignedCert(sni string) (tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
 	if err != nil {
@@ -190,24 +183,10 @@ func selfSignedCert(sni string) (tls.Certificate, error) {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
 
-// pck, udp and udpmux: KCP sessions, AES-encrypted with a key from the token.
-// pck carries them in TCP segments built by hand (pkg/pck); udp and udpmux in
-// plain UDP datagrams.
-
 func kcpBlock(token string) (kcp.BlockCrypt, error) {
 	return kcp.NewAESBlockCrypt(pbkdf2.Key([]byte(token), []byte("ctunnel-l4-kcp-v1"), 4096, 32, sha256.New))
 }
 
-// tuneKCP is the fast profile: no delay, 10 ms tick, fast resend, no
-// congestion window, large windows, stream mode for full segments. A session
-// has at most a window of segments in flight, so 4096 of about 1.3 KB allow
-// some 400 Mbit/s at 100 ms where 1024 stopped near 100.
-//
-// Acks go out once per tick, not one packet per segment received: data is
-// still sent at once. The ack flood was a third of the packets on the wire and
-// fed KCP's RTT estimate with samples that set off needless resends. Batched,
-// a session ran 2 to 2.5 times faster on a LAN, a quarter faster at 50 ms and
-// 10-20% faster at 150 ms with loss, with the same round-trip time.
 func tuneKCP(s *kcp.UDPSession, mtu int) {
 	s.SetNoDelay(1, 10, 2, 1)
 	s.SetWindowSize(4096, 4096)
@@ -219,9 +198,9 @@ func tuneKCP(s *kcp.UDPSession, mtu int) {
 
 type kcpListener struct {
 	ln    *kcp.Listener
-	conn  net.PacketConn // pck's packet socket; nil when ln owns a UDP socket
+	conn  net.PacketConn
 	mtu   int
-	frame bool // udp: each session is one stream, framed by kcpConn
+	frame bool
 	once  sync.Once
 }
 
@@ -268,8 +247,6 @@ func (k *kcpListener) Accept() (net.Conn, error) {
 	return s, nil
 }
 
-// Close removes the carrier's firewall rules before it returns, also to a
-// second caller, so the process does not exit halfway through.
 func (k *kcpListener) Close() error {
 	var err error
 	k.once.Do(func() {
@@ -305,8 +282,6 @@ func dialPCK(cfg *Config) (net.Conn, error) {
 	return s, nil
 }
 
-// dialKCP opens one KCP session to Iran from a UDP socket of its own, so each
-// session is a flow of its own on the path.
 func dialKCP(cfg *Config, addr string) (net.Conn, error) {
 	block, err := kcpBlock(cfg.Token)
 	if err != nil {

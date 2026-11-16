@@ -25,8 +25,8 @@ func TestTelegramSettingsNeverShowTheToken(t *testing.T) {
 	moveTelegramFiles(t)
 	c, st, _ := setup(t)
 	c.login(st.PanelCode)
-	res, body := c.do("POST", "/api/telegram", map[string]any{"token": tgToken, "chat_id": "424242", "down": true, "daily": true, "daily_at": "08:15"})
-	if res.StatusCode != http.StatusOK || body["token"] != "123456789:…e123" || body["chat_id"] != "424242" || body["daily_at"] != "08:15" {
+	res, body := c.do("POST", "/api/telegram", map[string]any{"token": tgToken, "chat_id": "424242", "down": true, "daily": true, "daily_at": "08:15", "lang": "en"})
+	if res.StatusCode != http.StatusOK || body["token"] != "123456789:…e123" || body["chat_id"] != "424242" || body["daily_at"] != "08:15" || body["lang"] != "en" {
 		t.Fatalf("save: %d %v", res.StatusCode, body)
 	}
 	_, body = c.do("GET", "/api/telegram", nil)
@@ -47,7 +47,7 @@ func TestTelegramSettingsNeverShowTheToken(t *testing.T) {
 	}
 }
 
-func TestTelegramIsRefusedOnAnIranServer(t *testing.T) {
+func TestTelegramWorksOnAnIranServer(t *testing.T) {
 	moveTelegramFiles(t)
 	c, st, _ := setup(t)
 	st.Tunnels = []catalog.TunnelConfig{{Name: "ir1", Role: "iran", Method: "gre"}}
@@ -59,11 +59,8 @@ func TestTelegramIsRefusedOnAnIranServer(t *testing.T) {
 	if body["iran"] != true {
 		t.Fatalf("not seen as Iran: %v", body)
 	}
-	if res, _ := c.do("POST", "/api/telegram", map[string]any{"token": tgToken, "chat_id": "1"}); res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Iran saved alerts: %d", res.StatusCode)
-	}
-	if res, _ := c.do("POST", "/api/telegram/test", nil); res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("Iran sent a test: %d", res.StatusCode)
+	if res, _ := c.do("POST", "/api/telegram", map[string]any{"token": tgToken, "chat_id": "1", "lang": "fa"}); res.StatusCode != http.StatusOK {
+		t.Fatalf("Iran could not save alerts: %d", res.StatusCode)
 	}
 }
 

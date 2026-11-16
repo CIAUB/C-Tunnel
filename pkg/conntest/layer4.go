@@ -19,57 +19,55 @@ import (
 	"ctunnel/pkg/speedtest"
 )
 
-// The layer-4 rows are not shape probes: for each transport the Iran responder
-// starts a real layer-4 tunnel on L4Port, the Kharej side dials it, and the
-// Iran side measures through it to a speed server on Kharej's loopback, as the
-// tunnel benchmark does. So the handshake, the encryption and the exact wire
-// shape of tcp, ws, wss, udp, pck and the rest are what is tested.
-
 // DefaultL4Port is where the Iran responder runs the layer-4 test tunnels.
 const DefaultL4Port = 7714
 
 const (
-	ctlL4Start   = 'L' // iran: start a layer-4 tunnel; arg = kharej's target port, payload = transport
-	ctlL4Measure = 'M' // iran: measure through it
-	ctlL4Read    = 'N' // iran: the measurement, when done
-	ctlL4Stop    = 'S' // iran: stop the layer-4 tunnel
+	ctlL4Start   = 'L'
+	ctlL4Measure = 'M'
+	ctlL4Read    = 'N'
+	ctlL4Stop    = 'S'
 )
 
 const (
-	l4Running = 1 // measurement states, in the top bits of the 'N' reply
+	l4Running = 1
 	l4Done    = 2
 	l4Failed  = 3
-	// l4Measure bounds one measurement: waiting for the link, then the probes
-	// and the speed test.
 	l4Measure = 45 * time.Second
-	// l4Idle stops a test tunnel the Kharej side forgot.
-	l4Idle = 2 * time.Minute
+	l4Idle    = 2 * time.Minute
 )
 
-// l4Token is the 64-hex tunnel secret both ends derive from the test token.
 func l4Token(token []byte) string {
 	sum := sha256.Sum256(append([]byte("ctunnel-conntest-l4|"), token...))
 	return hex.EncodeToString(sum[:])
 }
 
-// packL4 packs a measurement into the 8 bytes a control reply carries:
-// state (2 bits), echoes received (6), RTT in 0.1 ms (20), and download and
-// upload in Mbit/s (18 each), as Iran measured them.
-func packL4(state int, received int, rttMs, down, up float64) uint64 {
+// packL4 packs state (2b), received (6b), rtt*10 (12b), jitter*10 (10b),
+// down (17b), and up (17b) into 64 bits.
+func packL4(state int, received int, rttMs, jitterMs, down, up float64) uint64 {
 	clamp := func(v float64, bits uint) uint64 {
 		if v < 0 || math.IsNaN(v) {
 			return 0
 		}
 		return uint64(math.Min(v, float64(uint64(1)<<bits-1)))
 	}
-	return uint64(state)<<62 | clamp(float64(received), 6)<<56 | clamp(rttMs*10, 20)<<36 | clamp(down, 18)<<18 | clamp(up, 18)
+	return uint64(state)<<62 |
+		clamp(float64(received), 6)<<56 |
+		clamp(rttMs*10, 12)<<44 |
+		clamp(jitterMs*10, 10)<<34 |
+		clamp(down, 17)<<17 |
+		clamp(up, 17)
 }
 
-func unpackL4(v uint64) (state, received int, rttMs, down, up float64) {
-	return int(v >> 62), int(v >> 56 & 63), float64(v>>36&(1<<20-1)) / 10, float64(v >> 18 & (1<<18 - 1)), float64(v & (1<<18 - 1))
+func unpackL4(v uint64) (state, received int, rttMs, jitterMs, down, up float64) {
+	return int(v >> 62),
+		int(v >> 56 & 63),
+		float64(v>>44&(1<<12-1)) / 10,
+		float64(v>>34&(1<<10-1)) / 10,
+		float64(v >> 17 & (1<<17 - 1)),
+		float64(v & (1<<17 - 1))
 }
 
-// l4Responder is the Iran side of the layer-4 rows.
 type l4Responder struct {
 	mu      sync.Mutex
 	cancel  context.CancelFunc
@@ -77,20 +75,17 @@ type l4Responder struct {
 	stats   *l4.Stats
 	fwd     int
 	result  uint64
-	started map[uint32]bool // measurement nonces already started
+	started map[uint32]bool
 	idle    *time.Timer
 
 	startNonce  uint32
 	startResult uint64
 }
 
-// controlL4 serves the four layer-4 commands and returns the reply value.
 func (r *Responder) controlL4(cmd byte, arg uint16, nonce uint32, body []byte) uint64 {
 	t := &r.l4
 	switch cmd {
 	case ctlL4Start:
-		// A start whose reply was lost comes again with the same nonce; it
-		// must not restart a tunnel the Kharej side may already be dialing.
 		t.mu.Lock()
 		if t.startNonce == nonce && t.startNonce != 0 {
 			v := t.startResult
@@ -122,7 +117,7 @@ func (r *Responder) controlL4(cmd byte, arg uint16, nonce uint32, body []byte) u
 			return 0
 		}
 		t.started[nonce] = true
-		t.result = packL4(l4Running, 0, 0, 0, 0)
+		t.result = packL4(l4Running, 0, 0, 0, 0, 0)
 		go r.measureL4(t.stats, t.fwd)
 		return 0
 	case ctlL4Read:
@@ -133,8 +128,6 @@ func (r *Responder) controlL4(cmd byte, arg uint16, nonce uint32, body []byte) u
 	return 0
 }
 
-// startL4 replaces the running test tunnel with one of transport, forwarding
-// a fresh local port to target on the Kharej side.
 func (r *Responder) startL4(transport string, target int) error {
 	if !validL4(transport) || target < 1 || target > 65535 {
 		return errors.New("bad layer-4 request")
@@ -147,14 +140,19 @@ func (r *Responder) startL4(transport string, target int) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	st := &l4.Stats{}
 	done, errc := make(chan struct{}), make(chan error, 1)
-	cfg := l4.Config{Role: "iran", Transport: transport, Port: int(r.l4Port.Load()), Token: l4Token(r.token),
-		Forwards: []l4.Forward{{Listen: fwd, Target: target}}}
+	cfg := l4.Config{
+		Role:      "iran",
+		Transport: transport,
+		Port:      int(r.l4Port.Load()),
+		Token:     l4Token(r.token),
+		Forwards:  []l4.Forward{{Listen: fwd, Target: target}},
+	}
 	go func() {
 		defer close(done)
 		errc <- l4.Run(ctx, cfg, st)
 	}()
 	select {
-	case err := <-errc: // it could not listen
+	case err := <-errc:
 		cancel()
 		if err == nil {
 			err = errors.New("the layer-4 test tunnel stopped at once")
@@ -188,8 +186,6 @@ func (r *Responder) stopL4() {
 	}
 }
 
-// measureL4 waits for the Kharej side to connect, then probes and measures
-// through the forwarded port, which ends at Kharej's speed server.
 func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 	set := func(v uint64) {
 		r.l4.mu.Lock()
@@ -203,14 +199,21 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if st.Links.Load() == 0 {
-		set(packL4(l4Failed, 0, 0, 0, 0))
+		set(packL4(l4Failed, 0, 0, 0, 0, 0))
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), l4Measure)
 	defer cancel()
-	res := speedtest.Run(ctx, net.JoinHostPort("127.0.0.1", strconv.Itoa(fwd)), Probes)
-	received := int(math.Round(float64(Probes) * (100 - res.LossPct) / 100))
-	set(packL4(l4Done, received, res.AvgMs, res.DownloadMbps, res.UploadMbps))
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(fwd))
+	rtts, _ := speedtest.EchoRTTs(addr, Probes)
+	received := len(rtts)
+	rtt, jitter := stats(rtts)
+	var down, up float64
+	if received > 0 {
+		res := speedtest.Run(ctx, addr, 2)
+		down, up = res.DownloadMbps, res.UploadMbps
+	}
+	set(packL4(l4Done, received, rtt, jitter, down, up))
 }
 
 func validL4(transport string) bool {
@@ -218,12 +221,8 @@ func validL4(transport string) bool {
 	return ok && m.L4()
 }
 
-// SetL4Port sets where the layer-4 test tunnels listen; 0 turns them off.
-// Set it before handing out the link.
 func (r *Responder) SetL4Port(port int) { r.l4Port.Store(int32(port)) }
 
-// FreeL4Port is a port free now for both TCP and UDP, for the layer-4 test
-// tunnels of a responder whose other ports are chosen by the system too.
 func FreeL4Port() int {
 	for i := 0; i < 20; i++ {
 		p, err := freePort()
@@ -234,9 +233,6 @@ func FreeL4Port() int {
 	return DefaultL4Port
 }
 
-// Ports picks the responder's ports: the defaults when they are free, else
-// the next free ones above them, so a busy port does not stop the test. The
-// layer-4 port must be free for both TCP and UDP.
 func Ports() (udp, tcp, l4 int) {
 	taken := map[int]bool{}
 	pick := func(def int, nets ...string) int {
@@ -253,7 +249,7 @@ func Ports() (udp, tcp, l4 int) {
 				return p
 			}
 		}
-		return def // nothing free nearby: let the listener report the error
+		return def
 	}
 	udp = pick(DefaultUDPPort, "udp4")
 	tcp = pick(speedtest.DefaultSpeedPort, "tcp4")
@@ -288,9 +284,6 @@ func freePort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// measureL4 is the Kharej side of one layer-4 row: a speed server on this
-// server's loopback, a real layer-4 tunnel to the Iran responder, and Iran's
-// measurement through it. Download is Iran to Kharej, as in the other rows.
 func (s *session) measureL4(ctx context.Context, l Link, transport string) Result {
 	m, _ := catalog.LookupMethod(transport)
 	row := Result{Method: transport, Family: string(m.Family), Mode: "REVERSE", Sent: Probes}
@@ -317,11 +310,15 @@ func (s *session) measureL4(ctx context.Context, l Link, transport string) Resul
 	cctx, cancel := context.WithCancel(ctx)
 	cerr := make(chan error, 1)
 	go func() {
-		cerr <- l4.Run(cctx, l4.Config{Role: "kharej", Transport: transport, Port: l.L4Port, RemoteIP: l.Host,
-			Token: l4Token(s.token), Forwards: []l4.Forward{{Listen: target, Target: target}}}, &l4.Stats{})
+		cerr <- l4.Run(cctx, l4.Config{
+			Role:      "kharej",
+			Transport: transport,
+			Port:      l.L4Port,
+			RemoteIP:  l.Host,
+			Token:     l4Token(s.token),
+			Forwards:  []l4.Forward{{Listen: target, Target: target}},
+		}, &l4.Stats{})
 	}()
-	// The client closes first, so the TCP TIME_WAIT stays on this side and
-	// not on the Iran tunnel port, where pck has to bind it next.
 	defer func() {
 		cancel()
 		select {
@@ -352,15 +349,13 @@ func (s *session) measureL4(ctx context.Context, l Link, transport string) Resul
 		if !ok {
 			continue
 		}
-		state, received, rtt, down, up := unpackL4(uint64(v))
+		state, received, rtt, jitter, down, up := unpackL4(uint64(v))
 		switch state {
 		case l4Failed:
 			row.Received = 0
-			return row // the tunnel never connected: blocked
+			return row
 		case l4Done:
-			// Iran downloads what Kharej sends; for the board, download is
-			// Iran to Kharej.
-			row.Received, row.RTTms, row.DownMbps, row.UpMbps = received, rtt, up, down
+			row.Received, row.RTTms, row.JitterMs, row.DownMbps, row.UpMbps = received, rtt, jitter, up, down
 			return row
 		}
 	}

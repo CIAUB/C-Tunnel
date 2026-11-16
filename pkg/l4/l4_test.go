@@ -226,8 +226,35 @@ func TestUnfinishedHandshakesAreBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if err := clientHandshake(c, testToken); err != nil {
+	if err := clientHandshake(c, testToken, [runIDLen]byte{}); err != nil {
 		t.Fatalf("handshake after the flood: %v", err)
+	}
+}
+
+func TestDirectModeL4CarriesTCPAndUDP(t *testing.T) {
+	for _, tr := range []string{"tcp", "tcpmux", "ws", "udpmux"} {
+		t.Run("direct-"+tr, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			target := services(t)
+			tunPort, fwd := freePort(t), freePort(t)
+			st := &Stats{}
+			kharej := Config{
+				Role: "kharej", Transport: tr, Direct: true, Port: tunPort,
+				Token: testToken, Logf: t.Logf,
+			}
+			iran := Config{
+				Role: "iran", Transport: tr, Direct: true, Port: tunPort, RemoteIP: "127.0.0.1",
+				Token: testToken, Pool: 4, Conns: 2,
+				Forwards: []Forward{{Listen: fwd, Target: target}}, Logf: t.Logf,
+			}
+			go func() { _ = Run(ctx, kharej, nil) }()
+			time.Sleep(150 * time.Millisecond)
+			go func() { _ = Run(ctx, iran, st) }()
+			time.Sleep(250 * time.Millisecond)
+			roundTrip(t, fwd, 1<<20, !Mux(tr))
+			udpTrip(t, fwd)
+		})
 	}
 }
 

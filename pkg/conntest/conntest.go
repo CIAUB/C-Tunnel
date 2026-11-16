@@ -1009,6 +1009,14 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 	}
 	notify()
 
+	anyProbeWanted := false
+	for i := range s.ps {
+		if wanted(s.ps[i].method) {
+			anyProbeWanted = true
+			break
+		}
+	}
+
 	// Phase 1, DIRECT: iran starts every method toward kharej, the way a DIRECT
 	// tunnel starts. This runs first, before kharej has sent anything that a
 	// stateful middlebox could treat as an open session.
@@ -1027,9 +1035,9 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 		notify()
 	}
-	for step := 1; udpOpen && step <= Probes; step++ {
+	for step := 1; udpOpen && anyProbeWanted && step <= Probes; step++ {
 		for i := range s.ps {
-			if usable(i) {
+			if usable(i) && wanted(s.ps[i].method) {
 				set(dirRow[i], func(r *Result) { r.Phase, r.Sent = "echo", step })
 			}
 		}
@@ -1039,13 +1047,13 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 	}
 	for i := range s.ps {
-		if !udpOpen {
+		if !udpOpen || !anyProbeWanted {
 			break
 		}
 		if i == 0 && !sleep(ctx, replyWait) {
 			return nil, ctx.Err()
 		}
-		if !usable(i) {
+		if !usable(i) || !wanted(s.ps[i].method) {
 			continue
 		}
 		v, _ := s.control(ctx, ctlPingRead, i, 0)
@@ -1075,9 +1083,9 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 	})
 	body := make([]byte, bodyLen)
-	for seq := 0; udpOpen && seq < Probes; seq++ {
+	for seq := 0; udpOpen && anyProbeWanted && seq < Probes; seq++ {
 		for i := range s.ps {
-			if revRow[i] < 0 {
+			if revRow[i] < 0 || !wanted(s.ps[i].method) {
 				continue
 			}
 			_, _ = rand.Read(body)
@@ -1089,12 +1097,12 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			return nil, ctx.Err()
 		}
 	}
-	if udpOpen && !sleep(ctx, replyWait) {
+	if udpOpen && anyProbeWanted && !sleep(ctx, replyWait) {
 		return nil, ctx.Err()
 	}
 	s.setHandler(nil)
 	for i := range s.ps {
-		if udpOpen && revRow[i] >= 0 {
+		if udpOpen && anyProbeWanted && revRow[i] >= 0 && wanted(s.ps[i].method) {
 			set(revRow[i], func(r *Result) { finish(r, rtts[i]) })
 			push(revRow[i])
 		}

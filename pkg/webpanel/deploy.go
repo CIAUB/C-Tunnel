@@ -16,7 +16,10 @@ import (
 	"ctunnel/pkg/tunnel"
 )
 
-var runMethodTest = conntest.Run
+var (
+	runMethodTest     = conntest.Run
+	runMethodTestOnly = conntest.RunOnly
+)
 
 type testDeployment struct {
 	Owner    string
@@ -35,12 +38,46 @@ type methodTestRequest struct {
 	LocalIP string   `json:"local_ip"`
 	Token   string   `json:"token"`
 	Ports   []string `json:"ports"`
+	Mode    string   `json:"mode,omitempty"`
+	Methods []string `json:"methods,omitempty"`
+}
+
+func resolveTestMethods(req methodTestRequest) ([]string, error) {
+	switch strings.ToLower(strings.TrimSpace(req.Mode)) {
+	case "", "all", "1":
+		if len(req.Methods) == 0 {
+			return nil, nil
+		}
+		if err := conntest.CheckOnly(req.Methods); err != nil {
+			return nil, err
+		}
+		return req.Methods, nil
+	case "v2", "new", "2":
+		return append([]string(nil), conntest.NewMethods...), nil
+	case "custom", "select", "3":
+		if len(req.Methods) == 0 {
+			return nil, errors.New("select at least one method to test")
+		}
+		if err := conntest.CheckOnly(req.Methods); err != nil {
+			return nil, err
+		}
+		return req.Methods, nil
+	default:
+		return nil, errors.New("invalid test mode")
+	}
 }
 
 // chooseBest uses only successful measured rows, penalizing latency and jitter.
 // A TCP baseline or a family-level suggestion is never turned into a GRE result.
 func chooseBest(rows []conntest.Result) (conntest.Result, bool) {
 	return chooseBestMode(rows, "")
+}
+
+func stripTestMethodPrefix(method string) string {
+	for _, p := range []string{"frp+", "rev+", "turbo+"} {
+		method = strings.TrimPrefix(method, p)
+	}
+	return method
 }
 
 func chooseBestMode(rows []conntest.Result, mode string) (conntest.Result, bool) {
@@ -53,7 +90,7 @@ func chooseBestMode(rows []conntest.Result, mode string) (conntest.Result, bool)
 		if r.Status() != "ok" || r.Sent < conntest.Probes || r.Received != r.Sent || r.DownMbps <= 0 || r.UpMbps <= 0 {
 			continue
 		}
-		base := strings.TrimPrefix(strings.TrimPrefix(r.Method, "frp+"), "rev+")
+		base := stripTestMethodPrefix(r.Method)
 		m, ok := catalog.LookupMethod(base)
 		if !ok || m.Name != base {
 			continue
@@ -118,9 +155,19 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, errors.New("invalid local IP"))
 		return
 	}
+	only, err := resolveTestMethods(req)
+	if err != nil {
+		writeError(w, 400, err)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	rows, err := runMethodTest(ctx, link, nil)
+	var rows []conntest.Result
+	if len(only) > 0 {
+		rows, err = runMethodTestOnly(ctx, link, nil, only)
+	} else {
+		rows, err = runMethodTest(ctx, link, nil)
+	}
 	if err != nil {
 		writeError(w, 502, err)
 		return
@@ -133,7 +180,15 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, e)
 			return
 		}
-		tc := catalog.TunnelConfig{Role: req.Role, Method: strings.TrimPrefix(strings.TrimPrefix(best.Method, "frp+"), "rev+"), Reverse: best.Mode == "REVERSE", LocalIP: req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports}
+		base := stripTestMethodPrefix(best.Method)
+		m, _ := catalog.LookupMethod(base)
+		tc := catalog.TunnelConfig{
+			Role: req.Role, Method: base,
+			Reverse:  best.Mode == "REVERSE",
+			Carrier:  best.Mode == "DIRECT" && strings.HasPrefix(best.Method, "turbo+"),
+			DirectL4: best.Mode == "DIRECT" && m.Family == catalog.FamilyReverseL4,
+			LocalIP: req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports,
+		}
 		if tc.Role != "iran" {
 			tc.Ports = nil
 		}

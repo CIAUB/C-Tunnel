@@ -1,26 +1,10 @@
-// Package l4 is the layer-4 reverse tunnel, after BackPack's reverse engine
-// (AGPL-3.0, https://github.com/AminMGMT/BackPack): the Iran server listens on
-// the tunnel port and on every forwarded port, the Kharej server dials out to it
-// and, for each user connection, dials the service on its own loopback. There
-// is no tunnel interface and no tunnel IP; each user connection or UDP flow
-// rides its own stream, so TCP never runs inside TCP.
+// Package l4 implements layer-4 stream transports (both Reverse and Direct):
+// tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux.
 //
-// Transports:
-//
-//	tcp      one TCP connection per user connection, from a pool Kharej keeps open
-//	tcpmux   streams multiplexed (smux) over a few TCP connections
-//	pck      streams over KCP inside TCP segments built by hand (pkg/pck)
-//	ws       as tcp, each connection a WebSocket
-//	wsmux    as tcpmux, over WebSockets
-//	wss      as ws, inside TLS
-//	wssmux   as wsmux, inside TLS
-//	udp      one KCP session over UDP per user connection, from a pool
-//	udpmux   streams multiplexed (smux) over a few KCP sessions over UDP
-//
-// Every connection between the servers starts with a handshake in which each
-// side proves it knows the tunnel token. Past that, tcp and ws carry the users'
-// bytes as they are, as BackPack does; wss adds TLS, and pck, udp and udpmux
-// are AES-encrypted by KCP.
+// In Reverse mode (default), Iran listens on Port and Kharej dials out to Iran.
+// In Direct mode (Config.Direct == true), Iran dials out to Kharej on Port and
+// Kharej listens on Port. In both modes, Iran listens on the user-facing
+// forwarded ports (Forwards) and Kharej delivers each stream to 127.0.0.1:Target.
 package l4
 
 import (
@@ -85,20 +69,29 @@ func ParseForwards(specs []string) ([]Forward, error) {
 
 // Config is one tunnel end.
 type Config struct {
-	Role      string // "iran" listens, "kharej" dials
+	Role      string // "iran" or "kharej"
 	Transport string
-	// Iran: the port to listen on. Kharej: the Iran server's address and port.
+	// Direct when true reverses who dials the carrier: Iran dials Kharej on
+	// RemoteIP:Port instead of Kharej dialing Iran.
+	Direct   bool
 	Port     int
 	RemoteIP string
 	Token    string // the tunnel's 64-hex secret
 	Forwards []Forward
-	// SNI is the TLS server name (wss, wssmux) and the WebSocket Host header;
-	// empty means the Iran IP.
-	SNI string
-	// Pool is how many idle connections Kharej keeps open (tcp, ws, wss);
-	// Conns how many carrier connections it multiplexes over (the mux transports).
+	SNI      string
+	// LocalSocket is the Unix socket path on Iran for Telegram relay streams.
+	LocalSocket string
+	// ProbeSocket is the Unix socket path for active tunnel echo/RTT probes.
+	ProbeSocket string
 	Pool, Conns int
 	Logf        func(format string, args ...any)
+}
+
+func (c *Config) isDialer() bool {
+	if c.Direct {
+		return c.Role == "iran"
+	}
+	return c.Role == "kharej"
 }
 
 func (c *Config) check() error {
@@ -111,8 +104,8 @@ func (c *Config) check() error {
 	if c.Port < 1 || c.Port > 65535 {
 		return errors.New("port must be 1-65535")
 	}
-	if c.Role == "kharej" && net.ParseIP(c.RemoteIP) == nil {
-		return errors.New("the Iran server's IP is required")
+	if c.isDialer() && net.ParseIP(c.RemoteIP) == nil {
+		return errors.New("the peer server's IP is required")
 	}
 	if len(c.Token) < 16 {
 		return errors.New("token too short")
@@ -138,40 +131,62 @@ func wsPath(token string) string {
 	return "/" + hex.EncodeToString(sum[:6])
 }
 
-// Handshake. The client speaks first:
-//
-//	client: "CT4\x01" | cnonce[16]
-//	server: snonce[16] | HMAC(token, "s" | cnonce | snonce)[:16]
-//	client: HMAC(token, "c" | cnonce | snonce)[:16]
-//
-// so each side learns the other knows the token, and a recorded handshake
-// cannot be replayed against fresh nonces.
+// Handshake:
+//   client: "CT4\x01" | cnonce[16] (or "CT4\x02" | cnonce[16] | runID[8])
+//   server: snonce[16] | HMAC(token, "s" | cnonce | snonce)[:16]
+//   client: HMAC(token, "c" | cnonce | snonce)[:16]
 const (
-	magic            = "CT4\x01"
+	magicV1          = "CT4\x01"
+	magicV2          = "CT4\x02"
 	nonceLen         = 16
+	runIDLen         = 8
 	macLen           = 16
 	handshakeTimeout = 10 * time.Second
 )
 
 var errAuth = errors.New("handshake failed: wrong token or not a C-Tunnel peer")
 
-func mac(token string, tag byte, cnonce, snonce []byte) []byte {
+func mac(token string, tag byte, cnonce, snonce, extra []byte) []byte {
 	h := hmac.New(sha256.New, []byte(token))
 	h.Write([]byte{tag})
 	h.Write(cnonce)
 	h.Write(snonce)
+	h.Write(extra)
 	return h.Sum(nil)[:macLen]
 }
 
-func clientHandshake(c net.Conn, token string) error {
+func clientHandshake(c net.Conn, token string, runID [runIDLen]byte) error {
 	_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
 	defer c.SetDeadline(time.Time{})
-	hello := make([]byte, len(magic)+nonceLen)
-	copy(hello, magic)
-	cnonce := hello[len(magic):]
+	var zero [runIDLen]byte
+	if runID == zero {
+		hello := make([]byte, len(magicV1)+nonceLen)
+		copy(hello, magicV1)
+		cnonce := hello[len(magicV1):]
+		if _, err := rand.Read(cnonce); err != nil {
+			return err
+		}
+		if _, err := c.Write(hello); err != nil {
+			return err
+		}
+		reply := make([]byte, nonceLen+macLen)
+		if _, err := io.ReadFull(c, reply); err != nil {
+			return err
+		}
+		snonce := reply[:nonceLen]
+		if !hmac.Equal(reply[nonceLen:], mac(token, 's', cnonce, snonce, nil)) {
+			return errAuth
+		}
+		_, err := c.Write(mac(token, 'c', cnonce, snonce, nil))
+		return err
+	}
+	hello := make([]byte, len(magicV2)+nonceLen+runIDLen)
+	copy(hello, magicV2)
+	cnonce := hello[len(magicV2) : len(magicV2)+nonceLen]
 	if _, err := rand.Read(cnonce); err != nil {
 		return err
 	}
+	copy(hello[len(magicV2)+nonceLen:], runID[:])
 	if _, err := c.Write(hello); err != nil {
 		return err
 	}
@@ -180,50 +195,63 @@ func clientHandshake(c net.Conn, token string) error {
 		return err
 	}
 	snonce := reply[:nonceLen]
-	if !hmac.Equal(reply[nonceLen:], mac(token, 's', cnonce, snonce)) {
+	if !hmac.Equal(reply[nonceLen:], mac(token, 's', cnonce, snonce, runID[:])) {
 		return errAuth
 	}
-	_, err := c.Write(mac(token, 'c', cnonce, snonce))
+	_, err := c.Write(mac(token, 'c', cnonce, snonce, runID[:]))
 	return err
 }
 
-func serverHandshake(c net.Conn, token string) error {
+func serverHandshake(c net.Conn, token string) ([runIDLen]byte, error) {
+	var runID [runIDLen]byte
 	_ = c.SetDeadline(time.Now().Add(handshakeTimeout))
 	defer c.SetDeadline(time.Time{})
-	hello := make([]byte, len(magic)+nonceLen)
+	hello := make([]byte, len(magicV1)+nonceLen)
 	if _, err := io.ReadFull(c, hello); err != nil {
-		return err
+		return runID, err
 	}
-	if string(hello[:len(magic)]) != magic {
-		return errAuth
+	hdr := string(hello[:len(magicV1)])
+	var extra []byte
+	switch hdr {
+	case magicV1:
+	case magicV2:
+		if _, err := io.ReadFull(c, runID[:]); err != nil {
+			return runID, err
+		}
+		extra = runID[:]
+	default:
+		return runID, errAuth
 	}
-	cnonce := hello[len(magic):]
+	cnonce := hello[len(magicV1):]
 	reply := make([]byte, nonceLen+macLen)
 	snonce := reply[:nonceLen]
 	if _, err := rand.Read(snonce); err != nil {
-		return err
+		return runID, err
 	}
-	copy(reply[nonceLen:], mac(token, 's', cnonce, snonce))
+	copy(reply[nonceLen:], mac(token, 's', cnonce, snonce, extra))
 	if _, err := c.Write(reply); err != nil {
-		return err
+		return runID, err
 	}
 	answer := make([]byte, macLen)
 	if _, err := io.ReadFull(c, answer); err != nil {
-		return err
+		return runID, err
 	}
-	if !hmac.Equal(answer, mac(token, 'c', cnonce, snonce)) {
-		return errAuth
+	if !hmac.Equal(answer, mac(token, 'c', cnonce, snonce, extra)) {
+		return runID, errAuth
 	}
-	return nil
+	return runID, nil
 }
 
-// A stream starts with a header from Iran saying what Kharej should open:
-// kind (1 TCP, 2 UDP) and the target port on Kharej's loopback. Kind 0 is a
-// keepalive on an idle pool connection and carries no stream.
+// Stream kinds:
+//   kindPing (0): keepalive on an idle pool connection
+//   kindTCP  (1): TCP stream to 127.0.0.1:port on Kharej
+//   kindUDP  (2): UDP flow to 127.0.0.1:port on Kharej
+//   kindEcho (3): 16-byte active tunnel echo probe (verifies data round-trip & RTT)
 const (
 	kindPing = 0
 	kindTCP  = 1
 	kindUDP  = 2
+	kindEcho = 3
 )
 
 func writeHeader(w io.Writer, kind byte, port int) error {
@@ -242,8 +270,13 @@ func readHeader(r io.Reader) (kind byte, port int, err error) {
 	return h[0], int(binary.BigEndian.Uint16(h[1:])), nil
 }
 
+var dgramBufs = sync.Pool{New: func() any { b := make([]byte, 65537); return &b }}
+
 // UDP datagrams travel on a stream as [length u16][datagram].
-func writeDatagram(w io.Writer, buf []byte, p []byte) error {
+func writeDatagram(w io.Writer, p []byte) error {
+	bp := dgramBufs.Get().(*[]byte)
+	defer dgramBufs.Put(bp)
+	buf := *bp
 	n := copy(buf[2:], p)
 	binary.BigEndian.PutUint16(buf, uint16(n))
 	_, err := w.Write(buf[:2+n])
@@ -261,48 +294,47 @@ func readDatagram(r io.Reader, buf []byte) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// pipe copies both ways until either side ends, then closes both. Bytes are
-// added to ab (a→b) and ba (b→a) as they move, so live rates can be read.
+const (
+	streamIdle      = 10 * time.Minute
+	halfCloseIdle   = 30 * time.Second
+	copyChunk       = 1 << 20
+)
+
+var copyBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
+
 func pipe(a, b net.Conn, ab, ba *atomic.Int64) {
 	done := make(chan struct{})
 	go func() {
 		copyCounted(b, a, ab)
 		closeWrite(b)
+		_ = a.SetReadDeadline(time.Now().Add(halfCloseIdle))
 		close(done)
 	}()
 	copyCounted(a, b, ba)
 	closeWrite(a)
+	_ = b.SetReadDeadline(time.Now().Add(halfCloseIdle))
 	<-done
 	_ = a.Close()
 	_ = b.Close()
 }
 
-var copyBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
-
-// copyChunk bounds one io.Copy call, so the counters move while a long
-// transfer runs.
-const copyChunk = 1 << 20
-
-// copyCounted copies src to dst until either ends. It goes through io.Copy in
-// chunks rather than a read/write loop so that between two TCP sockets (the
-// tcp transport, at both ends) the kernel splices the bytes and they never
-// enter this process.
-func copyCounted(dst io.Writer, src io.Reader, n *atomic.Int64) {
+func copyCounted(dst net.Conn, src net.Conn, n *atomic.Int64) {
 	bp := copyBufs.Get().(*[]byte)
 	defer copyBufs.Put(bp)
 	lr := &io.LimitedReader{R: src}
 	for {
+		_ = src.SetReadDeadline(time.Now().Add(streamIdle))
 		lr.N = copyChunk
 		m, err := io.CopyBuffer(dst, lr, *bp)
-		n.Add(m)
+		if m > 0 {
+			n.Add(m)
+		}
 		if err != nil || m < copyChunk {
 			return
 		}
 	}
 }
 
-// closeWrite ends one direction where the connection allows it, so a
-// half-closed TCP exchange (a request then EOF) still gets its answer.
 func closeWrite(c net.Conn) {
 	if cw, ok := c.(interface{ CloseWrite() error }); ok {
 		_ = cw.CloseWrite()
@@ -311,13 +343,6 @@ func closeWrite(c net.Conn) {
 	_ = c.Close()
 }
 
-// muxStream hides two faults of smux. Once both sides of a stream have sent
-// FIN, smux drops what the reader has not read yet, so a stream is never
-// half-closed (no CloseWrite: closeWrite closes it fully, as BackPack does) and
-// a peer that closes still has everything it sent delivered. And a Read can
-// return io.ErrClosedPipe while sent data is still buffered; reading again
-// returns it, then io.EOF. The stream is wrapped, not embedded, to hide smux's
-// WriteTo, which io.Copy would otherwise use and which has the same fault.
 type muxStream struct{ s *smux.Stream }
 
 func (m muxStream) Read(p []byte) (int, error) {
