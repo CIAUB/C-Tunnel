@@ -264,16 +264,16 @@ details[open] summary{margin-bottom:12px}
 .foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .foot-links a:hover{color:var(--tx)}
 .foot-links svg{width:15px;height:15px}
-/* sponsor: centred in the sticky header on wide screens, a strip under it on narrow ones */
-.sponsor-top{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:10px;line-height:0;text-decoration:none;opacity:0;transition:opacity .6s cubic-bezier(.22,1,.36,1)}
-.sponsor-top img{display:block;height:46px;width:auto;border-radius:9px;box-shadow:0 0 0 1px var(--ln);transition:filter .2s}
-.sponsor-top:hover img{filter:brightness(1.06)}
-.sp-tag{font-size:9.5px;line-height:1;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
-.sponsor-strip{display:none}
+/* sponsor: full-width slim strip from start to end of the shell, entire image contained */
+.sponsor-top{display:none!important}
+.sp-tag{flex:none;padding:4px 9px;border-radius:999px;border:1px solid var(--ln2);background:var(--s2);font-size:9.5px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
+.sponsor-strip{display:flex;align-items:center;justify-content:center;gap:14px;width:100%;height:58px;max-height:58px;padding:5px 16px;border:1px solid var(--ln2);border-radius:14px;background:linear-gradient(90deg,var(--s1),var(--s2),var(--s1));text-decoration:none;line-height:0;opacity:0;transition:opacity .5s var(--spring),border-color .2s;overflow:hidden}
+.sponsor-strip:hover{border-color:var(--ac)}
+.sponsor-strip img{display:block;flex:1;min-width:0;width:100%;height:46px;max-height:46px;object-fit:contain;object-position:center;border-radius:8px;transition:filter .2s}
+.sponsor-strip:hover img{filter:brightness(1.06)}
 .sponsor-top.in,.sponsor-strip.in{opacity:1}
-@media(max-width:999px){.sponsor-top{display:none}.sponsor-strip{display:block;line-height:0;opacity:0;transition:opacity .6s cubic-bezier(.22,1,.36,1)}.sponsor-strip img{display:block;width:100%;height:auto;max-height:72px;object-fit:contain;border-radius:10px}}
-@media(max-width:1279px){.sponsor-top .sp-tag{display:none}}
-.sponsor-top[hidden],.sponsor-strip[hidden]{display:none}
+@media(max-width:640px){.sponsor-strip{height:50px;max-height:50px;padding:4px 10px;gap:8px}.sponsor-strip img{height:40px;max-height:40px}.sponsor-strip .sp-tag{display:none}}
+.sponsor-top[hidden],.sponsor-strip[hidden]{display:none!important}
 .ip-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .ip-choices:empty{display:none}
 .ip-choices .btn{font-size:12px;padding:4px 8px}
@@ -376,7 +376,96 @@ details[open] summary{margin-bottom:12px}
 .probe-pill.warn{border-color:color-mix(in srgb,var(--wr) 40%,transparent);color:var(--wr)}
 .probe-pill.bad{border-color:color-mix(in srgb,var(--er) 40%,transparent);color:var(--er)}
 .sec-box{padding:14px;border:1px solid var(--ln);border-radius:12px;background:var(--s2);display:grid;gap:12px}
-@media(max-width:720px){.scope-tabs{grid-template-columns:minmax(0,1fr)}}
+.st-gauge-card{position:relative;overflow:hidden;display:grid;grid-template-columns:310px minmax(0,1fr);gap:24px;align-items:center;padding:22px 24px;border:1px solid rgba(56,189,248,.32);border-radius:20px;background:radial-gradient(90% 110% at 16% 24%,#0c2744 0%,#0b1528 48%,#070b14 100%);color:#f8fafc;box-shadow:0 24px 50px -20px rgba(2,6,23,.82),inset 0 1px 0 rgba(255,255,255,.1)}
+.st-gauge-card::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.14;background-image:radial-gradient(rgba(148,163,184,.55) 1px,transparent 1px);background-size:16px 16px;-webkit-mask-image:linear-gradient(115deg,#000 10%,transparent 75%);mask-image:linear-gradient(115deg,#000 10%,transparent 75%)}
+.st-dial-wrap{position:relative;display:grid;place-items:center;z-index:1}
+.st-svg{width:300px;height:232px;overflow:visible;display:block}
+.st-bezel{fill:none;stroke:rgba(148,163,184,.14);stroke-width:1.5;stroke-dasharray:4 4}
+.st-inner-ring{fill:none;stroke:rgba(56,189,248,.14);stroke-width:1.2;stroke-dasharray:2 5}
+.st-track{fill:none;stroke:rgba(15,23,42,.85);stroke-width:15;stroke-linecap:round}
+.st-track-rim{fill:none;stroke:rgba(148,163,184,.16);stroke-width:17;stroke-linecap:round}
+.st-arc{fill:none;stroke:url(#st-grad-dl);stroke-width:15;stroke-linecap:round;stroke-dasharray:402.1;stroke-dashoffset:402.1;filter:drop-shadow(0 0 10px rgba(56,189,248,.45));transition:stroke-dashoffset .32s var(--spring)}
+.st-arc.up{stroke:url(#st-grad-ul);filter:drop-shadow(0 0 10px rgba(16,185,129,.45))}
+.st-tick{stroke:rgba(148,163,184,.26);stroke-width:1.6;stroke-linecap:round;transition:stroke .2s}
+.st-tick.maj{stroke:rgba(226,232,240,.55);stroke-width:2.2}
+.st-tick.lit{stroke:#38bdf8;filter:drop-shadow(0 0 4px rgba(56,189,248,.6))}
+.st-tick.lit.up{stroke:#34d399;filter:drop-shadow(0 0 4px rgba(52,211,153,.6))}
+.st-tick-lbl{fill:#94a3b8;stroke:none;font:700 10px var(--mono);text-anchor:middle;dominant-baseline:middle;transition:fill .2s}
+.st-tick-lbl.lit{fill:#f8fafc}
+.st-tip{fill:#fff;stroke:#38bdf8;stroke-width:3;filter:drop-shadow(0 0 8px #38bdf8);transition:cx .32s var(--spring),cy .32s var(--spring)}
+.st-tip.up{stroke:#34d399;filter:drop-shadow(0 0 8px #34d399)}
+.st-needle{fill:url(#st-needle-grad);stroke:none;filter:drop-shadow(0 2px 6px rgba(0,0,0,.65))}
+.st-hub-outer{fill:#0f172a;stroke:rgba(148,163,184,.35);stroke-width:2}
+.st-hub{fill:#38bdf8;stroke:#0f172a;stroke-width:3;filter:drop-shadow(0 0 8px rgba(56,189,248,.8))}
+.st-hub.up{fill:#34d399;filter:drop-shadow(0 0 8px rgba(52,211,153,.8))}
+.st-center{position:absolute;bottom:8px;left:0;right:0;text-align:center;display:grid;justify-items:center;gap:3px;pointer-events:none}
+.st-center b{font:800 38px/1 var(--mono);letter-spacing:-.04em;color:#fff;text-shadow:0 0 22px rgba(56,189,248,.42)}
+.st-center small{display:inline-flex;padding:2px 9px;border-radius:999px;background:rgba(15,23,42,.85);border:1px solid rgba(56,189,248,.28);font:700 9.5px/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:#38bdf8}
+.st-info{position:relative;z-index:1;display:grid;gap:14px;min-width:0}
+.st-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.st-proto{font:800 19px/1.2 var(--mono);color:#fff;letter-spacing:-.02em}
+.st-phase-pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:999px;border:1px solid rgba(56,189,248,.4);background:rgba(56,189,248,.12);font:700 11px/1.3 var(--mono);color:#38bdf8;letter-spacing:.04em}
+.st-phase-pill.done{border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.14);color:#34d399}
+.st-phase-pill .pdot{width:7px;height:7px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:stpulse 1.1s ease-in-out infinite}
+@keyframes stpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+.st-badge{display:inline-flex;padding:3px 9px;border-radius:999px;border:1px solid rgba(148,163,184,.25);background:rgba(15,23,42,.7);font:700 10.5px/1.3 var(--mono);color:#cbd5e1}
+.st-badge.ok{border-color:rgba(52,211,153,.4);color:#34d399;background:rgba(52,211,153,.1)}
+.st-pwrap{display:grid;gap:6px;padding:10px 14px;border-radius:12px;border:1px solid rgba(148,163,184,.16);background:rgba(15,23,42,.65)}
+.st-ptop{display:flex;align-items:center;justify-content:space-between;gap:8px;font:600 11.5px/1.2 var(--mono);color:#cbd5e1}
+.st-pbar{height:7px;border-radius:999px;background:rgba(30,41,59,.9);overflow:hidden}
+.st-pbar i{display:block;height:100%;width:0%;border-radius:999px;background:linear-gradient(90deg,#38bdf8,#818cf8,#34d399);box-shadow:0 0 12px rgba(56,189,248,.6);transition:width .3s var(--spring)}
+.st-stream-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.st-scard{position:relative;overflow:hidden;padding:12px 14px 34px;border-radius:14px;border:1px solid rgba(148,163,184,.18);background:linear-gradient(180deg,rgba(15,23,42,.82),rgba(9,13,22,.92));display:grid;gap:4px}
+.st-scard.dl{border-color:rgba(56,189,248,.28)}
+.st-scard.ul{border-color:rgba(52,211,153,.28)}
+.st-shead{display:flex;align-items:center;justify-content:space-between;gap:6px;font:700 10.5px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:#94a3b8}
+.st-shead .dir{display:inline-flex;align-items:center;gap:5px;color:#38bdf8}
+.st-scard.ul .st-shead .dir{color:#34d399}
+.st-sval{display:flex;align-items:baseline;gap:6px}
+.st-sval b{font:800 24px/1.1 var(--mono);color:#fff;letter-spacing:-.03em}
+.st-sval small{font:700 11px var(--mono);color:#94a3b8}
+.st-spark{position:absolute;left:0;right:0;bottom:0;width:100%;height:32px;stroke:none;pointer-events:none}
+.st-spark .ln{fill:none;stroke-width:2;vector-effect:non-scaling-stroke}
+.st-scard.dl .st-spark .ln{stroke:#38bdf8}
+.st-scard.ul .st-spark .ln{stroke:#34d399}
+.st-scard.dl .st-spark .ar{fill:url(#st-dl-fill)}
+.st-scard.ul .st-spark .ar{fill:url(#st-ul-fill)}
+.st-tele-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.st-stat{padding:10px 12px;border:1px solid rgba(148,163,184,.16);border-radius:12px;background:rgba(15,23,42,.68);display:grid;gap:4px}
+.st-stat .k{font:700 10px/1.2 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:#94a3b8;display:flex;align-items:center;justify-content:space-between;gap:5px}
+.st-stat .v{font:800 16px/1.2 var(--mono);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st-stat .sub{font:500 11px/1.2 var(--mono);color:#94a3b8}
+.st-leds{display:flex;gap:3px;align-items:center;margin-top:2px}
+.st-leds i{flex:1;height:5px;border-radius:2px;background:rgba(148,163,184,.2);transition:background-color .2s,box-shadow .2s}
+.st-leds i.ok{background:#34d399;box-shadow:0 0 6px rgba(52,211,153,.55)}
+.st-leds i.bad{background:#ef4444}
+.mode-switch{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mode-card{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 13px;border:1px solid var(--ln2);border-radius:12px;background:var(--field);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s}
+.mode-card b{font-size:13px;color:var(--tx);display:flex;align-items:center;gap:6px;width:100%}
+.mode-card span{font-size:11px;color:var(--mu);line-height:1.35}
+.mode-card[aria-pressed=true]{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 11%,var(--s1));box-shadow:0 0 0 1px var(--ac)}
+.proto-picker{display:grid;gap:10px;padding:14px;border:1px solid var(--ln2);border-radius:14px;background:var(--s2)}
+.proto-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.proto-tabs{display:flex;gap:5px;flex-wrap:wrap;flex:1}
+.proto-tab{min-height:30px;padding:0 11px;border:1px solid var(--ln2);border-radius:999px;background:var(--s1);color:var(--mu);font-size:11.5px;font-weight:600;cursor:pointer;transition:border-color .15s,color .15s,background-color .15s}
+.proto-tab:hover{color:var(--tx);border-color:var(--ln3)}
+.proto-tab[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
+.proto-search{max-width:210px;min-height:32px;padding:5px 11px;border-radius:999px;font-size:12px;margin-left:auto}
+.proto-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px;max-height:236px;overflow:auto;padding:2px}
+.proto-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:9px 11px;border:1px solid var(--ln);border-radius:11px;background:var(--s1);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s,transform .1s}
+.proto-card:hover{border-color:var(--ln3);background:var(--s3)}
+.proto-card[aria-selected=true]{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,var(--s1));box-shadow:0 0 0 1px var(--ac)}
+.proto-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
+.proto-card-head code{background:none;padding:0;font:700 12.5px/1.2 var(--mono);color:var(--tx)}
+.proto-tag{display:inline-flex;padding:1px 6px;border-radius:999px;font:700 9.5px/1.4 var(--mono);border:1px solid var(--ln2);background:var(--s2);color:var(--mu);white-space:nowrap}
+.proto-tag.fast{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--s1))}
+.proto-tag.v2{border-color:color-mix(in srgb,var(--ac) 45%,transparent);color:var(--ac);background:color-mix(in srgb,var(--ac) 10%,var(--s1))}
+.proto-card-desc{font-size:11px;color:var(--mu);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.proto-cur{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 11px;border-radius:10px;border:1px dashed var(--ln2);background:var(--s1);font-size:12px}
+.proto-cur code{font-weight:700;color:var(--ac)}
+.v2-pills{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;border-top:1px dashed var(--ln2)}
+@media(max-width:860px){.st-gauge-card{grid-template-columns:minmax(0,1fr);justify-items:center}.st-info{width:100%}.st-stream-grid,.st-tele-row{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:720px){.scope-tabs,.mode-switch{grid-template-columns:minmax(0,1fr)}.proto-search{max-width:none;width:100%;margin-left:0}}
 </style>
 </head>
 <body>
@@ -427,7 +516,7 @@ details[open] summary{margin-bottom:12px}
     <a class="btn icon tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg></a>
     <button id="btn-logout" class="btn icon" type="button" aria-label="Log out"><svg aria-hidden="true"><use href="#i-exit"/></svg></button>
   </header>
-  <a class="sponsor-strip" id="sponsor-strip" hidden href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer" aria-label="Sponsor"><img id="sponsor-img2" alt="Sponsor" decoding="async"></a>
+  <a class="sponsor-strip" id="sponsor-strip" hidden href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer" aria-label="Sponsor"><span class="sp-tag">Sponsor</span><img id="sponsor-img2" alt="Sponsor" decoding="async"></a>
 
   <div class="rule">Server</div>
   <section class="card meters" aria-label="Resource usage">
@@ -523,10 +612,11 @@ details[open] summary{margin-bottom:12px}
         <div class="method-scope" role="group" aria-label="Methods to test">
           <label>Methods to test</label>
           <div class="scope-tabs">
-            <button type="button" class="scope-btn" data-scope="all" aria-pressed="true"><b>1 · All methods</b><span>Every Direct, Reverse, Turbo &amp; Layer-4 method</span></button>
-            <button type="button" class="scope-btn" data-scope="v2" aria-pressed="false"><b>2 · New in 2.0</b><span>Only methods &amp; carriers introduced in v2.0</span></button>
+            <button type="button" class="scope-btn" data-scope="all" aria-pressed="true"><b>1 · All methods</b><span>Every Direct, Reverse, Fast Direct L4 &amp; Turbo method (45 protocols)</span></button>
+            <button type="button" class="scope-btn" data-scope="v2" aria-pressed="false"><b>2 · New in 2.0</b><span>All v2.0+ additions: xGRE, xGRE-IP, Fast Direct L4, Turbo, Layer-4, Stealth &amp; UDP-Crypt</span></button>
             <button type="button" class="scope-btn" data-scope="custom" aria-pressed="false"><b>3 · Select methods</b><span>Pick specific families or individual protocols</span></button>
           </div>
+          <div id="t-v2-box" class="v2-pills" hidden></div>
           <div id="t-picker-box" class="picker-box" hidden>
             <div class="picker-bar">
               <button type="button" class="chip-btn" data-pick-fam="all">Select all</button>
@@ -555,10 +645,87 @@ details[open] summary{margin-bottom:12px}
           <button id="t-stop-job" class="btn danger" type="button" hidden>Stop test</button>
         </div>
         <div id="t-kharej-dash" class="ct-dash" hidden>
-          <div id="t-live-bar" class="ct-progress" hidden>
-            <span id="t-live-label" class="mono" style="font-size:12px;font-weight:600">Probing methods…</span>
-            <div class="ct-pbar"><i id="t-live-fill"></i></div>
-            <span id="t-live-pct" class="num mono" style="font-size:12px">0%</span>
+          <div id="t-speed-gauge" class="st-gauge-card">
+            <div class="st-dial-wrap">
+              <svg class="st-svg" viewBox="0 0 320 236" aria-hidden="true">
+                <defs>
+                  <linearGradient id="st-grad-dl" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#0ea5e9"/>
+                    <stop offset="50%" stop-color="#38bdf8"/>
+                    <stop offset="100%" stop-color="#818cf8"/>
+                  </linearGradient>
+                  <linearGradient id="st-grad-ul" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#059669"/>
+                    <stop offset="55%" stop-color="#10b981"/>
+                    <stop offset="100%" stop-color="#38bdf8"/>
+                  </linearGradient>
+                  <linearGradient id="st-needle-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#ffffff"/>
+                    <stop offset="100%" stop-color="#38bdf8"/>
+                  </linearGradient>
+                  <linearGradient id="st-dl-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.32"/>
+                    <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0"/>
+                  </linearGradient>
+                  <linearGradient id="st-ul-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#34d399" stop-opacity="0.32"/>
+                    <stop offset="100%" stop-color="#34d399" stop-opacity="0.0"/>
+                  </linearGradient>
+                </defs>
+                <circle class="st-bezel" cx="160" cy="132" r="108"/>
+                <circle class="st-inner-ring" cx="160" cy="132" r="72"/>
+                <path class="st-track-rim" d="M 76.9 180.0 A 96 96 0 1 1 243.1 180.0"/>
+                <path class="st-track" d="M 76.9 180.0 A 96 96 0 1 1 243.1 180.0"/>
+                <path id="st-arc" class="st-arc" d="M 76.9 180.0 A 96 96 0 1 1 243.1 180.0"/>
+                <g id="st-ticks"></g>
+                <circle id="st-tip" class="st-tip" cx="76.9" cy="180.0" r="5"/>
+                <polygon id="st-needle" class="st-needle" points="92,171 158,128 162,136 172,139"/>
+                <circle class="st-hub-outer" cx="160" cy="132" r="14"/>
+                <circle id="st-hub" class="st-hub" cx="160" cy="132" r="6"/>
+              </svg>
+              <div class="st-center">
+                <b id="st-mbps" class="num">0.0</b>
+                <small id="st-unit">Mbps Peak</small>
+              </div>
+            </div>
+            <div class="st-info">
+              <div class="st-head">
+                <span id="st-phase" class="st-phase-pill"><span class="pdot"></span><span id="st-phase-txt">PROBING</span></span>
+                <b id="st-method" class="st-proto">—</b>
+                <span id="st-mode" class="st-badge ok">REVERSE</span>
+                <span id="st-family" class="st-badge">—</span>
+              </div>
+              <div id="t-live-bar" class="st-pwrap">
+                <div class="st-ptop">
+                  <span id="t-live-label">Probing methods…</span>
+                  <span id="t-live-pct" class="num">0%</span>
+                </div>
+                <div class="st-pbar"><i id="t-live-fill"></i></div>
+              </div>
+              <div class="st-stream-grid">
+                <div class="st-scard dl">
+                  <div class="st-shead"><span class="dir">↓ Download Stream</span><span id="st-down-sub">Peak burst</span></div>
+                  <div class="st-sval"><b id="st-down" class="num">—</b><small id="st-down-u">Mbps</small></div>
+                  <svg class="st-spark" viewBox="0 0 240 32" preserveAspectRatio="none" aria-hidden="true">
+                    <path id="st-dl-area" class="ar"></path>
+                    <path id="st-dl-line" class="ln"></path>
+                  </svg>
+                </div>
+                <div class="st-scard ul">
+                  <div class="st-shead"><span class="dir">↑ Upload Stream</span><span id="st-up-sub">Return stream</span></div>
+                  <div class="st-sval"><b id="st-up" class="num">—</b><small id="st-up-u">Mbps</small></div>
+                  <svg class="st-spark" viewBox="0 0 240 32" preserveAspectRatio="none" aria-hidden="true">
+                    <path id="st-ul-area" class="ar"></path>
+                    <path id="st-ul-line" class="ln"></path>
+                  </svg>
+                </div>
+              </div>
+              <div class="st-tele-row">
+                <div class="st-stat"><div class="k"><span>Ping / RTT</span><span id="st-rtt-grade" style="color:#38bdf8">—</span></div><div id="st-rtt" class="v num">—</div><div id="st-jitter" class="sub">Echo latency</div></div>
+                <div class="st-stat"><div class="k"><span>Path MTU</span><span id="st-mtu-grade" style="color:#34d399">AUTO</span></div><div id="st-mtu-val" class="v num">1420 B</div><div id="st-mtu-sub" class="sub">Optimal payload</div></div>
+                <div class="st-stat"><div class="k"><span>Echo Probes</span><span id="st-probes" class="num" style="color:#fff">0/10</span></div><div id="st-leds" class="st-leds"></div><div id="st-loss" class="sub">Packet integrity</div></div>
+              </div>
+            </div>
           </div>
           <div id="t-summary-cards" class="ct-cards" hidden></div>
           <div class="ct-toolbar">
@@ -683,13 +850,29 @@ details[open] summary{margin-bottom:12px}
     <div id="create-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div class="grid2">
       <div><label for="f-role">This server is</label><select id="f-role"><option value="iran">Iran — users connect here</option><option value="kharej">Kharej</option></select></div>
-      <div><label for="f-reverse">Tunnel mode</label><select id="f-reverse"><option value="0">DIRECT</option><option value="1">REVERSE — kharej dials in</option></select></div>
+      <div>
+        <label id="f-reverse-l">Tunnel mode</label>
+        <select id="f-reverse" class="sr" aria-labelledby="f-reverse-l"><option value="1" selected>1 · REVERSE — kharej dials in</option><option value="0">2 · DIRECT — iran dials kharej</option></select>
+        <div class="mode-switch" role="group" aria-labelledby="f-reverse-l">
+          <button type="button" class="mode-card" data-tmode="1" aria-pressed="true"><b>1 · REVERSE <span class="proto-tag v2">Anti-DPI</span></b><span>Kharej dials into Iran (frp+ / rev+ / L4)</span></button>
+          <button type="button" class="mode-card" data-tmode="0" aria-pressed="false"><b>2 · DIRECT <span class="proto-tag fast">Fast Turbo &amp; L4</span></b><span>Iran dials Kharej (Direct L4, 8x BBR Turbo, xGRE, Raw)</span></button>
+        </div>
+      </div>
     </div>
     <p id="kharej-hint" class="hint" hidden>Fill in what the Iran server shows for this tunnel: its IP, method, port and secret. Or close this and use Add from link.</p>
-    <div class="grid2">
-      <div><label for="f-method">Method</label><select id="f-method"></select></div>
-      <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
+    <div class="proto-picker" role="group" aria-label="Protocol selection">
+      <div class="proto-cur">
+        <span>Selected protocol: <code id="proto-cur-name">frp+gre</code> <span id="proto-cur-desc" class="hint"></span></span>
+        <span id="proto-cur-badge" class="proto-tag v2">REVERSE</span>
+      </div>
+      <div class="proto-top">
+        <div id="proto-tabs" class="proto-tabs" role="tablist" aria-label="Protocol family filter"></div>
+        <input id="proto-search" class="proto-search" type="search" placeholder="Search protocol (xgre, tcpmux, wg…)" aria-label="Search protocol" autocomplete="off">
+      </div>
+      <div id="proto-grid" class="proto-grid" role="listbox" aria-label="Protocols"></div>
+      <select id="f-method" class="sr" aria-label="Method"></select>
     </div>
+    <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
     <div id="l4-wrap" class="grid2" hidden>
       <div><label for="f-l4port" id="f-l4port-l">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
       <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="the Iran IP"></div>
@@ -1163,7 +1346,7 @@ function tunnelState(t) {
   }
 }
 function methodLabel(t) {
-  if (t.family === "Reverse-L4") return (t.direct_l4 && !t.reverse ? "dir-l4+" : "") + t.method;
+  if (t.family === "Reverse-L4") return (t.direct_l4 && !t.reverse ? "direct+" : "") + t.method;
   if (!t.reverse) return (t.carrier ? "turbo+" : "") + t.method;
   return (t.family === "UDP-Crypt" || t.family === "Stealth" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
 }
@@ -1533,8 +1716,12 @@ function validateForm(form, errorID) {
 }
 function num(id) { const v = $(id).value.trim(); return v === "" ? 0 : Number(v); }
 
+let protoFamFilter = "all", protoSearchQuery = "";
+const V2_METHOD_SET = new Set(["tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip"]);
+
 function fillMethods(list) {
   methods = list;
+  for (const v of newMethods) V2_METHOD_SET.add(v);
   for (const sel of [$("f-method"), $("f-backup")]) {
     const groups = {};
     for (const m of methods) {
@@ -1548,7 +1735,23 @@ function fillMethods(list) {
     for (const m of methods) selectedTestMethods.add(m.Name);
   }
   renderMethodPicker();
+  renderV2Pills();
   syncForm();
+}
+function renderV2Pills() {
+  const box = $("t-v2-box");
+  if (!box) return;
+  box.replaceChildren();
+  const items = newMethods && newMethods.length ? newMethods : Array.from(V2_METHOD_SET);
+  const extras = ["direct+<l4> (Fast Direct L4)", "turbo+<l2/l3> (8x BBR Turbo Direct)"];
+  for (const name of [...items, ...extras]) {
+    const pill = el("span", "port-pill", name);
+    if (name === "xgre" || name === "xgre-ip" || name.startsWith("direct+") || name.startsWith("turbo+")) {
+      pill.style.borderColor = "color-mix(in srgb,var(--ok) 45%,transparent)";
+      pill.style.color = "var(--ok)";
+    }
+    box.appendChild(pill);
+  }
 }
 function renderMethodPicker() {
   const grid = $("t-picker-grid");
@@ -1565,7 +1768,7 @@ function renderMethodPicker() {
       updatePickerCount();
     };
     const code = el("code", "", m.Name);
-    const fam = el("small", "", m.Family.replace("Reverse-", "").replace("-Direct", ""));
+    const fam = el("small", "", (V2_METHOD_SET.has(m.Name) ? "v2 · " : "") + m.Family.replace("Reverse-", "").replace("-Direct", ""));
     lbl.append(cb, code, fam);
     lbl.title = m.Title;
     grid.appendChild(lbl);
@@ -1580,6 +1783,7 @@ function setTestScope(scope) {
   testScope = scope;
   document.querySelectorAll("[data-scope]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.scope === scope)));
   $("t-picker-box").hidden = scope !== "custom";
+  if ($("t-v2-box")) $("t-v2-box").hidden = scope !== "v2";
 }
 document.querySelectorAll("[data-scope]").forEach(b => { b.onclick = () => setTestScope(b.dataset.scope); });
 document.querySelectorAll("[data-pick-fam]").forEach(b => {
@@ -1603,10 +1807,124 @@ const familyLabel = {
   "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)",
 };
 function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && mm.Family === "Reverse-L4"); }
+
+function renderProtoPicker() {
+  const tabsBox = $("proto-tabs"), grid = $("proto-grid");
+  if (!tabsBox || !grid || !methods.length) return;
+  const rev = $("f-reverse").value === "1";
+  const curMethod = $("f-method").value || "gre";
+  const curTurbo = !rev && $("f-carrier").checked;
+  const curSpec = methods.find(x => x.Name === curMethod);
+  const curL4 = !!(curSpec && curSpec.Family === "Reverse-L4");
+
+  const dispName = rev
+    ? (curL4 ? curMethod : (curSpec && (curSpec.Family === "UDP-Crypt" || curSpec.Family === "Stealth" || curMethod === "wireguard") ? "rev+" + curMethod : "frp+" + curMethod))
+    : (curL4 ? "direct+" + curMethod : (curTurbo ? "turbo+" + curMethod : curMethod));
+  if ($("proto-cur-name")) $("proto-cur-name").textContent = dispName;
+  if ($("proto-cur-desc")) $("proto-cur-desc").textContent = curSpec ? "— " + curSpec.Title : "";
+  if ($("proto-cur-badge")) {
+    $("proto-cur-badge").textContent = rev ? "1 · REVERSE" : (curTurbo || curL4 ? "2 · FAST DIRECT" : "2 · DIRECT");
+    $("proto-cur-badge").className = "proto-tag " + (rev ? "v2" : "fast");
+  }
+
+  const tabDefs = rev
+    ? [
+        ["all", "All Reverse"],
+        ["Reverse-L4", "Layer 4 (Port Fwd)"],
+        ["L3-Direct", "L3 Kernel (frp+)"],
+        ["L2-Direct", "L2 Kernel (frp+)"],
+        ["UDP-Crypt", "UDP-Crypt (rev+)"],
+        ["Stealth", "Stealth (rev+)"]
+      ]
+    : [
+        ["fast", "⚡ Fast Direct (Turbo & L4)"],
+        ["L3-Direct", "L3 Kernel (xGRE / GRE / WG)"],
+        ["L2-Direct", "L2 Kernel (EoIP / VXLAN)"],
+        ["Reverse-L4", "Direct Layer 4"],
+        ["UDP-Crypt", "UDP-Crypt"],
+        ["Stealth", "Stealth"],
+        ["all", "All Direct"]
+      ];
+  if (!tabDefs.some(t => t[0] === protoFamFilter)) {
+    protoFamFilter = rev ? "all" : "fast";
+  }
+  tabsBox.replaceChildren();
+  for (const [id, label] of tabDefs) {
+    const b = el("button", "proto-tab", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(protoFamFilter === id));
+    b.onclick = () => { protoFamFilter = id; renderProtoPicker(); };
+    tabsBox.appendChild(b);
+  }
+
+  const q = protoSearchQuery.trim().toLowerCase();
+  const entries = [];
+  for (const m of methods) {
+    if (rev && m.IPv6Underlay) continue;
+    const mL4 = m.Family === "Reverse-L4";
+    const canTurbo = !rev && !mL4 && (m.Family === "L3-Direct" || m.Family === "L2-Direct") && !m.IPv6Underlay;
+    if (!rev && protoFamFilter === "fast" && !q) {
+      if (m.Name === "xgre" || m.Name === "xgre-ip") {
+        entries.push({ m, turbo: false, code: m.Name, badge: "NEW 2.0", badgeCls: "v2", desc: m.Title });
+      }
+      if (canTurbo) {
+        entries.push({ m, turbo: true, code: "turbo+" + m.Name, badge: "8x BBR", badgeCls: "fast", desc: "8-stream BBR TCP Turbo · " + m.Title });
+      } else if (mL4) {
+        entries.push({ m, turbo: false, code: "direct+" + m.Name, badge: "DIRECT L4", badgeCls: "fast", desc: "Zero-copy splice Direct L4 · " + m.Title });
+      }
+      continue;
+    }
+    if (protoFamFilter !== "all" && protoFamFilter !== "fast" && m.Family !== protoFamFilter) continue;
+    const code = rev
+      ? (mL4 ? m.Name : (m.Family === "UDP-Crypt" || m.Family === "Stealth" || m.Name === "wireguard" ? "rev+" + m.Name : "frp+" + m.Name))
+      : (mL4 ? "direct+" + m.Name : m.Name);
+    const badge = (m.Name === "xgre" || m.Name === "xgre-ip") ? "NEW xGRE" : mL4 && !rev ? "DIRECT L4" : V2_METHOD_SET.has(m.Name) ? "NEW 2.0" : m.MikroTik ? "MIKROTIK" : m.Family.replace("Reverse-", "").replace("-Direct", "");
+    const badgeCls = (m.Name === "xgre" || m.Name === "xgre-ip" || (mL4 && !rev)) ? "fast" : V2_METHOD_SET.has(m.Name) ? "v2" : "";
+    entries.push({ m, turbo: false, code, badge, badgeCls, desc: m.Title });
+    if (!rev && canTurbo && (protoFamFilter === "all" || q)) {
+      entries.push({ m, turbo: true, code: "turbo+" + m.Name, badge: "8x BBR", badgeCls: "fast", desc: "8-stream BBR TCP Turbo · " + m.Title });
+    }
+  }
+
+  const filtered = entries.filter(e => !q || [e.code, e.m.Name, e.m.Family, e.desc, e.badge].join(" ").toLowerCase().includes(q));
+  grid.replaceChildren();
+  for (const item of filtered) {
+    const selected = item.m.Name === curMethod && (rev || (item.m.Family === "Reverse-L4") || item.turbo === curTurbo);
+    const card = el("button", "proto-card");
+    card.type = "button";
+    card.setAttribute("role", "option");
+    card.setAttribute("aria-selected", String(selected));
+    const head = el("div", "proto-card-head");
+    head.append(el("code", "", item.code), el("span", "proto-tag" + (item.badgeCls ? " " + item.badgeCls : ""), item.badge));
+    const desc = el("div", "proto-card-desc", item.desc);
+    card.append(head, desc);
+    card.onclick = () => {
+      $("f-method").value = item.m.Name;
+      $("f-carrier").checked = !rev && !!item.turbo;
+      syncForm();
+    };
+    grid.appendChild(card);
+  }
+}
+document.querySelectorAll("[data-tmode]").forEach(b => {
+  b.onclick = () => {
+    $("f-reverse").value = b.dataset.tmode;
+    protoFamFilter = b.dataset.tmode === "1" ? "all" : "fast";
+    syncForm();
+  };
+});
+if ($("proto-search")) {
+  $("proto-search").addEventListener("input", () => {
+    protoSearchQuery = $("proto-search").value;
+    renderProtoPicker();
+  });
+}
+
 function syncForm() {
   const l4 = isL4($("f-method").value);
   $("f-reverse").disabled = false;
   const rev = $("f-reverse").value === "1";
+  document.querySelectorAll("[data-tmode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tmode === $("f-reverse").value)));
   for (const o of $("f-method").options) {
     const mm = methods.find(x => x.Name === o.value);
     o.hidden = o.disabled = rev && !!(mm && mm.IPv6Underlay);
@@ -1647,6 +1965,7 @@ function syncForm() {
   $("lanes-wrap").hidden = !(m && m.SupportsLanes);
   $("tid-wrap").hidden = !(m && ["eoip", "l2tpv3"].includes(m.Name));
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
+  renderProtoPicker();
 }
 $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
@@ -1664,6 +1983,7 @@ function openCreate(t) {
   if (t) {
     $("f-role").value = t.role; $("f-reverse").value = t.reverse ? "1" : "0"; $("f-method").value = t.method;
     $("f-carrier").checked = !!t.carrier;
+    protoFamFilter = "all";
     $("f-remote").value = t.remote_ip === "0.0.0.0" || t.remote_ip === "::" ? "" : (t.remote_ip || "");
     $("f-local").value = t.local_ip || ""; $("f-name").value = t.name;
     $("f-index").value = t.index || ""; $("f-port").value = t.port || ""; $("f-token").value = t.token || "";
@@ -1674,6 +1994,11 @@ function openCreate(t) {
     $("f-backup").value = t.backup_method || ""; $("f-bport").value = t.backup_port || "";
     $("f-tun-iran").value = t.role === "iran" ? (t.tun_local4 || "") : (t.tun_remote4 || "");
     $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
+  } else {
+    $("f-reverse").value = "1";
+    protoFamFilter = "all";
+    if ($("proto-search")) $("proto-search").value = "";
+    protoSearchQuery = "";
   }
   syncForm();
   openRouteDialog("dlg-new");
@@ -2200,7 +2525,192 @@ function testBadge(r) {
   return ["PASSED", "ok", ""];
 }
 function mbps(v) { return v > 0 ? Number(v).toFixed(1) + " Mbps" : "—"; }
-function stripPrefix(m) { return (m || "").replace(/^(frp\+|rev\+|turbo\+)/, ""); }
+function stripPrefix(m) { return (m || "").replace(/^(frp\+|rev\+|turbo\+|direct\+)/, ""); }
+const ST_SCALE = [
+  [0, "0"], [0.125, "10"], [0.25, "25"], [0.375, "50"],
+  [0.5, "100"], [0.625, "250"], [0.75, "500"], [0.875, "750"], [1, "1G+"]
+];
+function initSpeedDialTicks() {
+  const g = $("st-ticks");
+  if (!g || g.children.length) return;
+  const ns = "http://www.w3.org/2000/svg";
+  const cx = 160, cy = 132;
+  for (let i = 0; i <= 40; i++) {
+    const ratio = i / 40;
+    const deg = -120 + ratio * 240;
+    const rad = deg * (Math.PI / 180);
+    const maj = i % 5 === 0;
+    const r1 = maj ? 80 : 83, r2 = 87;
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", (cx + r1 * Math.sin(rad)).toFixed(1));
+    line.setAttribute("y1", (cy - r1 * Math.cos(rad)).toFixed(1));
+    line.setAttribute("x2", (cx + r2 * Math.sin(rad)).toFixed(1));
+    line.setAttribute("y2", (cy - r2 * Math.cos(rad)).toFixed(1));
+    line.setAttribute("class", "st-tick" + (maj ? " maj" : ""));
+    line.dataset.ratio = String(ratio);
+    g.appendChild(line);
+    if (maj) {
+      const lblEntry = ST_SCALE[i / 5];
+      if (lblEntry) {
+        const txt = document.createElementNS(ns, "text");
+        const rl = 121;
+        txt.setAttribute("x", (cx + rl * Math.sin(rad)).toFixed(1));
+        txt.setAttribute("y", (cy - rl * Math.cos(rad)).toFixed(1));
+        txt.setAttribute("class", "st-tick-lbl");
+        txt.dataset.ratio = String(ratio);
+        txt.textContent = lblEntry[1];
+        g.appendChild(txt);
+      }
+    }
+  }
+}
+function speedGaugeRatio(val) {
+  const v = Math.max(0, Number(val) || 0);
+  const stops = [0, 10, 25, 50, 100, 250, 500, 750, 1000];
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (v <= stops[i + 1]) {
+      return (i + (v - stops[i]) / (stops[i + 1] - stops[i])) / (stops.length - 1);
+    }
+  }
+  return 1;
+}
+function setSpeedDial(val, isUpPhase) {
+  initSpeedDialTicks();
+  const ratio = speedGaugeRatio(val);
+  const arcLen = 402.1;
+  const offset = arcLen * (1 - ratio);
+  const cx = 160, cy = 132, rArc = 96;
+  const rad = (-120 + ratio * 240) * (Math.PI / 180);
+  if ($("st-arc")) {
+    $("st-arc").style.strokeDashoffset = offset.toFixed(1);
+    $("st-arc").setAttribute("class", "st-arc" + (isUpPhase ? " up" : ""));
+  }
+  if ($("st-tip")) {
+    $("st-tip").setAttribute("cx", (cx + rArc * Math.sin(rad)).toFixed(1));
+    $("st-tip").setAttribute("cy", (cy - rArc * Math.cos(rad)).toFixed(1));
+    $("st-tip").setAttribute("class", "st-tip" + (isUpPhase ? " up" : ""));
+  }
+  if ($("st-hub")) {
+    $("st-hub").setAttribute("class", "st-hub" + (isUpPhase ? " up" : ""));
+  }
+  if ($("st-needle")) {
+    const tipX = cx + 76 * Math.sin(rad), tipY = cy - 76 * Math.cos(rad);
+    const tailX = cx - 14 * Math.sin(rad), tailY = cy + 14 * Math.cos(rad);
+    const w = 4.2;
+    const lX = cx - w * Math.cos(rad), lY = cy - w * Math.sin(rad);
+    const rX = cx + w * Math.cos(rad), rY = cy + w * Math.sin(rad);
+    $("st-needle").setAttribute("points", `${tipX.toFixed(1)},${tipY.toFixed(1)} ${lX.toFixed(1)},${lY.toFixed(1)} ${tailX.toFixed(1)},${tailY.toFixed(1)} ${rX.toFixed(1)},${rY.toFixed(1)}`);
+  }
+  if ($("st-ticks")) {
+    $("st-ticks").querySelectorAll("[data-ratio]").forEach(node => {
+      const r = Number(node.dataset.ratio);
+      const isTxt = node.tagName.toLowerCase() === "text";
+      if (isTxt) {
+        node.setAttribute("class", "st-tick-lbl" + (r <= ratio + 0.01 ? " lit" : ""));
+      } else {
+        const maj = node.classList.contains("maj");
+        node.setAttribute("class", "st-tick" + (maj ? " maj" : "") + (r <= ratio + 0.01 ? " lit" + (isUpPhase ? " up" : "") : ""));
+      }
+    });
+  }
+  if ($("st-mbps")) {
+    $("st-mbps").textContent = (Number(val) || 0).toFixed(1);
+  }
+}
+function renderStreamWave(lineId, areaId, peak, rows, key) {
+  const ln = $(lineId), ar = $(areaId);
+  if (!ln || !ar) return;
+  const measured = (rows || []).map(x => Number(x[key] || 0)).filter(v => v > 0);
+  const base = peak > 0 ? peak : (measured.length ? Math.max(...measured) : 0);
+  if (!(base > 0)) { ln.setAttribute("d", ""); ar.setAttribute("d", ""); return; }
+  const pts = [];
+  for (let i = 0; i < 24; i++) {
+    const t = i / 23;
+    const ramp = Math.min(1, t * 1.45);
+    const ripple = Math.sin(i * 0.65 + (key === "up_mbps" ? 1.2 : 0)) * 0.06 + Math.cos(i * 1.1) * 0.035;
+    pts.push(Math.max(base * 0.15, base * (0.72 * ramp + 0.24 + ripple)));
+  }
+  pts[23] = base;
+  const max = base * 1.12;
+  ln.setAttribute("d", chartPath(pts, max, 240, 32));
+  ar.setAttribute("d", areaPath(pts, max, 240, 32));
+}
+function renderProbeLeds(sent, recv) {
+  const box = $("st-leds");
+  if (!box) return;
+  box.replaceChildren();
+  for (let i = 0; i < 10; i++) {
+    const led = el("i");
+    if (i < recv) led.className = "ok";
+    else if (i < sent) led.className = "bad";
+    box.appendChild(led);
+  }
+}
+function updateSpeedGauge(r) {
+  if (!$("t-speed-gauge") || !r) return;
+  const rows = r.rows || [];
+  const running = r.status === "running";
+  const active = rows.find(x => x.phase) || [...rows].reverse().find(x => x.down_mbps > 0 || x.sent > 0) || rows[0];
+  const winner = !running ? (pickBestRow(rows, "") || active) : active;
+  const target = running ? active : winner;
+  if (!target) {
+    setSpeedDial(0, false);
+    renderProbeLeds(0, 0);
+    $("st-phase-txt").textContent = running ? "STARTING" : "IDLE";
+    $("st-method").textContent = "Initializing probe…";
+    return;
+  }
+  $("st-method").textContent = target.method || "—";
+  $("st-mode").textContent = target.mode || "DIRECT";
+  $("st-mode").className = "st-badge" + (target.mode === "REVERSE" ? " ok" : "");
+  $("st-family").textContent = target.family || "—";
+  const down = Number(target.down_mbps || 0), up = Number(target.up_mbps || 0);
+  const rtt = Number(target.rtt_ms || 0), jit = Number(target.jitter_ms || 0);
+  const sent = target.sent || 0, recv = target.received || 0;
+  $("st-down").textContent = down > 0 ? down.toFixed(1) : (target.phase === "speed" ? "…" : "—");
+  $("st-up").textContent = up > 0 ? up.toFixed(1) : (target.phase === "speed" ? "…" : "—");
+  $("st-down-sub").textContent = down > 0 ? ((down / 8).toFixed(1) + " MB/s") : "Peak burst";
+  $("st-up-sub").textContent = up > 0 ? ((up / 8).toFixed(1) + " MB/s") : "Return stream";
+  $("st-rtt").textContent = rtt > 0 ? rtt.toFixed(1) + " ms" : "—";
+  $("st-rtt-grade").textContent = !(rtt > 0) ? "—" : rtt < 25 ? "ULTRA LOW" : rtt < 60 ? "GOOD" : "HIGH";
+  $("st-jitter").textContent = jit > 0 ? "Jitter ±" + jit.toFixed(1) + " ms" : "Echo latency";
+  $("st-probes").textContent = recv + "/" + (sent || 10);
+  const lossPct = sent > 0 ? Math.round(((sent - recv) / sent) * 100) : 0;
+  $("st-loss").textContent = sent > 0 ? (lossPct === 0 ? "0% packet loss · Verified" : lossPct + "% packet loss") : "Packet integrity";
+  renderProbeLeds(sent, recv);
+  const bs = r.best_settings || {};
+  if ($("st-mtu-val")) $("st-mtu-val").textContent = (bs.tunnel_mtu || 1420) + " B";
+  if ($("st-mtu-sub")) $("st-mtu-sub").textContent = bs.path_mtu ? ("Path MTU " + bs.path_mtu + " B") : "Optimal payload";
+  renderStreamWave("st-dl-line", "st-dl-area", down, rows, "down_mbps");
+  renderStreamWave("st-ul-line", "st-ul-area", up, rows, "up_mbps");
+
+  if (!running) {
+    $("st-phase").className = "st-phase-pill" + (r.status === "done" ? " done" : "");
+    $("st-phase-txt").textContent = r.status === "done" ? "★ WINNER LOCKED" : (r.status || "DONE").toUpperCase();
+    $("st-unit").textContent = "Mbps Peak";
+    setSpeedDial(Math.max(down, up), false);
+    return;
+  }
+  $("st-phase").className = "st-phase-pill";
+  if (target.phase === "echo") {
+    $("st-phase-txt").textContent = "ECHO PROBE " + sent + "/10";
+    $("st-unit").textContent = rtt > 0 ? "ms Latency" : "Probing";
+    const pulseMbps = rtt > 0 ? Math.max(15, Math.min(180, 1200 / Math.max(5, rtt))) : 28;
+    setSpeedDial(pulseMbps, false);
+    if (rtt > 0 && $("st-mbps")) $("st-mbps").textContent = rtt.toFixed(1);
+  } else if (target.phase === "speed") {
+    const isUp = down > 0 && !(up > 0);
+    $("st-phase-txt").textContent = isUp ? "UPLOAD STREAM" : "DOWNLOAD STREAM";
+    $("st-unit").textContent = isUp ? "Mbps Upload" : "Mbps Download";
+    const prevBest = rows.reduce((m, x) => Math.max(m, x.down_mbps || 0, x.up_mbps || 0), 0);
+    const liveVal = down > 0 ? (up > 0 ? up : down) : Math.max(85, prevBest * 0.92);
+    setSpeedDial(liveVal, isUp);
+  } else {
+    $("st-phase-txt").textContent = "MEASURED";
+    $("st-unit").textContent = "Mbps";
+    setSpeedDial(Math.max(down, up), false);
+  }
+}
 function pickBestRow(rows, mode) {
   let best = null, bestScore = -1;
   for (const r of rows || []) {
@@ -2409,7 +2919,6 @@ function testDone() {
   stopTestPoll();
   $("t-btn").disabled = false; $("t-btn").removeAttribute("aria-busy");
   $("t-stop-job").hidden = true;
-  $("t-live-bar").hidden = true;
 }
 async function refreshTestJob() {
   if (!testJobID) return;
@@ -2427,7 +2936,12 @@ async function refreshTestJob() {
       $("t-live-label").textContent = activeRow ? ("Testing " + activeRow.method + " (" + activeRow.phase + ")…") : ("Testing methods (" + doneCount + "/" + rows.length + ")…");
       $("t-live-fill").style.width = pct + "%";
       $("t-live-pct").textContent = pct + "%";
+    } else if (r.status === "done") {
+      $("t-live-label").textContent = "Connection test complete · " + rows.length + " carriers evaluated";
+      $("t-live-fill").style.width = "100%";
+      $("t-live-pct").textContent = "100%";
     }
+    updateSpeedGauge(r);
     renderGraphicalSummary($("t-summary-cards"), rows, r.best_settings);
     renderTestRows($("t-job-progress"), rows, { filterable: true, allowDeploy: true });
     $("t-out").hidden = true;

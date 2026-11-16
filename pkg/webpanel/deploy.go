@@ -74,7 +74,7 @@ func chooseBest(rows []conntest.Result) (conntest.Result, bool) {
 }
 
 func stripTestMethodPrefix(method string) string {
-	for _, p := range []string{"frp+", "rev+", "turbo+"} {
+	for _, p := range []string{"frp+", "rev+", "turbo+", "direct+"} {
 		method = strings.TrimPrefix(method, p)
 	}
 	return method

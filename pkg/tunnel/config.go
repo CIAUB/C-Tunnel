@@ -222,18 +222,18 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if m.SupportsLanes {
 		if tc.Lanes == 0 {
 			tc.Lanes = 1
-			if m.Name == "ecmp-lanes" {
+			if m.Name == "ecmp-lanes" || m.Name == "xgre" || m.Name == "xgre-ip" {
 				tc.Lanes = 4
 			}
 		}
-		if tc.Lanes < 1 || tc.Lanes > 8 || (m.Name == "ecmp-lanes" && tc.Lanes < 2) {
-			return fmt.Errorf("lanes must be 1-8 (2-8 for ecmp-lanes)")
+		if tc.Lanes < 1 || tc.Lanes > 16 || (m.Name == "ecmp-lanes" && tc.Lanes < 2) {
+			return fmt.Errorf("lanes must be 1-16 (2-16 for ecmp-lanes)")
 		}
 	} else {
 		tc.Lanes = 1
 	}
 	tc.GREKey = 0
-	if tc.Lanes > 1 {
+	if tc.Lanes > 1 || m.Name == "xgre" || m.Name == "xgre-ip" {
 		tc.GREKey = uint32(tc.Index) * 16
 	}
 	if tc.Token == "" {

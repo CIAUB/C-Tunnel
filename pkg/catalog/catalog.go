@@ -62,6 +62,8 @@ var Methods = []MethodSpec{
 	{ID: 12, Name: "gue-ipip", Title: "GUE-IPIP (IPIP inside GUE/UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true},
 	{ID: 13, Name: "ecmp-lanes", Title: "ECMP-Lanes (2-8 parallel keyed GRE)", Family: FamilyKernelL3, Overhead: 28, SupportsLanes: true},
 	{ID: 41, Name: "bareudp", Title: "BareUDP (IPv4 straight inside UDP, kernel 5.7+)", Family: FamilyKernelL3, Overhead: 28, NeedsPort: true},
+	{ID: 44, Name: "xgre", Title: "xGRE (eXtended multi-lane keyed GRE, ignore-df, FOU-ready)", Family: FamilyKernelL3, Overhead: 28, SupportsFOU: true, SupportsLanes: true, MikroTik: true},
+	{ID: 45, Name: "xgre-ip", Title: "xGRE-IP (IPIP inside multi-lane keyed xGRE carrier)", Family: FamilyKernelL3, Overhead: 48, SupportsFOU: true, SupportsLanes: true},
 
 	{ID: 14, Name: "eoip", Title: "EoIP (MikroTik-compatible, raw GRE)", Family: FamilyKernelL2, Overhead: 42, Userspace: true, MikroTik: true},
 	{ID: 15, Name: "gretap", Title: "GRETAP (Ethernet over GRE)", Family: FamilyKernelL2, Overhead: 38, SupportsFOU: true},
@@ -113,6 +115,10 @@ func IsL4(method string) bool {
 
 func LookupMethod(nameOrID string) (MethodSpec, bool) {
 	q := strings.ToLower(strings.TrimSpace(nameOrID))
+	switch q {
+	case "xgre ip", "xgre_ip", "xgreip":
+		q = "xgre-ip"
+	}
 	for _, m := range Methods {
 		if m.Name == q || strconv.Itoa(m.ID) == q {
 			return m, true
@@ -238,9 +244,13 @@ func MikroTikCommands(tc TunnelConfig, wgPeerPrivate, wgLocalPublic string) stri
 	case "6to4":
 		return fmt.Sprintf("/interface 6to4 add name=sit-%s local-address=%s remote-address=%s mtu=%d\n/ipv6 address add address=%s/64 interface=sit-%s advertise=no\n/interface ipipv6 add name=ipip6-%s local-address=%s remote-address=%s mtu=%d\n/ip address add address=%s/30 interface=ipip6-%s",
 			n, tc.RemoteIP, tc.LocalIP, tc.MTU+40, tc.CarrierRemote6, n, n, tc.CarrierRemote6, tc.CarrierLocal6, tc.MTU, tc.TunRemote4, n)
-	case "gre":
+	case "gre", "xgre":
 		if tc.Port > 0 || tc.Lanes > 1 {
 			return ""
+		}
+		if tc.Method == "xgre" && tc.GREKey > 0 {
+			return fmt.Sprintf("/interface gre add name=gre-%s local-address=%s remote-address=%s key=%d mtu=%d\n/ip address add address=%s/30 interface=gre-%s",
+				n, tc.RemoteIP, tc.LocalIP, tc.GREKey, tc.MTU, tc.TunRemote4, n)
 		}
 		return fmt.Sprintf("/interface gre add name=gre-%s local-address=%s remote-address=%s mtu=%d\n/ip address add address=%s/30 interface=gre-%s",
 			n, tc.RemoteIP, tc.LocalIP, tc.MTU, tc.TunRemote4, n)

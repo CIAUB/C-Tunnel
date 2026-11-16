@@ -256,7 +256,7 @@ func TestClosedUDPPortSkipsUDPAndStillTestsTCP(t *testing.T) {
 	}
 	var frp int
 	for _, r := range rows {
-		if strings.HasPrefix(r.Method, "frp+") {
+		if strings.HasPrefix(r.Method, "frp+") || strings.HasPrefix(r.Method, "turbo+") {
 			if r.Status() != "ok" || r.DownMbps <= 0 {
 				t.Fatalf("TCP row not measured with UDP closed: %+v", r)
 			}
@@ -310,10 +310,10 @@ func TestRunOnlyLimitsTheRows(t *testing.T) {
 	for _, r := range rows {
 		got[r.Method] = r
 	}
-	if len(got) != 3 {
-		t.Fatalf("rows %v, want stun-turn, rev+stun-turn and udp", got)
+	if len(got) != 4 {
+		t.Fatalf("rows %v, want stun-turn, rev+stun-turn, udp and direct+udp", got)
 	}
-	for _, m := range []string{"stun-turn", "rev+stun-turn", "udp"} {
+	for _, m := range []string{"stun-turn", "rev+stun-turn", "udp", "direct+udp"} {
 		if r, ok := got[m]; !ok || r.Status() != "ok" || r.DownMbps <= 0 {
 			t.Fatalf("%s: %+v", m, r)
 		}

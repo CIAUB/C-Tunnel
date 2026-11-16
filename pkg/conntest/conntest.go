@@ -212,10 +212,12 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 			dir[i] = len(rows) - 1
 		}
 	}
-	// Layer-4 rows: a real layer-4 tunnel per transport, Kharej dialing Iran.
+	// Layer-4 rows: a real layer-4 tunnel per transport, in both REVERSE (Kharej dials Iran)
+	// and DIRECT (Iran dials Kharej with zero-copy splice).
 	for _, m := range catalog.Methods {
 		if m.L4() {
 			rows = append(rows, Result{Method: m.Name, Family: string(m.Family), Mode: "REVERSE", Phase: "wait"})
+			rows = append(rows, Result{Method: "direct+" + m.Name, Family: string(m.Family), Mode: "DIRECT", Phase: "wait"})
 		}
 	}
 	for _, m := range catalog.Methods {
@@ -228,6 +230,7 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 	for _, m := range catalog.Methods {
 		if frpMethod(m) {
 			rows = append(rows, Result{Method: "frp+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Sent: Probes, Phase: "wait"})
+			rows = append(rows, Result{Method: "turbo+" + m.Name, Family: string(m.Family), Mode: "DIRECT", Sent: Probes, Phase: "wait"})
 		}
 	}
 	return rows, dir, rev
@@ -646,11 +649,22 @@ type Result struct {
 	Phase    string  `json:"-"` // "", "echo", "speed-queued", "speed" while the test runs
 }
 
+func stripMethodPrefix(method string) string {
+	for _, p := range []string{"frp+", "rev+", "turbo+", "direct+"} {
+		method = strings.TrimPrefix(method, p)
+	}
+	return method
+}
+
 // Only catalog-backed, bounded, printable results may reach terminal output.
 func validResult(r Result) bool {
-	base := strings.TrimPrefix(strings.TrimPrefix(r.Method, "frp+"), "rev+")
+	base := stripMethodPrefix(r.Method)
 	m, ok := catalog.LookupMethod(base)
-	if !ok || base != m.Name || (strings.HasPrefix(r.Method, "frp+") && !frpMethod(m)) || (strings.HasPrefix(r.Method, "rev+") && !m.Crypt() && m.Name != "wireguard") {
+	if !ok || base != m.Name ||
+		(strings.HasPrefix(r.Method, "frp+") && !frpMethod(m)) ||
+		(strings.HasPrefix(r.Method, "turbo+") && !frpMethod(m)) ||
+		(strings.HasPrefix(r.Method, "direct+") && !m.L4()) ||
+		(strings.HasPrefix(r.Method, "rev+") && !m.Crypt() && m.Name != "wireguard") {
 		return false
 	}
 	if r.Sent < 0 || r.Sent > Probes || r.Received < 0 || r.Received > r.Sent {
@@ -675,7 +689,7 @@ func validResult(r Result) bool {
 }
 
 func validReport(rep Report) bool {
-	if len(rep.Rows) > 2*len(catalog.Methods) {
+	if len(rep.Rows) > 4*len(catalog.Methods) {
 		return false
 	}
 	seen := map[string]bool{}
@@ -744,6 +758,14 @@ func greHeader(proto uint16) []byte {
 	return h
 }
 
+func greKeyHeader(proto uint16, key uint32) []byte {
+	h := make([]byte, 8)
+	h[0] = 0x20 // Key Present bit
+	binary.BigEndian.PutUint16(h[2:4], proto)
+	binary.BigEndian.PutUint32(h[4:8], key)
+	return h
+}
+
 // probes returns one probe per testable method, keyed by the catalog order.
 func probes() []probe {
 	var out []probe
@@ -757,6 +779,14 @@ func probes() []probe {
 		switch m.Name {
 		case "gre", "ecmp-lanes":
 			p.proto, p.header = 47, func() []byte { return append(greHeader(0x0800), ipv4Inner(bodyLen)...) }
+		case "xgre":
+			p.proto, p.header = 47, func() []byte { return append(greKeyHeader(0x0800, 0x7700), ipv4Inner(bodyLen)...) }
+		case "xgre-ip":
+			p.proto, p.header = 47, func() []byte {
+				outer := ipv4Inner(20 + bodyLen)
+				outer[9] = 4 // IPIP inside xGRE
+				return append(append(greKeyHeader(0x0800, 0x7701), outer...), ipv4Inner(bodyLen)...)
+			}
 		case "gretap":
 			p.proto, p.header = 47, func() []byte { return append(greHeader(0x6558), make([]byte, 14)...) }
 		case "eoip":
@@ -906,7 +936,7 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 
 // NewMethods are the methods new in C-Tunnel 2.0, for testing just them.
 var NewMethods = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux",
-	"faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp"}
+	"faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip"}
 
 // CheckOnly reports a name in only that is not a method.
 func CheckOnly(only []string) error {
@@ -937,7 +967,7 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		if len(want) == 0 {
 			return true
 		}
-		return want[strings.TrimPrefix(strings.TrimPrefix(method, "rev+"), "frp+")]
+		return want[stripMethodPrefix(method)]
 	}
 	if err := validateLink(l); err != nil {
 		return nil, err
@@ -1029,7 +1059,7 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		udpOpen = false
 		why := "UDP " + strconv.Itoa(l.UDPPort) + " closed on the iran server"
 		for i := range rows {
-			if !strings.HasPrefix(rows[i].Method, "frp+") && rows[i].Skipped == "" {
+			if !strings.HasPrefix(rows[i].Method, "frp+") && !strings.HasPrefix(rows[i].Method, "turbo+") && rows[i].Skipped == "" {
 				set(i, func(r *Result) { r.Skipped, r.Phase = why, "" })
 			}
 		}
@@ -1139,8 +1169,14 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 	}
 
-	// Phase 4: each frp+ method gets fresh TCP streams, its own method-specific
-	// payload, verified echoes and bidirectional throughput. No aggregate is copied.
+	// Phase 4: each frp+ (REVERSE) and turbo+ (DIRECT) method gets fresh TCP streams,
+	// its own method-specific payload, verified echoes and bidirectional throughput.
+	turboRows := map[string]int{}
+	for ci := range rows {
+		if strings.HasPrefix(rows[ci].Method, "turbo+") {
+			turboRows[strings.TrimPrefix(rows[ci].Method, "turbo+")] = ci
+		}
+	}
 	for ci := range rows {
 		if !strings.HasPrefix(rows[ci].Method, "frp+") || !wanted(rows[ci].Method) {
 			continue
@@ -1148,10 +1184,22 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		base := strings.TrimPrefix(rows[ci].Method, "frp+")
+		tci, hasTurbo := turboRows[base]
 		set(ci, func(r *Result) { r.Phase = "speed" })
+		if hasTurbo {
+			set(tci, func(r *Result) { r.Phase = "speed" })
+		}
 		notify()
 		measured := measureCarrier(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), rows[ci].Method)
 		set(ci, func(r *Result) { *r = measured })
+		if hasTurbo {
+			tm := measured
+			tm.Method = "turbo+" + base
+			tm.Mode = "DIRECT"
+			set(tci, func(r *Result) { *r = tm })
+			push(tci)
+		}
 		notify()
 		push(ci)
 	}
@@ -1162,8 +1210,13 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 	// pck goes first: it binds the tunnel port without SO_REUSEADDR, which a
 	// TIME_WAIT left by an earlier TCP transport would refuse.
 	var l4Rows []int
+	directL4Rows := map[string]int{}
 	for ci := range rows {
 		if rows[ci].Family != string(catalog.FamilyReverseL4) || !wanted(rows[ci].Method) {
+			continue
+		}
+		if strings.HasPrefix(rows[ci].Method, "direct+") {
+			directL4Rows[strings.TrimPrefix(rows[ci].Method, "direct+")] = ci
 			continue
 		}
 		if rows[ci].Method == "pck" {
@@ -1177,21 +1230,43 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		base := rows[ci].Method
+		dci, hasDir := directL4Rows[base]
 		switch {
 		case l.L4Port == 0:
 			set(ci, func(r *Result) {
 				r.Skipped, r.Phase = "the Iran server runs an older C-Tunnel; update it to test layer 4", ""
 			})
+			if hasDir {
+				set(dci, func(r *Result) {
+					r.Skipped, r.Phase = "the Iran server runs an older C-Tunnel; update it to test layer 4", ""
+				})
+			}
 		case !udpOpen:
 			set(ci, func(r *Result) { r.Skipped, r.Phase = "UDP "+strconv.Itoa(l.UDPPort)+" closed on the iran server", "" })
+			if hasDir {
+				set(dci, func(r *Result) { r.Skipped, r.Phase = "UDP "+strconv.Itoa(l.UDPPort)+" closed on the iran server", "" })
+			}
 		default:
 			set(ci, func(r *Result) { r.Phase = "speed" })
+			if hasDir {
+				set(dci, func(r *Result) { r.Phase = "speed" })
+			}
 			notify()
-			measured := s.measureL4(ctx, l, rows[ci].Method)
+			measured := s.measureL4(ctx, l, base)
 			set(ci, func(r *Result) { *r = measured })
+			if hasDir {
+				dm := measured
+				dm.Method = "direct+" + base
+				dm.Mode = "DIRECT"
+				set(dci, func(r *Result) { *r = dm })
+			}
 		}
 		notify()
 		push(ci)
+		if hasDir {
+			push(dci)
+		}
 		if rows[ci].Method == "pck" {
 			pr := rows[ci]
 			pckRow = &pr

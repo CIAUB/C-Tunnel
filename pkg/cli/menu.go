@@ -97,10 +97,10 @@ type methodFamily struct {
 
 var methodMenu = []methodFamily{
 	{catalog.FamilyKernelL3, "L3 kernel",
-		"gre, ipip, 6to4, wireguard, ipsec... fastest, no anti-DPI",
-		"gre, ipip, 6to4, sit... inside the 8-stream TCP carrier; wireguard rides UDP",
+		"gre, xgre, xgre-ip, ipip, 6to4, wireguard, ipsec... Direct or 8-stream BBR Turbo",
+		"gre, xgre, xgre-ip, ipip, 6to4, sit... inside the 8-stream TCP carrier; wireguard rides UDP",
 		[]methodGroup{
-			{"GRE", "gre, fou-gre, ecmp-lanes, xfrm-ipsec", []string{"gre", "fou-gre", "ecmp-lanes", "xfrm-ipsec"}},
+			{"GRE / xGRE", "gre, xgre, xgre-ip, fou-gre, ecmp-lanes, xfrm-ipsec", []string{"gre", "xgre", "xgre-ip", "fou-gre", "ecmp-lanes", "xfrm-ipsec"}},
 			{"IPIP / 6to4", "ipip, gue-ipip, 6to4, 6to4-gre, sit", []string{"ipip", "gue-ipip", "6to4", "6to4-gre", "sit"}},
 			{"UDP", "bareudp: IPv4 straight inside UDP, no header", []string{"bareudp"}},
 			{"IPv6 underlay", "ip6gre, ipip6, ip6ip6: both servers need IPv6", []string{"ip6gre", "ipip6", "ip6ip6"}},
@@ -141,7 +141,10 @@ var methodMenu = []methodFamily{
 // methodOpt is how a method is listed in the given mode.
 func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
 	if m.L4() && !reverse {
-		return MenuOpt{Title: "direct+" + m.Name, Desc: "Direct L4 " + m.Title + " (Iran dials Kharej, zero-copy splice)"}
+		return MenuOpt{Title: "direct+" + m.Name, Desc: "Fast Direct L4 " + m.Title + " (Iran dials Kharej, zero-copy splice)"}
+	}
+	if !reverse && !m.L4() && !m.Crypt() && m.Name != "wireguard" && !m.IPv6Underlay {
+		return MenuOpt{Title: m.Name + " / turbo+" + m.Name, Desc: m.Title + " (Direct raw or 8x BBR Turbo)"}
 	}
 	if !reverse || m.L4() {
 		return MenuOpt{Title: m.Name, Desc: m.Title}
@@ -157,13 +160,13 @@ func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
 func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	none := func() (catalog.MethodSpec, bool, bool) { return catalog.MethodSpec{}, false, false }
 	mode := ChooseOpt("Tunnel Mode", []MenuOpt{
-		{"DIRECT", "Standard tunnel (Iran connects directly to Kharej)"},
 		{"REVERSE", "Anti-DPI Reverse (Kharej dials into Iran; hides Kharej IP)"},
+		{"DIRECT", "Direct tunnel (Iran connects to Kharej; includes Fast Direct L4 & 8x BBR Turbo)"},
 	})
 	if mode == 0 {
 		return none()
 	}
-	reverse := mode == 2
+	reverse := mode == 1
 	label := "DIRECT"
 	if reverse {
 		label = "REVERSE"
@@ -269,7 +272,14 @@ func setupWizard(role string) {
 		Index:    tunnel.NextIndex(st.Tunnels),
 	}
 	if !rev && !m.L4() && !m.Crypt() && m.Name != "wireguard" && !m.IPv6Underlay {
-		tc.Carrier = Confirm("Use 8-Stream BBR TCP Turbo Carrier (matches Reverse frp+ speed)?", false)
+		cm := ChooseOpt("Direct Speed Mode", []MenuOpt{
+			{"Fast Direct Turbo (turbo+" + m.Name + ")", "8-Stream BBR TCP Carrier — Reverse-grade throughput"},
+			{"Standard Direct (" + m.Name + ")", "Raw kernel/packet encapsulation (lowest overhead)"},
+		})
+		if cm == 0 {
+			return
+		}
+		tc.Carrier = cm == 1
 	}
 	if m.IPv6Underlay {
 		tc.LocalIP = Ask("This server IPv6", publicIP(true))

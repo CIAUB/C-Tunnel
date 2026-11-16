@@ -60,7 +60,7 @@ fou_args() {
 
 uses_fou() {
     case "${KIND}" in
-        6to4|6to4-gre|sit|ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|gue-ipip) return 0 ;;
+        6to4|6to4-gre|sit|ipip|gre|xgre|xgre-ip|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|gue-ipip) return 0 ;;
     esac
     return 1
 }
@@ -194,7 +194,11 @@ links_down() {
     local i
     ip link del "${DEV}" 2>/dev/null || true
     ip link del "${DEV}-r" 2>/dev/null || true
-    for ((i = 1; i <= 16; i++)); do ip link del "${DEV}.${i}" 2>/dev/null || true; done
+    ip link del "${DEV}-x" 2>/dev/null || true
+    for ((i = 1; i <= 16; i++)); do
+        ip link del "${DEV}.${i}" 2>/dev/null || true
+        ip link del "${DEV}-x.${i}" 2>/dev/null || true
+    done
     ip link del "${DEV}-6" 2>/dev/null || true
     if [[ "${PORT:-0}" -gt 0 ]] && uses_fou; then
         ip fou del port "${PORT}" 2>/dev/null || true
@@ -208,13 +212,17 @@ links_down() {
 
 # GRE-family devices, with optional FOU and ECMP lanes.
 gre_up() {
-    local ktype="$1" fou="" i d nexthops=()
+    local ktype="$1" fou="" i d nexthops=() extra=()
     [[ "${ktype}" == "gre" || "${ktype}" == "gretap" ]] && fou="$(fou_args 47)"
+    if [[ "${KIND}" == "xgre" ]]; then
+        extra=(ignore-df nopmtudisc)
+    fi
     for ((i = 0; i < LANES; i++)); do
         d="${DEV}"
         [[ "${i}" -gt 0 ]] && d="${DEV}.${i}"
         # shellcheck disable=SC2046,SC2086
-        ip link add name "${d}" type "${ktype}" local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 $(key_args "${i}") ${fou}
+        ip link add name "${d}" type "${ktype}" local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 "${extra[@]}" $(key_args "${i}") ${fou} ||
+            ip link add name "${d}" type "${ktype}" local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 $(key_args "${i}") ${fou}
         tune_dev "${d}"
         if [[ "${LANES}" -gt 1 ]]; then
             ip addr add "${TUN_LOCAL4}/32" dev "${d}"
@@ -227,6 +235,33 @@ gre_up() {
         sysctl -qw net.ipv4.fib_multipath_hash_policy=1 || true
         ip route replace "${TUN_REMOTE4}/32" proto 77 src "${TUN_LOCAL4}" "${nexthops[@]}"
     fi
+}
+
+xgre_ip_up() {
+    local fou="" i xd d nexthops=() x_local="172.30.${INDEX}.1" x_remote="172.30.${INDEX}.2"
+    [[ "${ROLE}" == "kharej" ]] && { x_local="172.30.${INDEX}.2"; x_remote="172.30.${INDEX}.1"; }
+    fou="$(fou_args 47)"
+    for ((i = 0; i < LANES; i++)); do
+        xd="${DEV}-x"
+        [[ "${i}" -gt 0 ]] && xd="${DEV}-x.${i}"
+        # shellcheck disable=SC2046,SC2086
+        ip link add name "${xd}" type gre local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 ignore-df nopmtudisc $(key_args "${i}") ${fou} ||
+            ip link add name "${xd}" type gre local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 $(key_args "${i}") ${fou}
+        ip link set dev "${xd}" mtu $(( MTU + 20 )) txqueuelen 10000 up
+        if [[ "${LANES}" -gt 1 ]]; then
+            ip addr add "${x_local}/32" dev "${xd}"
+            nexthops+=(nexthop dev "${xd}" weight 1)
+        else
+            ip addr add "${x_local}" peer "${x_remote}/32" dev "${xd}"
+        fi
+    done
+    if [[ "${LANES}" -gt 1 ]]; then
+        sysctl -qw net.ipv4.fib_multipath_hash_policy=1 || true
+        ip route replace "${x_remote}/32" proto 77 src "${x_local}" "${nexthops[@]}"
+    fi
+    ip link add name "${DEV}" type ipip local "${x_local}" remote "${x_remote}" ttl 255
+    tune_dev "${DEV}"
+    addr4 "${DEV}"
 }
 
 cmd_up() {
@@ -246,7 +281,7 @@ cmd_up() {
     modload ip_gre ip6_gre ipip sit ip6_tunnel tun
     if [[ "${REVERSE}" == "1" || "${CARRIER}" == "1" ]]; then
         case "${KIND}" in
-            6to4|6to4-gre|sit|ipip|gue-ipip|gre|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|vxlan|geneve|l2tpv3|bareudp)
+            6to4|6to4-gre|sit|ipip|gue-ipip|gre|xgre|xgre-ip|fou-gre|ecmp-lanes|xfrm-ipsec|gretap|vxlan|geneve|l2tpv3|bareudp)
                 local rev_local="172.31.${INDEX}.1" rev_remote="172.31.${INDEX}.2"
                 [[ "${ROLE}" == "kharej" ]] && { rev_local="172.31.${INDEX}.2"; rev_remote="172.31.${INDEX}.1"; }
                 ip tuntap add dev "${DEV}-r" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}-r" mode tun
@@ -292,7 +327,8 @@ cmd_up() {
             ip link add name "${DEV}" type ipip local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 ${fou}
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
-        gre|fou-gre|ecmp-lanes|xfrm-ipsec) gre_up gre ;;
+        gre|xgre|fou-gre|ecmp-lanes|xfrm-ipsec) gre_up gre ;;
+        xgre-ip) xgre_ip_up ;;
         gretap) gre_up gretap ;;
         ip6gre) gre_up ip6gre ;;
         ip6gretap) gre_up ip6gretap ;;
