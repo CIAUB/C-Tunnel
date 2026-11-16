@@ -227,16 +227,16 @@ func MeasureCarrierPayload(ctx context.Context, addr string, prefix []byte, warm
 	return MeasureCarrierPayloadLive(ctx, addr, prefix, warmup, duration, nil)
 }
 
-// MeasureCarrierPayloadLive runs fresh streams for one method and emits ~150ms
-// bandwidth samples for dir ('D' download, 'U' upload).
+// MeasureCarrierPayloadLive runs fresh streams for one method and emits ~200ms
+// rolling-window samples, measuring upload first then download to match NeoTunnel.
 func MeasureCarrierPayloadLive(ctx context.Context, addr string, prefix []byte, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (down, up float64, err error) {
 	if warmup < 0 || duration <= 0 {
 		return 0, 0, errors.New("invalid measurement duration")
 	}
-	if down, err = carrierDirection(ctx, addr, 'D', prefix, warmup, duration, onSample); err != nil {
+	if up, err = carrierDirection(ctx, addr, 'U', prefix, warmup, duration, onSample); err != nil {
 		return 0, 0, err
 	}
-	up, err = carrierDirection(ctx, addr, 'U', prefix, warmup, duration, onSample)
+	down, err = carrierDirection(ctx, addr, 'D', prefix, warmup, duration, onSample)
 	return down, up, err
 }
 

@@ -2562,7 +2562,8 @@ function speedNorm(v) {
 }
 
 function renderSpeedDial(v, mode, unitText) {
-  const frac = speedNorm(v);
+  const isPing = mode === "ping";
+  const frac = isPing ? 0 : speedNorm(v);
   const isUpload = mode === "ul";
   const arc = $("st-arc"), glow = $("st-glow"), needle = $("st-needle"), val = $("st-gauge-val"), ico = $("st-gauge-ico"), unit = $("st-gauge-unit"), ticks = $("st-ticks");
   if (arc) {
@@ -2579,10 +2580,14 @@ function renderSpeedDial(v, mode, unitText) {
   if (ticks) {
     for (const elTick of ticks.children) {
       const t = Number(elTick.getAttribute("data-t"));
-      elTick.setAttribute("class", "ct-dial-lbl" + (v > 0.05 && t <= frac + 0.005 ? " lit" : ""));
+      elTick.setAttribute("class", "ct-dial-lbl" + (!isPing && v > 0.05 && t <= frac + 0.005 ? " lit" : ""));
     }
   }
-  if (val) val.textContent = v > 0.05 ? (v >= 100 ? v.toFixed(1) : v.toFixed(2)) : "0.0";
+  if (val) {
+    val.textContent = isPing
+      ? (liveState.dispRtt > 0.05 ? liveState.dispRtt.toFixed(1) : "…")
+      : (v > 0.05 ? (v >= 100 ? v.toFixed(1) : v.toFixed(2)) : "0.0");
+  }
   if (ico) {
     ico.textContent = isUpload ? "↑" : (mode === "dl" ? "↓" : "•");
     ico.className = "ct-dial-ico" + (isUpload ? " ul" : (mode === "dl" ? " dl" : ""));
@@ -2765,30 +2770,40 @@ function updateTelemetryConsole(r) {
   liveState.targetUl = ul;
   liveState.targetRtt = rtt;
   if (running) {
-    if (phase === "upload" && (ul > 0 || !(dl > 0))) {
+    if (phase === "echo") {
+      liveState.targetDial = 0;
+      liveState.dialMode = "ping";
+      liveState.dialUnit = "ms · Ping";
+    } else if (phase === "upload" && (ul > 0 || !(dl > 0))) {
       liveState.targetDial = ul;
       liveState.dialMode = "ul";
+      liveState.dialUnit = "Mbps · Upload";
     } else if (phase === "download" && dl > 0) {
       liveState.targetDial = dl;
       liveState.dialMode = "dl";
+      liveState.dialUnit = "Mbps · Download";
     } else if (phase === "download" && ul > 0) {
       liveState.targetDial = ul;
       liveState.dialMode = "ul";
-    } else if (dl > 0) {
-      liveState.targetDial = dl;
-      liveState.dialMode = "dl";
+      liveState.dialUnit = "Mbps · Upload";
     } else if (ul > 0) {
       liveState.targetDial = ul;
       liveState.dialMode = "ul";
+      liveState.dialUnit = "Mbps · Upload";
+    } else if (dl > 0) {
+      liveState.targetDial = dl;
+      liveState.dialMode = "dl";
+      liveState.dialUnit = "Mbps · Download";
     } else {
       liveState.targetDial = 0;
-      liveState.dialMode = "dl";
+      liveState.dialMode = "ping";
+      liveState.dialUnit = "ms · Ping";
     }
   } else {
     liveState.targetDial = dl > 0 ? dl : ul;
     liveState.dialMode = !(dl > 0) && ul > 0 ? "ul" : (liveState.targetDial > 0 ? "dl" : "idle");
+    liveState.dialUnit = liveState.targetDial > 0 ? "Mbps · Best" : "Mbps";
   }
-  liveState.dialUnit = "Mbps";
   if (dl > liveState.peakDl) liveState.peakDl = dl;
   if (ul > liveState.peakUl) liveState.peakUl = ul;
   startLiveAnimation();

@@ -160,17 +160,23 @@ func MeasureSpeed4Streams(ctx context.Context, targetAddr string, warmup, durati
 	return MeasureSpeed4StreamsLive(ctx, targetAddr, warmup, duration, nil)
 }
 
-// MeasureSpeed4StreamsLive streams ~150ms bandwidth samples for dir ('D', 'U') via onSample.
+// MeasureSpeed4StreamsLive streams ~200ms rolling-window bandwidth samples,
+// measuring upload first then download to match NeoTunnel.
 func MeasureSpeed4StreamsLive(ctx context.Context, targetAddr string, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (downMbps, upMbps float64, err error) {
-	downMbps, err = runDirection4(ctx, targetAddr, 'D', warmup, duration, onSample)
+	upMbps, err = runDirection4(ctx, targetAddr, 'U', warmup, duration, onSample)
 	if err != nil {
 		return 0, 0, err
 	}
-	upMbps, err = runDirection4(ctx, targetAddr, 'U', warmup, duration, onSample)
+	downMbps, err = runDirection4(ctx, targetAddr, 'D', warmup, duration, onSample)
 	if err != nil {
-		return downMbps, 0, err
+		return 0, upMbps, err
 	}
 	return downMbps, upMbps, nil
+}
+
+// MeasureDirection4Live runs a single direction ('U' or 'D') over parallel streams.
+func MeasureDirection4Live(ctx context.Context, targetAddr string, dir byte, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (float64, error) {
+	return runDirection4(ctx, targetAddr, dir, warmup, duration, onSample)
 }
 
 func runDirection4(parent context.Context, targetAddr string, dir byte, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (float64, error) {

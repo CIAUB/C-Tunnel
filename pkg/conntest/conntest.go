@@ -1573,7 +1573,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 }
 
 const (
-	speedDuration = 1200 * time.Millisecond
+	speedDuration = 1500 * time.Millisecond
 	speedPacket   = 1200
 )
 

@@ -214,15 +214,25 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 	var down, up float64
 	if received > 0 {
 		var liveDown, liveUp float64
-		res := speedtest.RunLive(ctx, addr, 2, func(dir byte, mbps float64) {
+		emit := func(dir byte, mbps float64) {
 			if dir == 'D' {
 				liveDown = mbps
 			} else {
 				liveUp = mbps
 			}
 			set(packL4(l4Running, received, rtt, jitter, liveDown, liveUp))
+		}
+		// Run Iran 'D' first (= Kharej Upload), then Iran 'U' (= Kharej Download)
+		// so the Kharej panel consistently observes Upload → Download across all methods.
+		var err error
+		down, err = speedtest.MeasureDirection4Live(ctx, addr, 'D', 800*time.Millisecond, 3*time.Second, func(_ byte, mbps float64) {
+			emit('D', mbps)
 		})
-		down, up = res.DownloadMbps, res.UploadMbps
+		if err == nil {
+			up, _ = speedtest.MeasureDirection4Live(ctx, addr, 'U', 800*time.Millisecond, 3*time.Second, func(_ byte, mbps float64) {
+				emit('U', mbps)
+			})
+		}
 	}
 	set(packL4(l4Done, received, rtt, jitter, down, up))
 }
