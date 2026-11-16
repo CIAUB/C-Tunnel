@@ -80,8 +80,9 @@ func (s *Server) handleBench(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "a benchmark is already running"})
 			return
 		}
-		b.Running, b.Started, b.Finished, b.Rows, b.Skipped = true, time.Now(), nil, nil, nil
+		b.Running, b.Started, b.Finished, b.Current, b.Rows, b.Skipped = true, time.Now(), nil, "", nil, nil
 		b.mu.Unlock()
+		snap := s.bench.snapshot()
 
 		tunnels := st.Tunnels
 		statuses := BenchStatuses(tunnels)
@@ -114,6 +115,8 @@ func (s *Server) handleBench(w http.ResponseWriter, r *http.Request) {
 			b.Running, b.Current, b.Finished = false, "", &now
 			b.mu.Unlock()
 		}()
+		writeJSON(w, http.StatusOK, snap)
+		return
 	}
 	writeJSON(w, http.StatusOK, s.bench.snapshot())
 }
