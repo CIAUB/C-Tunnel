@@ -1,5 +1,7 @@
 {
   "image": "sponsor.png",
   "link": "https://t.me/CiAsAgent",
-  "title": "Sponsored Space — Book on Telegram @CiAsAgent"
+  "title": "Sponsored Space — Book on Telegram @CiAsAgent",
+  "text": "spontext.txt",
+  "link_file": "sponlink.txt"
 }

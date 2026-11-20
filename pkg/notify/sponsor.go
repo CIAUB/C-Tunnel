@@ -167,16 +167,43 @@ func sponsorRecipients(cfg Config) []string {
 }
 
 func (b *Bot) sendSponsorMedia(ctx context.Context, chatID string, sc sponsor.State, img []byte, mime, fileID string) (string, error) {
+	caption, parseMode := sponsorCaption(sc)
+	fid, err := b.postSponsorMedia(ctx, chatID, sc, caption, parseMode, img, mime, fileID)
+	if err != nil && parseMode == "HTML" {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(apiErr.Description), "parse") {
+			return b.postSponsorMedia(ctx, chatID, sc, stripTelegramHTML(caption), "", img, mime, fileID)
+		}
+	}
+	return fid, err
+}
+
+func sponsorCaption(sc sponsor.State) (caption, parseMode string) {
+	if s := strings.TrimSpace(sc.Caption); s != "" {
+		return sanitizeTelegramHTML(s), "HTML"
+	}
+	if s := strings.TrimSpace(sc.Title); s != "" {
+		return "<b>" + esc(s) + "</b>", "HTML"
+	}
+	return "", ""
+}
+
+func (b *Bot) postSponsorMedia(ctx context.Context, chatID string, sc sponsor.State, caption, parseMode string, img []byte, mime, fileID string) (string, error) {
 	method, field := sponsorMethod(mime)
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	_ = w.WriteField("chat_id", chatID)
-	if sc.Title != "" {
-		_ = w.WriteField("caption", "<b>"+esc(sc.Title)+"</b>")
-		_ = w.WriteField("parse_mode", "HTML")
+	if caption != "" {
+		_ = w.WriteField("caption", caption)
+		if parseMode != "" {
+			_ = w.WriteField("parse_mode", parseMode)
+		}
 	}
 	if sc.Link != "" {
-		label := sc.Title
+		label := strings.TrimSpace(sc.ButtonText)
+		if label == "" {
+			label = strings.TrimSpace(sc.Title)
+		}
 		if label == "" {
 			label = "Open"
 		}

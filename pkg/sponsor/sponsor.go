@@ -36,7 +36,12 @@ const (
 	DefaultLink  = "https://t.me/CiAsAgent"
 	DefaultTitle = "Sponsored Space — Book on Telegram @CiAsAgent"
 
+	defaultTextFile  = "spontext.txt"
+	defaultLinkFile  = "sponlink.txt"
 	maxManifestBytes = 16 << 10
+	maxTextBytes     = 8 << 10
+	maxLinkBytes     = 2 << 10
+	maxCaptionRunes  = 1024
 	maxImageBytes    = 15 << 20
 	maxAge           = 30 * time.Minute
 	fetchTimeout     = 2 * time.Minute
@@ -51,15 +56,17 @@ var HTTPClient *http.Client
 
 // State is the cached sponsor metadata persisted under <storeDir>/sponsor/sponsor.json.
 type State struct {
-	Link      string    `json:"link,omitempty"`
-	Title     string    `json:"title,omitempty"`
-	Type      string    `json:"type,omitempty"`
-	Hash      string    `json:"hash,omitempty"`
-	Image     string    `json:"image,omitempty"`
-	ETag      string    `json:"etag,omitempty"`
-	Modified  string    `json:"modified,omitempty"`
-	Withdrawn bool      `json:"withdrawn,omitempty"`
-	Checked   time.Time `json:"checked"`
+	Link       string    `json:"link,omitempty"`
+	ButtonText string    `json:"button_text,omitempty"`
+	Title      string    `json:"title,omitempty"`
+	Caption    string    `json:"caption,omitempty"`
+	Type       string    `json:"type,omitempty"`
+	Hash       string    `json:"hash,omitempty"`
+	Image      string    `json:"image,omitempty"`
+	ETag       string    `json:"etag,omitempty"`
+	Modified   string    `json:"modified,omitempty"`
+	Withdrawn  bool      `json:"withdrawn,omitempty"`
+	Checked    time.Time `json:"checked"`
 }
 
 // Present reports whether there is a displayable sponsor image.
@@ -221,9 +228,11 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error
 	}
 
 	var m struct {
-		Image string `json:"image"`
-		Link  string `json:"link"`
-		Title string `json:"title"`
+		Image    string `json:"image"`
+		Link     string `json:"link"`
+		Title    string `json:"title"`
+		Text     string `json:"text"`
+		LinkFile string `json:"link_file"`
 	}
 	if err := json.Unmarshal(body, &m); err != nil {
 		return State{}, nil, fmt.Errorf("manifest JSON: %w", err)
@@ -237,11 +246,24 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error
 	}
 
 	link := sanitizeLink(m.Link)
+	textRef := strings.TrimSpace(m.Text)
+	if textRef == "" {
+		textRef = defaultTextFile
+	}
+	linkRef := strings.TrimSpace(m.LinkFile)
+	if linkRef == "" {
+		linkRef = defaultLinkFile
+	}
+	caption := fetchTextFile(c, manifestURL, textRef, prev.Caption)
+	link, btnText := fetchLinkFile(c, manifestURL, linkRef, link, prev.ButtonText)
+
 	next := State{
-		Link:    link,
-		Title:   truncateRunes(strings.TrimSpace(m.Title), 120),
-		Image:   imgURL,
-		Checked: time.Now(),
+		Link:       link,
+		ButtonText: btnText,
+		Title:      truncateRunes(strings.TrimSpace(m.Title), 120),
+		Caption:    caption,
+		Image:      imgURL,
+		Checked:    time.Now(),
 	}
 
 	hdr := http.Header{}
@@ -332,6 +354,70 @@ func sanitizeLink(raw string) string {
 		return ""
 	}
 	return link
+}
+
+// fetchTextFile fetches optional Telegram caption text (spontext.txt) resolved
+// relative to manifestURL. 404/410 returns ""; transient failures keep prev.
+func fetchTextFile(c *http.Client, manifestURL, ref, prev string) string {
+	target, err := resolveHTTPURL(manifestURL, ref)
+	if err != nil {
+		return prev
+	}
+	b, status, _, err := httpGet(c, target, nil, maxTextBytes)
+	if err != nil {
+		return prev
+	}
+	if status == http.StatusNotFound || status == http.StatusGone {
+		return ""
+	}
+	if status != http.StatusOK {
+		return prev
+	}
+	text := strings.TrimPrefix(string(b), "\uFEFF")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return truncateRunes(strings.TrimSpace(text), maxCaptionRunes)
+}
+
+// fetchLinkFile fetches optional sponsor link file (sponlink.txt) resolved
+// relative to manifestURL. Line 1 is the http(s) URL (used by both the panel
+// banner and Telegram button); optional line 2 is the Telegram button label.
+func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn string) (string, string) {
+	target, err := resolveHTTPURL(manifestURL, ref)
+	if err != nil {
+		return fallbackLink, prevBtn
+	}
+	b, status, _, err := httpGet(c, target, nil, maxLinkBytes)
+	if err != nil {
+		return fallbackLink, prevBtn
+	}
+	if status == http.StatusNotFound || status == http.StatusGone {
+		return fallbackLink, ""
+	}
+	if status != http.StatusOK {
+		return fallbackLink, prevBtn
+	}
+	raw := strings.TrimPrefix(string(b), "\uFEFF")
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
+	var lines []string
+	for _, ln := range strings.Split(raw, "\n") {
+		if s := strings.TrimSpace(ln); s != "" {
+			lines = append(lines, s)
+		}
+	}
+	if len(lines) == 0 {
+		return "", ""
+	}
+	link := sanitizeLink(lines[0])
+	if link == "" {
+		return fallbackLink, ""
+	}
+	var btn string
+	if len(lines) >= 2 {
+		btn = truncateRunes(lines[1], 64)
+	}
+	return link, btn
 }
 
 func save(storeDir string, s State, img []byte) error {

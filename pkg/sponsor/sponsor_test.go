@@ -107,3 +107,67 @@ func TestRefreshCachesRevalidatesAndValidates(t *testing.T) {
 		t.Fatalf("withdrawn image err = %v, want os.ErrNotExist", err)
 	}
 }
+
+func TestRefreshSpontextAndSponlink(t *testing.T) {
+	caption := "<b>تبلیغ ویژه</b>\n<u>تخفیف ۵۰٪</u> برای کاربران C-Tunnel"
+	linkFile := "https://example.com/sponsor-promo\nمشاهده پیشنهاد ویژه\n"
+	etag := `"img-v1"`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/assets/sponsor.json":
+			_, _ = w.Write([]byte(`{"image":"sponsor.png","link":"https://fallback.example","title":"Fallback Title"}`))
+		case "/assets/sponsor.png":
+			if r.Header.Get("If-None-Match") == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.Header().Set("ETag", etag)
+			_, _ = w.Write(defaultImage)
+		case "/assets/spontext.txt":
+			_, _ = w.Write([]byte("\uFEFF" + caption + "\r\n"))
+		case "/assets/sponlink.txt":
+			_, _ = w.Write([]byte(linkFile))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	oldURL, oldClient := ManifestURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, HTTPClient = oldURL, oldClient })
+	ManifestURL = srv.URL + "/assets/sponsor.json"
+	HTTPClient = srv.Client()
+
+	dir := t.TempDir()
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	st := Load(dir)
+	if st.Caption != caption {
+		t.Fatalf("Caption = %q, want %q", st.Caption, caption)
+	}
+	if st.Link != "https://example.com/sponsor-promo" || st.ButtonText != "مشاهده پیشنهاد ویژه" {
+		t.Fatalf("Link/ButtonText = (%q, %q)", st.Link, st.ButtonText)
+	}
+
+	// Update spontext.txt and sponlink.txt while image stays 304 Not Modified.
+	caption = "<i>متن جدید هفته بعد</i>"
+	linkFile = "https://example.com/next-week\n"
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("second Refresh (304 image): %v", err)
+	}
+	st2 := Load(dir)
+	if st2.Caption != caption || st2.Link != "https://example.com/next-week" || st2.ButtonText != "" {
+		t.Fatalf("updated text/link on 304 failed: %+v", st2)
+	}
+
+	// Emptying sponlink.txt clears link rather than keeping stale URL.
+	linkFile = "   \n"
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("third Refresh (empty link): %v", err)
+	}
+	if st3 := Load(dir); st3.Link != "" {
+		t.Fatalf("empty sponlink.txt left Link=%q", st3.Link)
+	}
+}
