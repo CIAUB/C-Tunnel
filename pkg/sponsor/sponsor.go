@@ -5,6 +5,7 @@
 package sponsor
 
 import (
+	"context"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +23,7 @@ import (
 	"time"
 
 	"ctunnel/pkg/atomicfile"
+	"ctunnel/pkg/tgrelay"
 	"ctunnel/pkg/version"
 )
 
@@ -51,8 +54,19 @@ const (
 // Empty disables remote network refreshes while keeping any local fallback/cache.
 var ManifestURL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/assets/sponsor.json"
 
-// HTTPClient is optional; when nil, a fresh timeout-bounded client is used.
+// HTTPClient is optional; when nil, Refresh tries direct HTTPS first and falls
+// back to relaying through any active Iran->Kharej tunnels when direct fails.
 var HTTPClient *http.Client
+
+// RelayRoutes discovers tunnel relay routes for storeDir (overridable in tests).
+var RelayRoutes = tgrelay.IranRoutes
+
+// RelayDialTarget dials an allowlisted target via a tunnel relay route (overridable in tests).
+var RelayDialTarget = tgrelay.DialTarget
+
+// RelayClientFor builds an HTTP client that tunnels sponsor fetches through routes.
+// Overridable in tests when the test server runs plain HTTP/self-signed TLS.
+var RelayClientFor = newRelayClient
 
 // State is the cached sponsor metadata persisted under <storeDir>/sponsor/sponsor.json.
 type State struct {
@@ -184,7 +198,10 @@ var errWithdrawn = errors.New("sponsor withdrawn")
 
 // Refresh fetches the remote manifest and, when changed, downloads and validates
 // the referenced image. Network errors preserve any existing cache; 404/410 or
-// an empty image field withdraws the sponsor cleanly.
+// Refresh fetches the remote manifest, image, spontext.txt and sponlink.txt and
+// updates the local cache. When direct access fails (e.g. on an Iran server
+// blocked from GitHub), it automatically retries through active Iran->Kharej
+// tunnels via tgrelay. A 404/410 or empty image field withdraws the sponsor cleanly.
 func Refresh(storeDir string) error {
 	if ManifestURL == "" || storeDir == "" {
 		return nil
@@ -192,20 +209,16 @@ func Refresh(storeDir string) error {
 	prev, _ := loadDisk(storeDir)
 	client := HTTPClient
 	if client == nil {
-		client = &http.Client{
-			Timeout: fetchTimeout,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 3 {
-					return errors.New("too many redirects")
-				}
-				if req.URL.Scheme != "https" && req.URL.Scheme != "http" {
-					return fmt.Errorf("disallowed redirect scheme %q", req.URL.Scheme)
-				}
-				return nil
-			},
+		client = newDirectClient()
+	}
+	next, img, partialNetErr, err := fetch(client, ManifestURL, prev)
+	if (err != nil || partialNetErr) && !errors.Is(err, errWithdrawn) && HTTPClient == nil {
+		if routes := RelayRoutes(storeDir); len(routes) > 0 {
+			if rNext, rImg, _, rErr := fetch(RelayClientFor(routes), ManifestURL, prev); rErr == nil || errors.Is(rErr, errWithdrawn) {
+				next, img, err = rNext, rImg, rErr
+			}
 		}
 	}
-	next, img, err := fetch(client, ManifestURL, prev)
 	if errors.Is(err, errWithdrawn) {
 		return withdraw(storeDir)
 	}
@@ -215,16 +228,85 @@ func Refresh(storeDir string) error {
 	return save(storeDir, next, img)
 }
 
-func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error) {
+func redirectGuard(req *http.Request, via []*http.Request) error {
+	if len(via) >= 3 {
+		return errors.New("too many redirects")
+	}
+	if req.URL.Scheme != "https" && req.URL.Scheme != "http" {
+		return fmt.Errorf("disallowed redirect scheme %q", req.URL.Scheme)
+	}
+	return nil
+}
+
+func newDirectClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.DialContext = (&net.Dialer{Timeout: 8 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	tr.TLSHandshakeTimeout = 8 * time.Second
+	tr.ResponseHeaderTimeout = 12 * time.Second
+	return &http.Client{
+		Timeout:       fetchTimeout,
+		Transport:     tr,
+		CheckRedirect: redirectGuard,
+	}
+}
+
+var (
+	relayGoodMu sync.Mutex
+	relayGood   tgrelay.Route
+)
+
+func newRelayClient(routes []tgrelay.Route) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	tr.TLSHandshakeTimeout = 15 * time.Second
+	tr.ResponseHeaderTimeout = 20 * time.Second
+	tr.DialContext = func(ctx context.Context, _, addr string) (net.Conn, error) {
+		relayGoodMu.Lock()
+		cached := relayGood
+		relayGoodMu.Unlock()
+		if cached.Addr != "" {
+			for _, r := range routes {
+				if r == cached {
+					if c, err := RelayDialTarget(ctx, cached, addr); err == nil {
+						return c, nil
+					}
+					break
+				}
+			}
+		}
+		var lastErr error
+		for _, r := range routes {
+			c, err := RelayDialTarget(ctx, r, addr)
+			if err == nil {
+				relayGoodMu.Lock()
+				relayGood = r
+				relayGoodMu.Unlock()
+				return c, nil
+			}
+			lastErr = err
+		}
+		if lastErr != nil {
+			return nil, lastErr
+		}
+		return nil, errors.New("no working tunnel relay route")
+	}
+	return &http.Client{
+		Timeout:       fetchTimeout,
+		Transport:     tr,
+		CheckRedirect: redirectGuard,
+	}
+}
+
+func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, bool, error) {
 	body, status, _, err := httpGet(c, manifestURL, nil, maxManifestBytes)
 	if err != nil {
-		return State{}, nil, err
+		return State{}, nil, false, err
 	}
 	switch {
 	case status == http.StatusNotFound || status == http.StatusGone:
-		return State{}, nil, errWithdrawn
+		return State{}, nil, false, errWithdrawn
 	case status != http.StatusOK:
-		return State{}, nil, fmt.Errorf("manifest HTTP %d", status)
+		return State{}, nil, false, fmt.Errorf("manifest HTTP %d", status)
 	}
 
 	var m struct {
@@ -235,14 +317,14 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error
 		LinkFile string `json:"link_file"`
 	}
 	if err := json.Unmarshal(body, &m); err != nil {
-		return State{}, nil, fmt.Errorf("manifest JSON: %w", err)
+		return State{}, nil, false, fmt.Errorf("manifest JSON: %w", err)
 	}
 	if strings.TrimSpace(m.Image) == "" {
-		return State{}, nil, errWithdrawn
+		return State{}, nil, false, errWithdrawn
 	}
 	imgURL, err := resolveHTTPURL(manifestURL, m.Image)
 	if err != nil {
-		return State{}, nil, fmt.Errorf("manifest image URL: %w", err)
+		return State{}, nil, false, fmt.Errorf("manifest image URL: %w", err)
 	}
 
 	link := sanitizeLink(m.Link)
@@ -254,8 +336,9 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error
 	if linkRef == "" {
 		linkRef = defaultLinkFile
 	}
-	caption := fetchTextFile(c, manifestURL, textRef, prev.Caption)
-	link, btnText := fetchLinkFile(c, manifestURL, linkRef, link, prev.ButtonText)
+	caption, textNetErr := fetchTextFile(c, manifestURL, textRef, prev.Caption)
+	link, btnText, linkNetErr := fetchLinkFile(c, manifestURL, linkRef, link, prev.ButtonText)
+	partialNetErr := textNetErr || linkNetErr
 
 	next := State{
 		Link:       link,
@@ -278,30 +361,30 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error
 
 	img, status, rh, err := httpGet(c, imgURL, hdr, maxImageBytes)
 	if err != nil {
-		return State{}, nil, fmt.Errorf("image fetch: %w", err)
+		return State{}, nil, partialNetErr, fmt.Errorf("image fetch: %w", err)
 	}
 	switch {
 	case status == http.StatusNotModified && prev.Present():
 		next.Type, next.Hash, next.ETag, next.Modified = prev.Type, prev.Hash, prev.ETag, prev.Modified
-		return next, nil, nil
+		return next, nil, partialNetErr, nil
 	case status == http.StatusNotFound || status == http.StatusGone:
-		return State{}, nil, errWithdrawn
+		return State{}, nil, partialNetErr, errWithdrawn
 	case status != http.StatusOK:
-		return State{}, nil, fmt.Errorf("image HTTP %d", status)
+		return State{}, nil, partialNetErr, fmt.Errorf("image HTTP %d", status)
 	}
 
 	typ := http.DetectContentType(img)
 	switch typ {
 	case "image/gif", "image/png", "image/jpeg", "image/webp":
 	default:
-		return State{}, nil, fmt.Errorf("unsupported image type %q", typ)
+		return State{}, nil, partialNetErr, fmt.Errorf("unsupported image type %q", typ)
 	}
 	sum := sha256.Sum256(img)
 	next.Type = typ
 	next.Hash = hex.EncodeToString(sum[:8])
 	next.ETag = rh.Get("ETag")
 	next.Modified = rh.Get("Last-Modified")
-	return next, img, nil
+	return next, img, partialNetErr, nil
 }
 
 func httpGet(c *http.Client, rawURL string, hdr http.Header, limit int64) ([]byte, int, http.Header, error) {
@@ -357,45 +440,46 @@ func sanitizeLink(raw string) string {
 }
 
 // fetchTextFile fetches optional Telegram caption text (spontext.txt) resolved
-// relative to manifestURL. 404/410 returns ""; transient failures keep prev.
-func fetchTextFile(c *http.Client, manifestURL, ref, prev string) string {
+// relative to manifestURL. 404/410 returns ("", false); transient/network errors
+// return (prev, true) so Refresh can retry via tunnel relay.
+func fetchTextFile(c *http.Client, manifestURL, ref, prev string) (string, bool) {
 	target, err := resolveHTTPURL(manifestURL, ref)
 	if err != nil {
-		return prev
+		return prev, false
 	}
 	b, status, _, err := httpGet(c, target, nil, maxTextBytes)
 	if err != nil {
-		return prev
+		return prev, true
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
-		return ""
+		return "", false
 	}
 	if status != http.StatusOK {
-		return prev
+		return prev, true
 	}
 	text := strings.TrimPrefix(string(b), "\uFEFF")
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
-	return truncateRunes(strings.TrimSpace(text), maxCaptionRunes)
+	return truncateRunes(strings.TrimSpace(text), maxCaptionRunes), false
 }
 
 // fetchLinkFile fetches optional sponsor link file (sponlink.txt) resolved
 // relative to manifestURL. Line 1 is the http(s) URL (used by both the panel
 // banner and Telegram button); optional line 2 is the Telegram button label.
-func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn string) (string, string) {
+func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn string) (string, string, bool) {
 	target, err := resolveHTTPURL(manifestURL, ref)
 	if err != nil {
-		return fallbackLink, prevBtn
+		return fallbackLink, prevBtn, false
 	}
 	b, status, _, err := httpGet(c, target, nil, maxLinkBytes)
 	if err != nil {
-		return fallbackLink, prevBtn
+		return fallbackLink, prevBtn, true
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
-		return fallbackLink, ""
+		return fallbackLink, "", false
 	}
 	if status != http.StatusOK {
-		return fallbackLink, prevBtn
+		return fallbackLink, prevBtn, true
 	}
 	raw := strings.TrimPrefix(string(b), "\uFEFF")
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
@@ -407,17 +491,17 @@ func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn strin
 		}
 	}
 	if len(lines) == 0 {
-		return "", ""
+		return "", "", false
 	}
 	link := sanitizeLink(lines[0])
 	if link == "" {
-		return fallbackLink, ""
+		return fallbackLink, "", false
 	}
 	var btn string
 	if len(lines) >= 2 {
 		btn = truncateRunes(lines[1], 64)
 	}
-	return link, btn
+	return link, btn, false
 }
 
 func save(storeDir string, s State, img []byte) error {

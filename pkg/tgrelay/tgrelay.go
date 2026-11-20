@@ -1,7 +1,7 @@
-// Package tgrelay relays Telegram Bot API connections (api.telegram.org:443)
-// from an Iran server through a tunnel to the Kharej server at the other end.
-// It accepts only HTTP CONNECT to api.telegram.org:443 so it cannot be used as
-// an open proxy.
+// Package tgrelay relays allowlisted HTTPS connections (Telegram Bot API and
+// C-Tunnel sponsor/asset hosts) from an Iran server through a tunnel to the
+// Kharej server at the other end. Only explicitly allowlisted port-443 targets
+// are accepted so it cannot be used as an open proxy.
 package tgrelay
 
 import (
@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -23,9 +24,24 @@ const (
 	idleTimeout    = 90 * time.Second
 )
 
+var allowedTargets = map[string]bool{
+	"api.telegram.org:443":                     true,
+	"raw.githubusercontent.com:443":            true,
+	"github.com:443":                           true,
+	"objects.githubusercontent.com:443":        true,
+	"release-assets.githubusercontent.com:443": true,
+	"cdn.jsdelivr.net:443":                     true,
+	"i.imgur.com:443":                          true,
+}
+
+// AllowedTarget reports whether hostPort is an allowlisted relay destination.
+func AllowedTarget(hostPort string) bool {
+	return allowedTargets[strings.ToLower(strings.TrimSpace(hostPort))]
+}
+
 // Ports returns deterministic candidate ports in 20000..59999 derived from a
 // tunnel's secret token, so both ends know which loopback/tunnel port carries
-// the Telegram relay for that tunnel without extra configuration.
+// the relay for that tunnel without extra configuration.
 func Ports(token string) []int {
 	ports := make([]int, 0, 8)
 	seen := map[int]bool{}
@@ -44,7 +60,14 @@ var dialTelegram = func(ctx context.Context) (net.Conn, error) {
 	return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", telegramTarget)
 }
 
-// Serve accepts CONNECT requests on ln and relays them to api.telegram.org:443.
+var dialTarget = func(ctx context.Context, target string) (net.Conn, error) {
+	if target == telegramTarget {
+		return dialTelegram(ctx)
+	}
+	return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", target)
+}
+
+// Serve accepts CONNECT requests on ln and relays allowlisted HTTPS targets.
 func Serve(ctx context.Context, ln net.Listener) error {
 	stop := context.AfterFunc(ctx, func() { _ = ln.Close() })
 	defer stop()
@@ -71,11 +94,12 @@ func serveConn(ctx context.Context, c net.Conn) {
 	if err != nil {
 		return
 	}
-	if req.Method != http.MethodConnect || req.Host != telegramTarget {
+	target := strings.ToLower(strings.TrimSpace(req.Host))
+	if req.Method != http.MethodConnect || !AllowedTarget(target) {
 		_, _ = io.WriteString(c, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
 		return
 	}
-	up, err := dialTelegram(ctx)
+	up, err := dialTarget(ctx, target)
 	if err != nil {
 		_, _ = io.WriteString(c, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
 		return
@@ -143,6 +167,15 @@ func (r Route) String() string {
 
 // Dial connects to api.telegram.org:443 through route.
 func Dial(ctx context.Context, r Route) (net.Conn, error) {
+	return DialTarget(ctx, r, telegramTarget)
+}
+
+// DialTarget connects to an allowlisted HTTPS target (host:443) through route.
+func DialTarget(ctx context.Context, r Route, target string) (net.Conn, error) {
+	target = strings.ToLower(strings.TrimSpace(target))
+	if !AllowedTarget(target) {
+		return nil, fmt.Errorf("relay target %q is not allowlisted", target)
+	}
 	netw := r.Network
 	if netw == "" {
 		netw = "tcp"
@@ -165,7 +198,7 @@ func Dial(ctx context.Context, r Route) (net.Conn, error) {
 			return nil, err
 		}
 	}
-	if _, err := fmt.Fprintf(c, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", telegramTarget, telegramTarget); err != nil {
+	if _, err := fmt.Fprintf(c, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target); err != nil {
 		_ = c.Close()
 		return nil, err
 	}
@@ -178,7 +211,7 @@ func Dial(ctx context.Context, r Route) (net.Conn, error) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_ = c.Close()
-		return nil, fmt.Errorf("telegram relay %s: %s", r, resp.Status)
+		return nil, fmt.Errorf("relay %s (%s): %s", r, target, resp.Status)
 	}
 	_ = c.SetDeadline(time.Time{})
 	return &readerConn{Conn: c, r: br}, nil

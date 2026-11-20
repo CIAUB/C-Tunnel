@@ -2,12 +2,16 @@ package sponsor
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"sync/atomic"
 	"testing"
+
+	"ctunnel/pkg/tgrelay"
 )
 
 func TestDefaultFallbackPresentOffline(t *testing.T) {
@@ -169,5 +173,64 @@ func TestRefreshSpontextAndSponlink(t *testing.T) {
 	}
 	if st3 := Load(dir); st3.Link != "" {
 		t.Fatalf("empty sponlink.txt left Link=%q", st3.Link)
+	}
+}
+
+func TestRefreshFallsBackToTunnelRelayWhenDirectBlocked(t *testing.T) {
+	// Serve all four sponsor assets on a local server reachable ONLY via the tunnel relay.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/assets/sponsor.json":
+			_, _ = w.Write([]byte(`{"image":"sponsor.png","title":"Fallback"}`))
+		case "/assets/sponsor.png":
+			_, _ = w.Write(defaultImage)
+		case "/assets/spontext.txt":
+			_, _ = w.Write([]byte("<b>از طریق تونل</b>\n<u>تست موفق</u>"))
+		case "/assets/sponlink.txt":
+			_, _ = w.Write([]byte("https://t.me/RelaySponsor\nلینک از تونل\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	// Pick an unused local port so direct fetch immediately gets connection refused (simulating Iran block).
+	deadLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadAddr := deadLn.Addr().String()
+	_ = deadLn.Close()
+
+	var relayHits atomic.Int32
+	oldURL, oldClient, oldRoutes, oldDial, oldRelayClient := ManifestURL, HTTPClient, RelayRoutes, RelayDialTarget, RelayClientFor
+	t.Cleanup(func() {
+		ManifestURL, HTTPClient, RelayRoutes, RelayDialTarget, RelayClientFor = oldURL, oldClient, oldRoutes, oldDial, oldRelayClient
+	})
+	ManifestURL = "http://" + deadAddr + "/assets/sponsor.json"
+	HTTPClient = nil // exercise real direct-then-relay fallback
+	RelayRoutes = func(string) []tgrelay.Route {
+		return []tgrelay.Route{{Name: "ir-l4", Network: "tcp", Addr: srv.Listener.Addr().String()}}
+	}
+	RelayDialTarget = func(ctx context.Context, r tgrelay.Route, _ string) (net.Conn, error) {
+		relayHits.Add(1)
+		return (&net.Dialer{}).DialContext(ctx, "tcp", r.Addr)
+	}
+	RelayClientFor = newRelayClient
+
+	dir := t.TempDir()
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("Refresh via tunnel relay fallback failed: %v", err)
+	}
+	if relayHits.Load() == 0 {
+		t.Fatal("expected sponsor Refresh to dial through tunnel relay")
+	}
+	st := Load(dir)
+	if !st.Present() || st.Caption != "<b>از طریق تونل</b>\n<u>تست موفق</u>" || st.Link != "https://t.me/RelaySponsor" || st.ButtonText != "لینک از تونل" {
+		t.Fatalf("unexpected relayed sponsor state: %+v", st)
+	}
+	img, typ, _, err := Image(dir)
+	if err != nil || typ != "image/png" || !bytes.Equal(img, defaultImage) {
+		t.Fatalf("unexpected relayed image: typ=%q err=%v", typ, err)
 	}
 }

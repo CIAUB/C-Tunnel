@@ -6,58 +6,16 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
-	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/tgrelay"
-	"ctunnel/pkg/tunnel"
 )
 
 // RelayRoutes returns all candidate routes through which an Iran server can
-// reach a Kharej server's Telegram relay (L3/L2 tunnel IPs and L4 Unix sockets).
+// reach a Kharej server's relay (L3/L2 tunnel IPs and L4 Unix sockets).
 func RelayRoutes(storeDir string) []tgrelay.Route {
-	st, err := catalog.LoadStore(storeDir)
-	if err != nil {
-		return nil
-	}
-	var out []tgrelay.Route
-	for _, tc := range st.Tunnels {
-		if tc.Role != "iran" || tc.Token == "" {
-			continue
-		}
-		ports := tgrelay.Ports(tc.Token)
-		if m, ok := catalog.LookupMethod(tc.Method); ok && m.L4() {
-			if tunnel.L4Links(tc.Name) <= 0 {
-				continue
-			}
-			sock := filepath.Join(tunnel.L4Dir, "ct-"+tc.Name, "tg.sock")
-			for _, p := range ports {
-				out = append(out, tgrelay.Route{
-					Name:       tc.Name,
-					Network:    "unix",
-					Addr:       sock,
-					TargetPort: p,
-				})
-			}
-			continue
-		}
-		ip := net.ParseIP(strings.TrimSpace(tc.TunRemote4)).To4()
-		if ip == nil {
-			continue
-		}
-		for _, p := range ports {
-			out = append(out, tgrelay.Route{
-				Name:    tc.Name,
-				Network: "tcp",
-				Addr:    net.JoinHostPort(ip.String(), strconv.Itoa(p)),
-			})
-		}
-	}
-	return out
+	return tgrelay.IranRoutes(storeDir)
 }
 
 // Via configures b so that when direct connections fail or when routes returns
