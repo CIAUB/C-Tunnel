@@ -123,11 +123,16 @@ type pckConn struct {
 	mu    sync.Mutex
 	peers map[pckPeerKey]*pckPeer
 
-	closed atomic.Bool
+	closed    atomic.Bool
+	relinking atomic.Bool
+	linkMu    sync.RWMutex
+	carrier   PcapCarrier
+	peerIP    net.IP
 
-	// queueDrops counts segments the local transmit queue had no room for;
-	// see writeFailed.
+	// queueDrops/queueSent/linkDrops track local transmit backpressure and link flaps.
 	queueDrops atomic.Uint64
+	queueSent  atomic.Uint64
+	linkDrops  atomic.Uint64
 }
 
 // The frame buffer pool both ReadFrom and WriteTo draw from lives in
@@ -205,15 +210,16 @@ func newPckConn(server bool, listenPort uint16, carrier PcapCarrier) (net.Packet
 	}
 
 	c := &pckConn{
-		egress:  egress,
-		port:    carrier.Port,
-		server:  server,
-		flags:   flags,
-		tsBase:  rand.Uint32(),
-		tsStart: time.Now(),
-		peers:   make(map[pckPeerKey]*pckPeer),
-
+		egress:   egress,
+		port:     carrier.Port,
+		server:   server,
+		flags:    flags,
+		tsBase:   rand.Uint32(),
+		tsStart:  time.Now(),
+		peers:    make(map[pckPeerKey]*pckPeer),
 		tunnelID: pckTunnelID(carrier.Token),
+		carrier:  carrier,
+		peerIP:   peer,
 	}
 	// The server is addressed on the tunnel port and answers from it. A client
 	// sends from an ephemeral port of its own, as any connecting host would —
@@ -581,19 +587,30 @@ func (c *pckConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 		buf = make([]byte, n)
 	}
 
+	c.linkMu.RLock()
+	egress := c.egress
+	txFile, txRaw := c.txFile, c.txRaw
+	c.linkMu.RUnlock()
+
 	frame := assemblePckFrame(buf, pckFrameParams{
-		SrcMAC: c.egress.SrcMAC, DstMAC: c.egress.NextHop,
-		SrcIP: c.egress.LocalIP, DstIP: dst.IP.To4(),
+		SrcMAC: egress.SrcMAC, DstMAC: egress.NextHop,
+		SrcIP: egress.LocalIP, DstIP: dst.IP.To4(),
 		SrcPort: c.local, DstPort: uint16(dst.Port),
 		Seq: seq, Ack: ack, Flags: f,
 		TSVal: c.timestamp(), TSEcr: tsEcr,
 		ID: id, Payload: p,
 	})
 
-	if c.txFile != nil {
+	if txFile != nil {
 		if err := c.sendFrame(frame); err != nil {
 			return c.writeFailed(len(p), err)
 		}
+		c.queueSent.Add(1)
+		return len(p), nil
+	}
+
+	if txRaw == nil {
+		c.linkDrops.Add(1)
 		return len(p), nil
 	}
 
@@ -610,40 +627,176 @@ func (c *pckConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 		Flags:    ipv4.DontFragment,
 		TTL:      64,
 		Protocol: 6,
-		Src:      c.egress.LocalIP,
+		Src:      egress.LocalIP,
 		Dst:      dst.IP.To4(),
 	}
-	if err := c.txRaw.WriteTo(h, tcp, nil); err != nil {
+	if err := txRaw.WriteTo(h, tcp, nil); err != nil {
 		return c.writeFailed(len(p), err)
 	}
+	c.queueSent.Add(1)
 	return len(p), nil
 }
 
-// writeFailed decides what a failed send means to the tunnel above.
-//
-// A full transmit queue is a lost packet, not a broken socket. A packet or raw
-// socket reports it — ENOBUFS when the qdisc had no room — where a UDP socket
-// says nothing and drops the datagram, and KCP, which sits on this, treats any
-// error from WriteTo as the end of the session: it closes it for good and
-// discards the rest of what it was sending. So a pck tunnel pushed hard enough
-// to fill its own queue once stopped carrying anything and never came back,
-// while the same tunnel over UDP recovered on its own. Found by the Connection
-// Test: echoes passed, a 1 MB transfer both ways stalled at two thirds, and
-// the kharej had logged "no buffer space available".
-//
-// So it is reported the way UDP would have it: sent. KCP retransmits the
-// segment as it does any lost on the path. Every other error is returned.
+// writeFailed absorbs transient queue backpressure, link-down errors, and
+// vanished-interface errors so KCP keeps its session alive across link flaps
+// and interface recreation.
 func (c *pckConn) writeFailed(n int, err error) (int, error) {
 	if errors.Is(err, unix.ENOBUFS) || errors.Is(err, unix.EAGAIN) {
 		c.queueDrops.Add(1)
 		return n, nil
 	}
+	if pckLinkDownErr(err) {
+		c.linkDrops.Add(1)
+		return n, nil
+	}
+	if pckLinkGoneErr(err) {
+		c.linkDrops.Add(1)
+		c.relinkAsync()
+		return n, nil
+	}
+	if c.relinking.Load() && !c.closed.Load() {
+		c.linkDrops.Add(1)
+		return n, nil
+	}
 	return 0, err
+}
+
+func pckLinkGoneErr(err error) bool {
+	return errors.Is(err, unix.ENXIO) || errors.Is(err, unix.ENODEV)
+}
+
+func pckLinkDownErr(err error) bool {
+	return errors.Is(err, unix.ENETDOWN) || errors.Is(err, unix.ENETUNREACH) || errors.Is(err, unix.EHOSTUNREACH)
+}
+
+const (
+	pckLinkWaitMin   = 10 * time.Millisecond
+	pckLinkWaitMax   = time.Second
+	pckRelinkWaitMin = 100 * time.Millisecond
+	pckRelinkWaitMax = 2 * time.Second
+)
+
+func (c *pckConn) pckLinkGone() bool {
+	c.linkMu.RLock()
+	eg := c.egress
+	c.linkMu.RUnlock()
+	if eg == nil || eg.Iface == nil {
+		return true
+	}
+	in, err := net.InterfaceByIndex(eg.Iface.Index)
+	return err != nil || in.Name != eg.Iface.Name
+}
+
+// rxLinkDown absorbs ENETDOWN while an interface is down or recreated so KCP's
+// receive loop does not permanently exit.
+func (c *pckConn) rxLinkDown(err error, streak *int) bool {
+	if c.closed.Load() {
+		return false
+	}
+	if !errors.Is(err, unix.ENETDOWN) && !(c.relinking.Load() && errors.Is(err, net.ErrClosed)) {
+		return false
+	}
+	if c.pckLinkGone() {
+		c.linkDrops.Add(1)
+		c.relinkAsync()
+	}
+	w := pckLinkWaitMin
+	for i := 0; i < *streak && w < pckLinkWaitMax; i++ {
+		w *= 2
+	}
+	if w > pckLinkWaitMax {
+		w = pckLinkWaitMax
+	}
+	*streak++
+	c.linkDrops.Add(1)
+	time.Sleep(w)
+	return true
+}
+
+func (c *pckConn) relinkAsync() {
+	if c.closed.Load() || !c.relinking.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer c.relinking.Store(false)
+		wait := pckRelinkWaitMin
+		for !c.closed.Load() {
+			toward := c.peerIP
+			if toward == nil {
+				toward = net.IPv4(1, 1, 1, 1).To4()
+			}
+			ifaceHint := c.carrier.Interface
+			if ifaceHint == "" {
+				c.linkMu.RLock()
+				if c.egress != nil && c.egress.Iface != nil {
+					ifaceHint = c.egress.Iface.Name
+				}
+				c.linkMu.RUnlock()
+			}
+			eg, err := discoverEgress(toward, ifaceHint, c.carrier.GatewayMAC)
+			if err != nil && c.server {
+				if name := firstUsableIface(); name != "" {
+					eg, err = discoverEgress(toward, name, c.carrier.GatewayMAC)
+				}
+			}
+			if err == nil && eg != nil {
+				tmp := &pckConn{
+					egress: eg,
+					port:   c.port,
+					local:  c.local,
+					server: c.server,
+				}
+				if tmp.openRx() == nil {
+					if tmp.openTx() == nil {
+						c.linkMu.Lock()
+						oldRx, oldTx, oldRaw, oldRawPC := c.rx, c.txFile, c.txRaw, c.txRawPC
+						c.egress = eg
+						c.rx, c.rxConn = tmp.rx, tmp.rxConn
+						c.txFile, c.txConn, c.txAddr = tmp.txFile, tmp.txConn, tmp.txAddr
+						c.txRaw, c.txRawPC = tmp.txRaw, tmp.txRawPC
+						c.linkMu.Unlock()
+						if oldRx != nil {
+							_ = oldRx.Close()
+						}
+						if oldTx != nil {
+							_ = oldTx.Close()
+						}
+						if oldRaw != nil {
+							_ = oldRaw.Close()
+						}
+						if oldRawPC != nil {
+							_ = oldRawPC.Close()
+						}
+						return
+					}
+					_ = tmp.rx.Close()
+				}
+			}
+			time.Sleep(wait)
+			wait = min(wait*2, pckRelinkWaitMax)
+		}
+	}()
+}
+
+// IfaceMTU reports the egress interface MTU for KCP payload clamping.
+func (c *pckConn) IfaceMTU() int {
+	c.linkMu.RLock()
+	defer c.linkMu.RUnlock()
+	if c.egress != nil && c.egress.Iface != nil {
+		return c.egress.Iface.MTU
+	}
+	return 0
 }
 
 // QueueDrops is how many segments were dropped because the local transmit
 // queue was full.
 func (c *pckConn) QueueDrops() uint64 { return c.queueDrops.Load() }
+
+// QueueSent is how many segments were accepted by the local transmit queue.
+func (c *pckConn) QueueSent() uint64 { return c.queueSent.Load() }
+
+// LinkDrops is how many segments were dropped while the link was down.
+func (c *pckConn) LinkDrops() uint64 { return c.linkDrops.Load() }
 
 // sendFrame writes a finished Ethernet frame to the packet socket, taking the
 // descriptor from the runtime so it cannot be closed underneath the syscall.
@@ -651,7 +804,9 @@ func (c *pckConn) QueueDrops() uint64 { return c.queueDrops.Load() }
 // The RawConn and the destination are resolved once at open; see the fields on
 // pckConn for why they used to be rebuilt per packet and why that mattered.
 func (c *pckConn) sendFrame(frame []byte) error {
+	c.linkMu.RLock()
 	sc, sll := c.txConn, c.txAddr
+	c.linkMu.RUnlock()
 	if sc == nil {
 		// Only reachable if the socket was never opened for link-layer
 		// injection, which the caller has already checked.
@@ -674,17 +829,18 @@ func (c *pckConn) sendFrame(frame []byte) error {
 // came from. Anything else on the wire is skipped rather than reported: a
 // packet socket sees a great deal that is not ours.
 func (c *pckConn) ReadFrom(p []byte) (int, net.Addr, error) {
-	// The frame buffer comes from a pool rather than being allocated here. KCP
-	// calls ReadFrom once per packet, so a fresh 64 KiB slice per call meant a
-	// 64 KiB allocation for every packet the tunnel received — at a few thousand
-	// packets a second that is the garbage collector, not the network, deciding
-	// how fast the tunnel runs. Nothing in the buffer outlives the call: the
-	// payload is copied into p before returning, so it is safe to hand back.
 	bp := pckFrameBuffers.Get().(*[]byte)
 	defer pckFrameBuffers.Put(bp)
 	buf := *bp
+	streak := 0
 	for {
-		n, err := c.rx.Read(buf)
+		c.linkMu.RLock()
+		rx := c.rx
+		c.linkMu.RUnlock()
+		if rx == nil {
+			return 0, nil, net.ErrClosed
+		}
+		n, err := rx.Read(buf)
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return 0, nil, os.ErrDeadlineExceeded
@@ -692,8 +848,12 @@ func (c *pckConn) ReadFrom(p []byte) (int, net.Addr, error) {
 			if errors.Is(err, unix.EINTR) {
 				continue
 			}
+			if c.rxLinkDown(err, &streak) {
+				continue
+			}
 			return 0, nil, err
 		}
+		streak = 0
 		payload, addr, ok := c.accept(buf[:n])
 		if !ok {
 			continue

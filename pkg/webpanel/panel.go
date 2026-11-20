@@ -10,7 +10,6 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	_ "embed"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -94,6 +93,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.auth(s.handleLogout))
 	mux.HandleFunc("GET /api/overview", s.auth(s.handleOverview))
+	mux.HandleFunc("GET /api/sponsor", s.auth(s.handleSponsor))
+	mux.HandleFunc("GET /api/sponsor/image", s.auth(s.handleSponsorImage))
 	mux.HandleFunc("GET /api/version", s.auth(s.handleVersion))
 	mux.HandleFunc("GET /api/self-update", s.auth(s.handleSelfUpdate))
 	mux.HandleFunc("POST /api/self-update", s.auth(s.handleSelfUpdate))
@@ -247,20 +248,14 @@ func decodeJSON(r *http.Request, v any) error {
 }
 
 func inlineHash(tag string) string {
-	text := string(indexHTML)
-	open := "<" + tag + ">"
-	start := strings.Index(text, open)
-	end := strings.Index(text, "</"+tag+">")
-	if start < 0 || end < start {
-		return ""
+	p := servedPanel()
+	if tag == "style" {
+		return p.styleHash
 	}
-	// The HTML parser normalizes CRLF and CR to LF before the browser hashes
-	// inline content. Hash the same bytes so a CRLF checkout is not blocked.
-	content := text[start+len(open) : end]
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	content = strings.ReplaceAll(content, "\r", "\n")
-	sum := sha256.Sum256([]byte(content))
-	return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	if tag == "script" {
+		return p.scriptHash
+	}
+	return hashInlineTag(p.raw, tag)
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -278,7 +273,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		if r.TLS != nil {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data: https://raw.githubusercontent.com; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -349,8 +344,21 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(indexHTML)
+	p := servedPanel()
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("ETag", p.etag)
+	h.Set("Vary", "Accept-Encoding")
+	if r.Header.Get("If-None-Match") == p.etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && len(p.gz) > 0 {
+		h.Set("Content-Encoding", "gzip")
+		_, _ = w.Write(p.gz)
+		return
+	}
+	_, _ = w.Write(p.raw)
 }
 
 func clientIP(r *http.Request) string {

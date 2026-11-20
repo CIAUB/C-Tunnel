@@ -65,7 +65,14 @@ func (c *pckConn) ReadBatch(bufs [][]byte, sizes []int, froms []net.Addr) (int, 
 	}
 	msgs, iovs := b.msgs[:n], b.iovs[:n]
 
+	streak := 0
 	for {
+		c.linkMu.RLock()
+		rxConn := c.rxConn
+		c.linkMu.RUnlock()
+		if rxConn == nil {
+			return 0, errPckNoBatch
+		}
 		for i := range n {
 			if len(bufs[i]) == 0 {
 				return 0, errPckNoBatch
@@ -79,7 +86,7 @@ func (c *pckConn) ReadBatch(bufs [][]byte, sizes []int, froms []net.Addr) (int, 
 
 		var got int
 		var serr error
-		err := c.rxConn.Read(func(fd uintptr) bool {
+		err := rxConn.Read(func(fd uintptr) bool {
 			r, _, e := unix.Syscall6(unix.SYS_RECVMMSG, fd,
 				uintptr(unsafe.Pointer(&msgs[0])), uintptr(n), unix.MSG_DONTWAIT, 0, 0)
 			if e == unix.EAGAIN {
@@ -93,14 +100,21 @@ func (c *pckConn) ReadBatch(bufs [][]byte, sizes []int, froms []net.Addr) (int, 
 			return true
 		})
 		if err != nil {
+			if c.rxLinkDown(err, &streak) {
+				continue
+			}
 			return 0, err // closed, or a read deadline
 		}
 		if serr != nil {
 			if errors.Is(serr, unix.EINTR) {
 				continue
 			}
+			if c.rxLinkDown(serr, &streak) {
+				continue
+			}
 			return 0, serr
 		}
+		streak = 0
 
 		// Keep this tunnel's segments, packed to the front. A slot is only
 		// written once every frame at or before it has been read, so moving a

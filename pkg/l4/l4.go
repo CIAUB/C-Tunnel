@@ -83,6 +83,11 @@ type Config struct {
 	LocalSocket string
 	// ProbeSocket is the Unix socket path for active tunnel echo/RTT probes.
 	ProbeSocket string
+	// PeerPinPath persists CT4\x03 peer authentication once observed, preventing
+	// downgrade to legacy unsealed target headers on subsequent connections.
+	PeerPinPath string
+	// StrictAuth refuses legacy unsealed handshakes from the start.
+	StrictAuth bool
 	Pool, Conns int
 	Logf        func(format string, args ...any)
 }

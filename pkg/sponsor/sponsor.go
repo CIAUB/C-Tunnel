@@ -1,0 +1,382 @@
+// Package sponsor manages C-Tunnel's square Overview Sponsor Space card:
+// background manifest & image fetching with atomic disk cache, ETag/Last-Modified
+// revalidation, strict magic-byte image validation, same-origin serving, and an
+// embedded native fallback banner so the panel never makes external image calls.
+package sponsor
+
+import (
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"ctunnel/pkg/atomicfile"
+	"ctunnel/pkg/version"
+)
+
+//go:embed default.png
+var defaultImage []byte
+
+var defaultHash = func() string {
+	sum := sha256.Sum256(defaultImage)
+	return hex.EncodeToString(sum[:8])
+}()
+
+const (
+	DefaultLink  = "https://t.me/CiAsAgent"
+	DefaultTitle = "Sponsored Space — Book on Telegram @CiAsAgent"
+
+	maxManifestBytes = 16 << 10
+	maxImageBytes    = 15 << 20
+	maxAge           = 30 * time.Minute
+	fetchTimeout     = 2 * time.Minute
+)
+
+// ManifestURL points to the published JSON manifest {"image","link","title"}.
+// Empty disables remote network refreshes while keeping any local fallback/cache.
+var ManifestURL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/assets/sponsor.json"
+
+// HTTPClient is optional; when nil, a fresh timeout-bounded client is used.
+var HTTPClient *http.Client
+
+// State is the cached sponsor metadata persisted under <storeDir>/sponsor/sponsor.json.
+type State struct {
+	Link      string    `json:"link,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	Type      string    `json:"type,omitempty"`
+	Hash      string    `json:"hash,omitempty"`
+	Image     string    `json:"image,omitempty"`
+	ETag      string    `json:"etag,omitempty"`
+	Modified  string    `json:"modified,omitempty"`
+	Withdrawn bool      `json:"withdrawn,omitempty"`
+	Checked   time.Time `json:"checked"`
+}
+
+// Present reports whether there is a displayable sponsor image.
+func (s State) Present() bool { return !s.Withdrawn && s.Hash != "" && s.Type != "" }
+
+// DefaultState returns the embedded native C-Tunnel Sponsor Space metadata.
+func DefaultState() State {
+	return State{
+		Link:  DefaultLink,
+		Title: DefaultTitle,
+		Type:  "image/png",
+		Hash:  defaultHash,
+	}
+}
+
+var (
+	mu       sync.Mutex
+	running  = map[string]bool{}
+	kickedAt = map[string]time.Time{}
+)
+
+func statePath(storeDir string) string { return filepath.Join(storeDir, "sponsor", "sponsor.json") }
+func imagePath(storeDir string) string { return filepath.Join(storeDir, "sponsor", "image") }
+
+func loadDisk(storeDir string) (State, bool) {
+	b, err := os.ReadFile(statePath(storeDir))
+	if err != nil {
+		return State{}, false
+	}
+	var s State
+	if err := json.Unmarshal(b, &s); err != nil {
+		return State{}, false
+	}
+	return s, true
+}
+
+// Load returns the active Sponsor Space state without touching the network.
+// If the remote publisher explicitly withdrew the sponsor (404/410/empty image),
+// an empty State is returned. Otherwise the disk-cached remote sponsor or the
+// embedded native banner is returned.
+func Load(storeDir string) State {
+	s, ok := loadDisk(storeDir)
+	if ok {
+		if s.Withdrawn {
+			return State{Withdrawn: true, Checked: s.Checked}
+		}
+		if s.Present() {
+			if _, err := os.Stat(imagePath(storeDir)); err == nil {
+				return s
+			}
+		}
+	}
+	return DefaultState()
+}
+
+// Image returns the image bytes, sniffed MIME type, and content hash to serve
+// from the panel's own origin.
+func Image(storeDir string) ([]byte, string, string, error) {
+	s, ok := loadDisk(storeDir)
+	if ok {
+		if s.Withdrawn {
+			return nil, "", "", os.ErrNotExist
+		}
+		if s.Present() {
+			if b, err := os.ReadFile(imagePath(storeDir)); err == nil && len(b) > 0 {
+				return b, s.Type, s.Hash, nil
+			}
+		}
+	}
+	if len(defaultImage) == 0 {
+		return nil, "", "", os.ErrNotExist
+	}
+	return defaultImage, "image/png", defaultHash, nil
+}
+
+// Kick triggers a non-blocking background refresh when the cached state is
+// stale (older than 30 minutes), throttled to at most once per minute.
+func Kick(storeDir string) {
+	if ManifestURL == "" || storeDir == "" {
+		return
+	}
+	mu.Lock()
+	if running[storeDir] || time.Since(kickedAt[storeDir]) < time.Minute {
+		mu.Unlock()
+		return
+	}
+	if s, ok := loadDisk(storeDir); ok && time.Since(s.Checked) < maxAge {
+		mu.Unlock()
+		return
+	}
+	running[storeDir] = true
+	kickedAt[storeDir] = time.Now()
+	mu.Unlock()
+
+	go func() {
+		_ = Refresh(storeDir)
+		mu.Lock()
+		running[storeDir] = false
+		mu.Unlock()
+	}()
+}
+
+// RefreshIfStale refreshes synchronously when cache is older than 30 minutes.
+func RefreshIfStale(storeDir string) error {
+	if ManifestURL == "" || storeDir == "" {
+		return nil
+	}
+	if s, ok := loadDisk(storeDir); ok && time.Since(s.Checked) < maxAge {
+		return nil
+	}
+	return Refresh(storeDir)
+}
+
+var errWithdrawn = errors.New("sponsor withdrawn")
+
+// Refresh fetches the remote manifest and, when changed, downloads and validates
+// the referenced image. Network errors preserve any existing cache; 404/410 or
+// an empty image field withdraws the sponsor cleanly.
+func Refresh(storeDir string) error {
+	if ManifestURL == "" || storeDir == "" {
+		return nil
+	}
+	prev, _ := loadDisk(storeDir)
+	client := HTTPClient
+	if client == nil {
+		client = &http.Client{
+			Timeout: fetchTimeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 3 {
+					return errors.New("too many redirects")
+				}
+				if req.URL.Scheme != "https" && req.URL.Scheme != "http" {
+					return fmt.Errorf("disallowed redirect scheme %q", req.URL.Scheme)
+				}
+				return nil
+			},
+		}
+	}
+	next, img, err := fetch(client, ManifestURL, prev)
+	if errors.Is(err, errWithdrawn) {
+		return withdraw(storeDir)
+	}
+	if err != nil {
+		return err
+	}
+	return save(storeDir, next, img)
+}
+
+func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, error) {
+	body, status, _, err := httpGet(c, manifestURL, nil, maxManifestBytes)
+	if err != nil {
+		return State{}, nil, err
+	}
+	switch {
+	case status == http.StatusNotFound || status == http.StatusGone:
+		return State{}, nil, errWithdrawn
+	case status != http.StatusOK:
+		return State{}, nil, fmt.Errorf("manifest HTTP %d", status)
+	}
+
+	var m struct {
+		Image string `json:"image"`
+		Link  string `json:"link"`
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(body, &m); err != nil {
+		return State{}, nil, fmt.Errorf("manifest JSON: %w", err)
+	}
+	if strings.TrimSpace(m.Image) == "" {
+		return State{}, nil, errWithdrawn
+	}
+	imgURL, err := resolveHTTPURL(manifestURL, m.Image)
+	if err != nil {
+		return State{}, nil, fmt.Errorf("manifest image URL: %w", err)
+	}
+
+	link := sanitizeLink(m.Link)
+	next := State{
+		Link:    link,
+		Title:   truncateRunes(strings.TrimSpace(m.Title), 120),
+		Image:   imgURL,
+		Checked: time.Now(),
+	}
+
+	hdr := http.Header{}
+	if prev.Present() && prev.Image == imgURL {
+		if prev.ETag != "" {
+			hdr.Set("If-None-Match", prev.ETag)
+		}
+		if prev.Modified != "" {
+			hdr.Set("If-Modified-Since", prev.Modified)
+		}
+	}
+
+	img, status, rh, err := httpGet(c, imgURL, hdr, maxImageBytes)
+	if err != nil {
+		return State{}, nil, fmt.Errorf("image fetch: %w", err)
+	}
+	switch {
+	case status == http.StatusNotModified && prev.Present():
+		next.Type, next.Hash, next.ETag, next.Modified = prev.Type, prev.Hash, prev.ETag, prev.Modified
+		return next, nil, nil
+	case status == http.StatusNotFound || status == http.StatusGone:
+		return State{}, nil, errWithdrawn
+	case status != http.StatusOK:
+		return State{}, nil, fmt.Errorf("image HTTP %d", status)
+	}
+
+	typ := http.DetectContentType(img)
+	switch typ {
+	case "image/gif", "image/png", "image/jpeg", "image/webp":
+	default:
+		return State{}, nil, fmt.Errorf("unsupported image type %q", typ)
+	}
+	sum := sha256.Sum256(img)
+	next.Type = typ
+	next.Hash = hex.EncodeToString(sum[:8])
+	next.ETag = rh.Get("ETag")
+	next.Modified = rh.Get("Last-Modified")
+	return next, img, nil
+}
+
+func httpGet(c *http.Client, rawURL string, hdr http.Header, limit int64) ([]byte, int, http.Header, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	for k, v := range hdr {
+		req.Header[k] = v
+	}
+	req.Header.Set("User-Agent", "C-Tunnel/"+version.Version)
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	if int64(len(b)) > limit {
+		return nil, 0, nil, fmt.Errorf("payload exceeds %d bytes", limit)
+	}
+	return b, resp.StatusCode, resp.Header, nil
+}
+
+func resolveHTTPURL(base, ref string) (string, error) {
+	b, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	r, err := url.Parse(strings.TrimSpace(ref))
+	if err != nil {
+		return "", err
+	}
+	u := b.ResolveReference(r)
+	if (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return "", fmt.Errorf("%q is not an http(s) URL", ref)
+	}
+	return u.String(), nil
+}
+
+func sanitizeLink(raw string) string {
+	link := strings.TrimSpace(raw)
+	if link == "" {
+		return ""
+	}
+	u, err := url.Parse(link)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return ""
+	}
+	return link
+}
+
+func save(storeDir string, s State, img []byte) error {
+	dir := filepath.Join(storeDir, "sponsor")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if img != nil {
+		if err := writeAtomic(imagePath(storeDir), img, 0o644); err != nil {
+			return err
+		}
+	}
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(statePath(storeDir), data, 0o644)
+}
+
+func withdraw(storeDir string) error {
+	dir := filepath.Join(storeDir, "sponsor")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(imagePath(storeDir))
+	data, _ := json.MarshalIndent(State{Withdrawn: true, Checked: time.Now()}, "", "  ")
+	return writeAtomic(statePath(storeDir), data, 0o644)
+}
+
+func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return err
+	}
+	if err := atomicfile.Replace(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
+}

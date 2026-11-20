@@ -169,7 +169,7 @@ func Verdict(title string, rows []Result) string {
 	})
 	var b strings.Builder
 	fmt.Fprintf(&b, "CONNECTION TEST — %s\n", title)
-	fmt.Fprintf(&b, "   %-8s %-17s %-14s %-5s %-11s %-11s %s\n", "MODE", "METHOD", "LATENCY", "LOSS", "DOWNLOAD", "UPLOAD", "TOTAL")
+	fmt.Fprintf(&b, "   %-8s %-17s %-14s %-5s %-11s %-11s %-11s %s\n", "MODE", "METHOD", "LATENCY", "LOSS", "DOWNLOAD", "UPLOAD", "MAX", "TOTAL")
 	var blocked []string
 	last := ""
 	for _, r := range rs {
@@ -181,9 +181,10 @@ func Verdict(title string, rows []Result) string {
 		}
 		switch r.Status() {
 		case "ok", "unstable":
-			fmt.Fprintf(&b, "%s %-8s %-17s %-14s %-5s %-11s %-11s %s\n", dot(r), modeTag(r), r.Method,
+			peak := max(max(r.DownPeakMbps, r.UpPeakMbps), max(r.DownMbps, r.UpMbps))
+			fmt.Fprintf(&b, "%s %-8s %-17s %-14s %-5s %-11s %-11s %-11s %s\n", dot(r), modeTag(r), r.Method,
 				fmt.Sprintf("%.1f ms ±%.1f", r.RTTms, r.JitterMs), fmt.Sprintf("%d%%", r.LossPct()),
-				mbps(r.DownMbps), mbps(r.UpMbps), mbps(r.Total()))
+				mbps(r.DownMbps), mbps(r.UpMbps), mbps(peak), mbps(r.Total()))
 			if r.Error != "" {
 				fmt.Fprintf(&b, "   %s\n", r.Error)
 			}

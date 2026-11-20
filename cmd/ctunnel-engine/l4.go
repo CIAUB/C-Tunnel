@@ -32,6 +32,10 @@ func runL4(cfg config) error {
 	done := make(chan struct{})
 	dir := filepath.Join(tunnel.L4Dir, cfg.dev)
 	go publishL4(cfg, st, done)
+	pinPath := ""
+	if base := filepath.Base(cfg.name); base != "" && base != "." && base != string(filepath.Separator) && base == cfg.name {
+		pinPath = filepath.Join("/etc/ctunnel/tunnels", base+".peerpin")
+	}
 	err = l4.Run(ctx, l4.Config{
 		Role:        cfg.role,
 		Transport:   cfg.kind,
@@ -43,6 +47,7 @@ func runL4(cfg config) error {
 		SNI:         cfg.sni,
 		LocalSocket: filepath.Join(dir, "tg.sock"),
 		ProbeSocket: filepath.Join(dir, "probe.sock"),
+		PeerPinPath: pinPath,
 		Logf:        log.Printf,
 	}, st)
 	close(done)

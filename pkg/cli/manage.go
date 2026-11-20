@@ -105,8 +105,10 @@ func stateWord(t catalog.TunnelConfig) string {
 	return Red + "stopped" + Reset
 }
 
-// manageTunnels lists tunnels and lets the user act on a chosen one.
+// manageTunnels lists tunnels grouped by category with inline status/category
+// filtering and lets the user act on a chosen tunnel.
 func manageTunnels() {
+	filter := "all"
 	for {
 		st, ok := loadStore()
 		if !ok {
@@ -117,16 +119,56 @@ func manageTunnels() {
 			Pause()
 			return
 		}
+		statuses := tunnel.GetStatuses(st.Tunnels)
+		allEntries := BuildTunnelEntries(st.Tunnels, statuses)
+		shown, filterLabel, _ := FilterTunnels(allEntries, filter)
+		groups := GroupTunnels(shown)
+
 		Header()
-		opts := make([]MenuOpt, len(st.Tunnels))
-		for i, t := range st.Tunnels {
-			opts[i] = MenuOpt{Title: t.Name, Desc: fmt.Sprintf("%s %s — %s", t.Role, methodLabel(t), plainState(t))}
+		Title("Manage Tunnels · " + filterLabel)
+		Info(TunnelSummaryLine(allEntries))
+		fmt.Println()
+
+		var flat []catalog.TunnelConfig
+		if len(groups) == 0 {
+			Warn("No tunnels match filter \"" + filterLabel + "\". Type 'a' to show all.")
+		} else {
+			for _, g := range groups {
+				fmt.Printf("  %s── %s %s(%s · %d/%d up)%s\n",
+					Bold+Red, strings.ToUpper(g.Category.Title), Gray, g.Category.Code, g.UpCount, len(g.Items), Reset)
+				for _, e := range g.Items {
+					flat = append(flat, e.Tunnel)
+					idx := len(flat)
+					fmt.Printf("  %s%2d)%s %s%-14s%s  %s%-6s%s  %-13s  %s  %s%s%s\n",
+						Red, idx, Reset,
+						Bold+White, e.Tunnel.Name, Reset,
+						Gray, strings.ToUpper(e.Tunnel.Role), Reset,
+						e.Method,
+						statusBadge(e.Status),
+						Gray, tunnelEndpointHint(e.Tunnel), Reset)
+				}
+				fmt.Println()
+			}
 		}
-		idx := ChooseOpt("Select A Tunnel", opts)
-		if idx == 0 {
+
+		Rule()
+		Subtle("Filter: a=all · u=up · d=down · r=reverse · f=direct · l4/l3/udp/stealth/l2")
+		raw := strings.TrimSpace(Ask("Select [1-"+strconv.Itoa(len(flat))+"], filter, or 0=back", "0"))
+		if raw == "" || raw == "0" || strings.EqualFold(raw, "q") {
 			return
 		}
-		manageOne(st.Tunnels[idx-1].Name)
+		if n, err := strconv.Atoi(raw); err == nil {
+			if n >= 1 && n <= len(flat) {
+				manageOne(flat[n-1].Name)
+			}
+			continue
+		}
+		if _, _, valid := FilterTunnels(allEntries, raw); valid {
+			filter = raw
+		} else {
+			Warn("Unknown filter or index: " + raw)
+			Pause()
+		}
 	}
 }
 
@@ -409,34 +451,44 @@ func tunnelMetrics() {
 	for _, t := range st.Tunnels {
 		before[t.Name] = readIfStats(tunnel.Dev(t.Name))
 	}
+	statuses := tunnel.GetStatuses(st.Tunnels)
 	time.Sleep(time.Second)
-	for _, t := range st.Tunnels {
-		now := readIfStats(tunnel.Dev(t.Name))
-		Info(Bold + White + t.Name + Reset + Gray + "  " + t.Role + " / " + methodLabel(t) + Reset)
-		if !now.present {
-			Warn("  Not Running")
+	groups := GroupTunnels(BuildTunnelEntries(st.Tunnels, statuses))
+	for _, g := range groups {
+		fmt.Printf("  %s── %s %s(%d/%d up)%s\n", Bold+Red, strings.ToUpper(g.Category.Title), Gray, g.UpCount, len(g.Items), Reset)
+		for _, e := range g.Items {
+			t := e.Tunnel
+			now := readIfStats(tunnel.Dev(t.Name))
+			Info(Bold + White + t.Name + Reset + Gray + "  " + t.Role + " / " + methodLabel(t) + Reset + "  " + statusBadge(e.Status))
+			if !now.present {
+				if e.Status.RxBytes > 0 || e.Status.TxBytes > 0 {
+					Info(fmt.Sprintf("  Traffic       : %s In, %s Out", humanBytes(e.Status.RxBytes), humanBytes(e.Status.TxBytes)))
+				} else {
+					Warn("  Not Running")
+				}
+				fmt.Println()
+				continue
+			}
+			if since := tunnel.Since(t); since != "" {
+				Subtle("  Up since " + since)
+			}
+			b := before[t.Name]
+			Info(fmt.Sprintf("  Traffic       : %s In, %s Out", humanBytes(now.rxBytes), humanBytes(now.txBytes)))
+			Info(fmt.Sprintf("  Rate now      : %s In, %s Out", rate(now.rxBytes-b.rxBytes), rate(now.txBytes-b.txBytes)))
+			Info(fmt.Sprintf("  Packets       : %d In, %d Out", now.rxPackets, now.txPackets))
+			bad := now.rxErrors + now.txErrors + now.rxDropped + now.txDropped
+			line := fmt.Sprintf("  Errors / drops: %d / %d in, %d / %d out", now.rxErrors, now.rxDropped, now.txErrors, now.txDropped)
+			total := now.rxPackets + now.txPackets
+			switch {
+			case total > 0 && float64(bad)/float64(total) >= 0.01:
+				Err(line)
+			case bad > 0:
+				Warn(line)
+			default:
+				Info(line)
+			}
 			fmt.Println()
-			continue
 		}
-		if since := tunnel.Since(t); since != "" {
-			Subtle("  Up since " + since)
-		}
-		b := before[t.Name]
-		Info(fmt.Sprintf("  Traffic       : %s In, %s Out", humanBytes(now.rxBytes), humanBytes(now.txBytes)))
-		Info(fmt.Sprintf("  Rate now      : %s In, %s Out", rate(now.rxBytes-b.rxBytes), rate(now.txBytes-b.txBytes)))
-		Info(fmt.Sprintf("  Packets       : %d In, %d Out", now.rxPackets, now.txPackets))
-		bad := now.rxErrors + now.txErrors + now.rxDropped + now.txDropped
-		line := fmt.Sprintf("  Errors / drops: %d / %d in, %d / %d out", now.rxErrors, now.rxDropped, now.txErrors, now.txDropped)
-		total := now.rxPackets + now.txPackets
-		switch {
-		case total > 0 && float64(bad)/float64(total) >= 0.01:
-			Err(line)
-		case bad > 0:
-			Warn(line)
-		default:
-			Info(line)
-		}
-		fmt.Println()
 	}
 	Pause()
 }
@@ -494,10 +546,9 @@ func autoRefreshMenu() {
 	} else if hours <= 0 {
 		Ok("Auto Refresh Off.")
 	} else {
-		// cron cannot say "every 36 hours", so above a day it is whole days.
 		eff := schedule.EffectiveHours(hours)
 		if eff != hours {
-			Info(fmt.Sprintf("Above 24 Hours It Is Whole Days: %d → %d.", hours, eff))
+			Info(fmt.Sprintf("Aligned to even cron boundary (divisors of 24h or whole days): %d → %d.", hours, eff))
 		}
 		Ok(fmt.Sprintf("All Tunnels Restart Every %d Hour(s).", eff))
 	}

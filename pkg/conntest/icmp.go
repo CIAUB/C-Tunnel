@@ -33,6 +33,7 @@ func measureICMPLive(ctx context.Context, host net.IP, onLive func(phase string,
 		return row
 	}
 	defer c.Close()
+	tuneICMPSocket(c)
 	var idb [2]byte
 	_, _ = rand.Read(idb[:])
 	id := binary.BigEndian.Uint16(idb[:])

@@ -668,18 +668,20 @@ func liveSink(ctx context.Context) func(LiveTelemetry) {
 
 // Result is the outcome for one method and mode (DIRECT or REVERSE).
 type Result struct {
-	Method   string  `json:"method"`
-	Family   string  `json:"family"`
-	Mode     string  `json:"mode"`
-	Sent     int     `json:"sent"`
-	Received int     `json:"received"`
-	RTTms    float64 `json:"rtt_ms"`
-	JitterMs float64 `json:"jitter_ms"`
-	UpMbps   float64 `json:"up_mbps"`   // sent from this server (upload)
-	DownMbps float64 `json:"down_mbps"` // received by this server (download)
-	Skipped  string  `json:"skipped,omitempty"`
-	Error    string  `json:"error,omitempty"`
-	Phase    string  `json:"phase,omitempty"` // "", "wait", "echo", "download", "upload", "speed" while the test runs
+	Method       string  `json:"method"`
+	Family       string  `json:"family"`
+	Mode         string  `json:"mode"`
+	Sent         int     `json:"sent"`
+	Received     int     `json:"received"`
+	RTTms        float64 `json:"rtt_ms"`
+	JitterMs     float64 `json:"jitter_ms"`
+	UpMbps       float64 `json:"up_mbps"`                  // sent from this server (upload)
+	DownMbps     float64 `json:"down_mbps"`                // received by this server (download)
+	UpPeakMbps   float64 `json:"up_peak_mbps,omitempty"`   // best whole-second upload peak
+	DownPeakMbps float64 `json:"down_peak_mbps,omitempty"` // best whole-second download peak
+	Skipped      string  `json:"skipped,omitempty"`
+	Error        string  `json:"error,omitempty"`
+	Phase        string  `json:"phase,omitempty"` // "", "wait", "echo", "download", "upload", "speed" while the test runs
 }
 
 func stripMethodPrefix(method string) string {
@@ -703,7 +705,7 @@ func validResult(r Result) bool {
 	if r.Sent < 0 || r.Sent > Probes || r.Received < 0 || r.Received > r.Sent {
 		return false
 	}
-	for _, v := range []float64{r.RTTms, r.JitterMs, r.DownMbps, r.UpMbps} {
+	for _, v := range []float64{r.RTTms, r.JitterMs, r.DownMbps, r.UpMbps, r.DownPeakMbps, r.UpPeakMbps} {
 		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1e9 {
 			return false
 		}
@@ -1280,14 +1282,23 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			set(ri, func(r *Result) { r.Phase = "upload" })
 		}
 		emitLive(targets[0], "upload", 0, 0)
+		var upPeak, downPeak float64
 		up, down := s.throughputLive(ctx, i, func(phase string, rateMbps float64) {
 			for _, ri := range targets {
 				set(ri, func(r *Result) {
 					r.Phase = phase
 					if phase == "upload" {
 						r.UpMbps = rateMbps
+						if rateMbps > upPeak {
+							upPeak = rateMbps
+						}
+						r.UpPeakMbps = upPeak
 					} else {
 						r.DownMbps = rateMbps
+						if rateMbps > downPeak {
+							downPeak = rateMbps
+						}
+						r.DownPeakMbps = downPeak
 					}
 				})
 			}
@@ -1299,8 +1310,14 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			}
 			emitLive(targets[0], phase, rx, tx)
 		})
+		if upPeak < up {
+			upPeak = up
+		}
+		if downPeak < down {
+			downPeak = down
+		}
 		for _, ri := range targets {
-			set(ri, func(r *Result) { r.UpMbps, r.DownMbps, r.Phase = up, down, "" })
+			set(ri, func(r *Result) { r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Phase = up, down, upPeak, downPeak, "" })
 			push(ri)
 		}
 		notify()
@@ -1337,15 +1354,24 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			focusIdx = tci
 		}
 		emitLive(focusIdx, "echo", 0, 0)
+		var carUpPeak, carDownPeak float64
 		measured := measureCarrierLive(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), rows[ci].Method, func(phase string, sent, recv int, rtt, jit, rx, tx float64) {
+			if rx > carDownPeak {
+				carDownPeak = rx
+			}
+			if tx > carUpPeak {
+				carUpPeak = tx
+			}
 			apply := func(r *Result, mode, name string) {
 				r.Method, r.Mode, r.Phase = name, mode, phase
 				r.Sent, r.Received, r.RTTms, r.JitterMs = sent, recv, rtt, jit
 				if rx > 0 {
 					r.DownMbps = rx
+					r.DownPeakMbps = carDownPeak
 				}
 				if tx > 0 {
 					r.UpMbps = tx
+					r.UpPeakMbps = carUpPeak
 				}
 			}
 			set(ci, func(r *Result) { apply(r, "REVERSE", "frp+"+base) })
@@ -1354,6 +1380,8 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			}
 			emitLive(focusIdx, phase, rx, tx)
 		})
+		measured.DownPeakMbps = max(measured.DownMbps, carDownPeak)
+		measured.UpPeakMbps = max(measured.UpMbps, carUpPeak)
 		set(ci, func(r *Result) { *r = measured })
 		if hasTurbo {
 			tm := measured

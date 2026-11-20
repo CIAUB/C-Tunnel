@@ -12,6 +12,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"ctunnel/pkg/tcpmss"
 )
 
 // The carrier test speaks the same wire shape as the REVERSE TCP carrier of
@@ -102,23 +104,45 @@ func serveCarrier(c net.Conn) {
 		for writeRecord(c, body) == nil {
 		}
 	case 'U':
+		var total atomic.Uint64
+		stopAck, ackDone := make(chan struct{}), make(chan struct{})
+		go func() {
+			defer close(ackDone)
+			tk := time.NewTicker(ctSpeedAckEvery)
+			defer tk.Stop()
+			var sent uint64
+			var ack [8]byte
+			for {
+				select {
+				case <-stopAck:
+					return
+				case <-tk.C:
+				}
+				if n := total.Load(); n != sent {
+					binary.BigEndian.PutUint64(ack[:], n)
+					if writeRecord(c, ack[:]) != nil {
+						return
+					}
+					sent = n
+				}
+			}
+		}()
 		buf := make([]byte, 64<<10)
-		var total uint64
-		var ack [8]byte
 		for {
 			n, err := readRecord(c, buf)
 			if err != nil {
-				return
+				break
 			}
 			if !bytes.HasPrefix(buf[:n], prefix) {
-				return
+				break
 			}
-			total += uint64(n - len(prefix))
-			binary.BigEndian.PutUint64(ack[:], total)
-			if writeRecord(c, ack[:]) != nil {
-				return
-			}
+			total.Add(uint64(n - len(prefix)))
 		}
+		close(stopAck)
+		<-ackDone
+		var finalAck [8]byte
+		binary.BigEndian.PutUint64(finalAck[:], total.Load())
+		_ = writeRecord(c, finalAck[:])
 	}
 }
 
@@ -126,7 +150,7 @@ func dialCarrier(ctx context.Context, addr string, mode byte, prefix []byte) (ne
 	if len(prefix) > 512 {
 		return nil, errors.New("carrier prefix too long")
 	}
-	c, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", addr)
+	c, err := (&net.Dialer{Timeout: 3 * time.Second, Control: tcpmss.ControlBBR}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -360,19 +384,27 @@ func sumTCPAcked(conns []net.Conn) (uint64, bool) {
 }
 
 // sampleWindow samples cumulative delivered bytes at 200ms intervals and emits
-// the moving throughput over the trailing ~1-second window (5 ticks), matching
-// NeoTunnel's jitter-free rate smoothing.
+// the moving throughput over the trailing ~1-second window (5 ticks).
 func sampleWindow(ctx context.Context, d time.Duration, readBytes func() uint64, emit func(mbps float64)) bool {
+	_, ok := sampleWindowPeak(ctx, d, readBytes, emit)
+	return ok
+}
+
+// sampleWindowPeak samples cumulative delivered bytes at 200ms intervals, emits
+// moving throughput over the trailing ~1-second window, and returns the highest
+// whole-second window rate observed during the span.
+func sampleWindowPeak(ctx context.Context, d time.Duration, readBytes func() uint64, emit func(mbps float64)) (float64, bool) {
 	if d <= 0 {
-		return ctx.Err() == nil
+		return 0, ctx.Err() == nil
 	}
-	if emit == nil || readBytes == nil {
-		return sleepCtx(ctx, d)
+	if readBytes == nil {
+		return 0, sleepCtx(ctx, d)
 	}
 	end := time.Now().Add(d)
 	tick := time.NewTicker(200 * time.Millisecond)
 	defer tick.Stop()
 	ring := []windowSample{{bytes: readBytes(), at: time.Now()}}
+	var peak float64
 	step := func(now time.Time) {
 		cur := readBytes()
 		last := ring[len(ring)-1].bytes
@@ -385,20 +417,26 @@ func sampleWindow(ctx context.Context, d time.Duration, readBytes func() uint64,
 		}
 		first := ring[0]
 		if dt := now.Sub(first.at).Seconds(); dt > 0 && cur >= first.bytes {
-			emit(float64(cur-first.bytes) * 8 / dt / 1e6)
+			mbps := float64(cur-first.bytes) * 8 / dt / 1e6
+			if dt >= 0.9 && mbps > peak {
+				peak = mbps
+			}
+			if emit != nil {
+				emit(mbps)
+			}
 		}
 	}
 	for {
 		rem := time.Until(end)
 		if rem <= 0 {
-			return true
+			return peak, true
 		}
 		select {
 		case <-ctx.Done():
-			return false
+			return peak, false
 		case <-time.After(rem):
 			step(time.Now())
-			return true
+			return peak, true
 		case now := <-tick.C:
 			step(now)
 		}

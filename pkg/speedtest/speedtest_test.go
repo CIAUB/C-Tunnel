@@ -198,6 +198,28 @@ func TestSpeedResponderStopClosesActiveConnections(t *testing.T) {
 	}
 }
 
+func TestStagedSpeedTracksPeakAndBatchedUploadAcks(t *testing.T) {
+	addr, stop, err := StartServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	st, err := MeasureSpeedStagedLive(ctx, addr, 250*time.Millisecond, 1200*time.Millisecond, nil)
+	if err != nil {
+		t.Fatalf("MeasureSpeedStagedLive: %v", err)
+	}
+	if st.DownloadMbps <= 0 || st.UploadMbps <= 0 {
+		t.Fatalf("expected positive rates: %+v", st)
+	}
+	if st.DownloadPeakMbps < st.DownloadMbps || st.UploadPeakMbps < st.UploadMbps {
+		t.Fatalf("peak must be >= sustained avg: %+v", st)
+	}
+}
+
+
 func TestEmptyCarrierRecordRejected(t *testing.T) {
 	_, err := readRecord(bytes.NewReader([]byte{0x17, 3, 3, 0, 0}), make([]byte, 10))
 	if err == nil || err == io.EOF {

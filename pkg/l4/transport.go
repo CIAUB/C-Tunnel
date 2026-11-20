@@ -22,6 +22,7 @@ import (
 	"github.com/xtaci/kcp-go/v5"
 	"golang.org/x/crypto/pbkdf2"
 
+	"ctunnel/pkg/pathctl"
 	"ctunnel/pkg/pck"
 	"ctunnel/pkg/tcpmss"
 )
@@ -187,21 +188,90 @@ func kcpBlock(token string) (kcp.BlockCrypt, error) {
 	return kcp.NewAESBlockCrypt(pbkdf2.Key([]byte(token), []byte("ctunnel-l4-kcp-v1"), 4096, 32, sha256.New))
 }
 
-func tuneKCP(s *kcp.UDPSession, mtu int) {
+const (
+	kcpDefaultWindow = 4096
+	kcpPCKWindow     = 8192
+)
+
+func tuneKCP(s *kcp.UDPSession, mtu, window int) {
+	if window <= 0 {
+		window = kcpDefaultWindow
+	}
 	s.SetNoDelay(1, 10, 2, 1)
-	s.SetWindowSize(4096, 4096)
+	s.SetWindowSize(window, window)
 	s.SetMtu(mtu)
 	s.SetStreamMode(true)
 	s.SetWriteDelay(false)
 	s.SetACKNoDelay(false)
 }
 
+type pckMetrics interface {
+	QueueDrops() uint64
+	QueueSent() uint64
+}
+
+func startSessionPathCtl(s *kcp.UDPSession, pc net.PacketConn, ceiling int) func() {
+	done := make(chan struct{})
+	var pm pckMetrics
+	if pc != nil {
+		pm, _ = pc.(pckMetrics)
+	}
+	ctl := pathctl.New(pathctl.Config{
+		Ceiling:      ceiling,
+		Rcv:          ceiling,
+		Tick:         10 * time.Millisecond,
+		WantBatching: true,
+		Sessions: func() ([]pathctl.Session, uint64, uint64) {
+			var drops, sent uint64
+			if pm != nil {
+				drops, sent = pm.QueueDrops(), pm.QueueSent()
+			}
+			return []pathctl.Session{s}, drops, sent
+		},
+	})
+	go ctl.Run(done)
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
+}
+
+type managedKCPConn struct {
+	net.Conn
+	stop func()
+}
+
+func (m *managedKCPConn) CloseWrite() error {
+	if cw, ok := m.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return m.Close()
+}
+
+func (m *managedKCPConn) idle() time.Duration {
+	if kc, ok := m.Conn.(*kcpConn); ok {
+		return kc.idle()
+	}
+	return 0
+}
+
+func (m *managedKCPConn) isKCPFramed() bool {
+	_, ok := m.Conn.(*kcpConn)
+	return ok
+}
+
+func (m *managedKCPConn) Close() error {
+	if m.stop != nil {
+		m.stop()
+	}
+	return m.Conn.Close()
+}
+
 type kcpListener struct {
-	ln    *kcp.Listener
-	conn  net.PacketConn
-	mtu   int
-	frame bool
-	once  sync.Once
+	ln     *kcp.Listener
+	conn   net.PacketConn
+	mtu    int
+	window int
+	frame  bool
+	once   sync.Once
 }
 
 func listenPCK(cfg *Config) (listener, error) {
@@ -218,7 +288,7 @@ func listenPCK(cfg *Config) (listener, error) {
 		pc.Close()
 		return nil, err
 	}
-	return &kcpListener{ln: ln, conn: pc, mtu: 1350 - pck.PckOverhead()}, nil
+	return &kcpListener{ln: ln, conn: pc, mtu: pck.KCPMTU(pc, pck.DefaultKCPMTU), window: kcpPCKWindow}, nil
 }
 
 func listenKCP(cfg *Config, addr string) (listener, error) {
@@ -232,7 +302,7 @@ func listenKCP(cfg *Config, addr string) (listener, error) {
 	}
 	_ = ln.SetReadBuffer(kcpSocketBuffer)
 	_ = ln.SetWriteBuffer(kcpSocketBuffer)
-	return &kcpListener{ln: ln, mtu: kcpUDPMTU, frame: cfg.Transport == "udp"}, nil
+	return &kcpListener{ln: ln, mtu: kcpUDPMTU, window: kcpDefaultWindow, frame: cfg.Transport == "udp"}, nil
 }
 
 func (k *kcpListener) Accept() (net.Conn, error) {
@@ -240,11 +310,12 @@ func (k *kcpListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	tuneKCP(s, k.mtu)
+	tuneKCP(s, k.mtu, k.window)
+	stop := startSessionPathCtl(s, k.conn, k.window)
 	if k.frame {
-		return newKCPConn(s), nil
+		return &managedKCPConn{Conn: newKCPConn(s), stop: stop}, nil
 	}
-	return s, nil
+	return &managedKCPConn{Conn: s, stop: stop}, nil
 }
 
 func (k *kcpListener) Close() error {
@@ -278,8 +349,9 @@ func dialPCK(cfg *Config) (net.Conn, error) {
 		pc.Close()
 		return nil, err
 	}
-	tuneKCP(s, 1350-pck.PckOverhead())
-	return s, nil
+	tuneKCP(s, pck.KCPMTU(pc, pck.DefaultKCPMTU), kcpPCKWindow)
+	stop := startSessionPathCtl(s, pc, kcpPCKWindow)
+	return &managedKCPConn{Conn: s, stop: stop}, nil
 }
 
 func dialKCP(cfg *Config, addr string) (net.Conn, error) {
@@ -293,9 +365,10 @@ func dialKCP(cfg *Config, addr string) (net.Conn, error) {
 	}
 	_ = s.SetReadBuffer(kcpSocketBuffer)
 	_ = s.SetWriteBuffer(kcpSocketBuffer)
-	tuneKCP(s, kcpUDPMTU)
+	tuneKCP(s, kcpUDPMTU, kcpDefaultWindow)
+	stop := startSessionPathCtl(s, nil, kcpDefaultWindow)
 	if cfg.Transport == "udp" {
-		return newKCPConn(s), nil
+		return &managedKCPConn{Conn: newKCPConn(s), stop: stop}, nil
 	}
-	return s, nil
+	return &managedKCPConn{Conn: s, stop: stop}, nil
 }

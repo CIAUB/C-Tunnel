@@ -21,14 +21,17 @@ import (
 )
 
 const (
-	streamWait      = 5 * time.Second
-	pingInterval    = 20 * time.Second
-	idleRead        = 60 * time.Second
-	udpIdle         = 2 * time.Minute
-	maxUDPFlows     = 4096
-	maxPool         = 1024
-	maxPendingPerIP = 64
-	maxPending      = 1024
+	streamWait         = 5 * time.Second
+	headerWriteTimeout = 5 * time.Second
+	forwardRetryEvery  = 5 * time.Second
+	pingInterval       = 20 * time.Second
+	idleRead           = 60 * time.Second
+	udpIdle            = 2 * time.Minute
+	maxUDPFlows        = 4096
+	maxPool            = 1024
+	maxInFlightDials   = 64
+	maxPendingPerIP    = 64
+	maxPending         = 1024
 )
 
 type admission struct {
@@ -120,17 +123,20 @@ func Run(ctx context.Context, cfg Config, st *Stats) error {
 type pooledConn struct {
 	c     net.Conn
 	runID [runIDLen]byte
+	auth  *sessionAuth
 }
 
 type muxSession struct {
 	sess  *smux.Session
 	runID [runIDLen]byte
+	auth  *sessionAuth
 }
 
 type server struct {
-	cfg  *Config
-	st   *Stats
-	pool connStack
+	cfg   *Config
+	st    *Stats
+	guard *PeerGuard
+	pool  connStack
 
 	mu       sync.Mutex
 	sessions []muxSession
@@ -162,9 +168,27 @@ func (s *server) carry(fn func()) {
 
 func (s *server) run(ctx context.Context) error {
 	s.ready = make(chan struct{})
+	s.guard = NewPeerGuard(s.cfg.Token, s.cfg.StrictAuth, s.cfg.PeerPinPath)
 	var closers []func()
+	var closersMu sync.Mutex
+	var closed bool
+	addCloser := func(fn func()) {
+		closersMu.Lock()
+		if closed {
+			closersMu.Unlock()
+			fn()
+			return
+		}
+		closers = append(closers, fn)
+		closersMu.Unlock()
+	}
 	defer func() {
-		for _, c := range closers {
+		closersMu.Lock()
+		closed = true
+		list := append([]func(){}, closers...)
+		closers = nil
+		closersMu.Unlock()
+		for _, c := range list {
 			c()
 		}
 	}()
@@ -180,25 +204,14 @@ func (s *server) run(ctx context.Context) error {
 	}
 
 	for _, f := range s.cfg.Forwards {
-		tl, err := net.Listen("tcp", ":"+strconv.Itoa(f.Listen))
-		if err != nil {
-			return fmt.Errorf("forwarded port %d: %w", f.Listen, err)
-		}
-		closers = append(closers, func() { tl.Close() })
-		go s.serveTCP(ctx, tl, f.Target)
-		if uc, err := net.ListenUDP("udp", &net.UDPAddr{Port: f.Listen}); err != nil {
-			s.cfg.Logf("UDP %d not forwarded: %v", f.Listen, err)
-		} else {
-			closers = append(closers, func() { uc.Close() })
-			go s.serveUDP(ctx, uc, f.Target)
-		}
+		s.startForwardPort(ctx, f, addCloser)
 	}
 	if s.cfg.LocalSocket != "" {
 		ul, err := listenUnix(s.cfg.LocalSocket)
 		if err != nil {
 			s.cfg.Logf("socket %s not served: %v", s.cfg.LocalSocket, err)
 		} else {
-			closers = append(closers, func() { _ = ul.Close(); _ = os.Remove(s.cfg.LocalSocket) })
+			addCloser(func() { _ = ul.Close(); _ = os.Remove(s.cfg.LocalSocket) })
 			go s.serveLocal(ctx, ul)
 		}
 	}
@@ -207,7 +220,7 @@ func (s *server) run(ctx context.Context) error {
 		if err != nil {
 			s.cfg.Logf("probe socket %s not served: %v", s.cfg.ProbeSocket, err)
 		} else {
-			closers = append(closers, func() { _ = pl.Close(); _ = os.Remove(s.cfg.ProbeSocket) })
+			addCloser(func() { _ = pl.Close(); _ = os.Remove(s.cfg.ProbeSocket) })
 			go s.serveProbe(ctx, pl)
 		}
 	}
@@ -242,6 +255,50 @@ func (s *server) run(ctx context.Context) error {
 	}
 }
 
+// startForwardPort binds one forwarded port synchronously when available. If
+// the port is busy, it logs once and retries every forwardRetryEvery in the
+// background so other forwarded ports on the same tunnel keep serving
+// uninterrupted.
+func (s *server) startForwardPort(ctx context.Context, f Forward, addCloser func(func())) {
+	if s.bindForwardPort(ctx, f, addCloser, true) {
+		return
+	}
+	go s.retryForwardPort(ctx, f, addCloser)
+}
+
+func (s *server) bindForwardPort(ctx context.Context, f Forward, addCloser func(func()), logBusy bool) bool {
+	tl, err := net.Listen("tcp", ":"+strconv.Itoa(f.Listen))
+	if err != nil {
+		if logBusy {
+			s.cfg.Logf("forwarded port %d busy (%v); retrying every %s without stopping other ports", f.Listen, err, forwardRetryEvery)
+		}
+		return false
+	}
+	addCloser(func() { _ = tl.Close() })
+	if uc, err := net.ListenUDP("udp", &net.UDPAddr{Port: f.Listen}); err != nil {
+		s.cfg.Logf("UDP %d not forwarded: %v", f.Listen, err)
+	} else {
+		addCloser(func() { _ = uc.Close() })
+		go s.serveUDP(ctx, uc, f.Target)
+	}
+	go s.serveTCP(ctx, tl, f.Target)
+	return true
+}
+
+func (s *server) retryForwardPort(ctx context.Context, f Forward, addCloser func(func())) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(forwardRetryEvery):
+		}
+		if s.bindForwardPort(ctx, f, addCloser, false) {
+			s.cfg.Logf("forwarded port %d bound after retry", f.Listen)
+			return
+		}
+	}
+}
+
 // dialDirect runs on the Iran server when cfg.Direct is true: Iran dials out to
 // Kharej to maintain the connection pool or multiplexed sessions.
 func (s *server) dialDirect(ctx context.Context) error {
@@ -253,12 +310,15 @@ func (s *server) dialDirect(ctx context.Context) error {
 	}
 	s.cfg.Logf("%s direct to %s:%d, %d connection(s), forwarding %d port(s)", s.cfg.Transport, s.cfg.RemoteIP, s.cfg.Port, n, len(s.cfg.Forwards))
 	var wg sync.WaitGroup
+	dialOnce := func() (net.Conn, *sessionAuth, error) {
+		return dialAndHandshake(ctx, s.cfg, s.guard, runID)
+	}
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for ctx.Err() == nil {
-				c, err := dial(ctx, s.cfg)
+				c, auth, err := dialOnce()
 				if err != nil {
 					select {
 					case <-ctx.Done():
@@ -267,30 +327,16 @@ func (s *server) dialDirect(ctx context.Context) error {
 					}
 					continue
 				}
-				if tc, ok := c.(*net.TCPConn); ok {
-					_ = tc.SetNoDelay(true)
-					_ = tc.SetKeepAlive(true)
-					_ = tc.SetKeepAlivePeriod(15 * time.Second)
-				}
-				if err := clientHandshake(c, s.cfg.Token, runID); err != nil {
-					c.Close()
-					select {
-					case <-ctx.Done():
-						return
-					case <-time.After(2 * time.Second):
-					}
-					continue
-				}
 				if !Mux(s.cfg.Transport) {
-					s.pool.push(pooledConn{c: c, runID: runID})
+					s.pool.push(pooledConn{c: c, runID: runID, auth: auth})
 					s.countLinks()
 					s.signal()
-					// Wait while pool is full enough before dialing replacements.
-					for ctx.Err() == nil && s.pool.len()+int(s.busy.Load()) >= s.cfg.Pool {
+					// Wait while pool has enough idle connections; wake quickly if drained.
+					for ctx.Err() == nil && s.pool.len() >= max(2, s.cfg.Pool/2) && s.pool.len()+int(s.busy.Load()) >= s.cfg.Pool {
 						select {
 						case <-ctx.Done():
 							return
-						case <-time.After(200 * time.Millisecond):
+						case <-time.After(150 * time.Millisecond):
 						}
 					}
 					continue
@@ -301,7 +347,7 @@ func (s *server) dialDirect(ctx context.Context) error {
 					continue
 				}
 				s.mu.Lock()
-				s.sessions = append(s.sessions, muxSession{sess: sess, runID: runID})
+				s.sessions = append(s.sessions, muxSession{sess: sess, runID: runID, auth: auth})
 				s.mu.Unlock()
 				s.st.Links.Add(1)
 				s.signal()
@@ -336,7 +382,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 		_ = tc.SetKeepAlive(true)
 		_ = tc.SetKeepAlivePeriod(15 * time.Second)
 	}
-	runID, err := serverHandshake(c, s.cfg.Token)
+	runID, auth, err := serverHandshakeAuth(c, s.cfg.Token, s.cfg.Transport, s.guard)
 	if err != nil {
 		c.Close()
 		time.Sleep(time.Second)
@@ -347,7 +393,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 	s.st.SetPeerIP(ip)
 	s.adopt(runID)
 	if !Mux(s.cfg.Transport) {
-		if !s.pool.push(pooledConn{c: c, runID: runID}) {
+		if !s.pool.push(pooledConn{c: c, runID: runID, auth: auth}) {
 			c.Close()
 			return
 		}
@@ -361,7 +407,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 		return
 	}
 	s.mu.Lock()
-	s.sessions = append(s.sessions, muxSession{sess: sess, runID: runID})
+	s.sessions = append(s.sessions, muxSession{sess: sess, runID: runID, auth: auth})
 	s.mu.Unlock()
 	s.st.Links.Add(1)
 	s.signal()
@@ -445,8 +491,8 @@ func (s *server) keepPool(ctx context.Context) {
 				_ = pc.c.Close()
 				continue
 			}
-			_ = pc.c.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			err := writeHeader(pc.c, kindPing, 0)
+			_ = pc.c.SetWriteDeadline(time.Now().Add(headerWriteTimeout))
+			err := writeHeaderAuth(pc.c, pc.auth, kindPing, 0)
 			_ = pc.c.SetWriteDeadline(time.Time{})
 			if err != nil {
 				_ = pc.c.Close()
@@ -476,8 +522,11 @@ func (s *server) stream(ctx context.Context, kind byte, port int) (net.Conn, err
 		s.mu.Lock()
 		wait := s.ready
 		s.mu.Unlock()
-		if c := s.take(); c != nil {
-			if err := writeHeader(c, kind, port); err == nil {
+		if c, auth := s.take(); c != nil {
+			_ = c.SetWriteDeadline(time.Now().Add(headerWriteTimeout))
+			err := writeHeaderAuth(c, auth, kind, port)
+			_ = c.SetWriteDeadline(time.Time{})
+			if err == nil {
 				return c, nil
 			}
 			c.Close()
@@ -497,20 +546,23 @@ func pooledAlive(c net.Conn) bool {
 	if kc, ok := c.(*kcpConn); ok {
 		return kc.idle() < 3*kcpKeepalive
 	}
+	if mk, ok := c.(*managedKCPConn); ok && mk.isKCPFramed() {
+		return mk.idle() < 3*kcpKeepalive
+	}
 	return !socketClosed(c)
 }
 
-func (s *server) take() net.Conn {
+func (s *server) take() (net.Conn, *sessionAuth) {
 	if !Mux(s.cfg.Transport) {
 		for {
 			pc, ok := s.pool.pop()
 			if !ok {
 				s.countLinks()
-				return nil
+				return nil, nil
 			}
 			s.countLinks()
 			if pooledAlive(pc.c) {
-				return pc.c
+				return pc.c, pc.auth
 			}
 			_ = pc.c.Close()
 		}
@@ -521,10 +573,10 @@ func (s *server) take() net.Conn {
 		m := s.sessions[s.next%len(s.sessions)]
 		s.next++
 		if st, err := m.sess.OpenStream(); err == nil {
-			return muxStream{st}
+			return muxStream{st}, m.auth
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (s *server) serveTCP(ctx context.Context, ln net.Listener, target int) {
@@ -550,8 +602,30 @@ func (s *server) serveTCP(ctx context.Context, ln net.Listener, target int) {
 
 type udpFlow struct {
 	st   net.Conn
-	wmu  sync.Mutex
+	q    *datagramBatch
 	last atomic.Int64
+}
+
+func (f *udpFlow) close() {
+	f.q.close()
+	_ = f.st.Close()
+}
+
+func (f *udpFlow) runWriter(st *Stats) {
+	var out []byte
+	for {
+		var payload int
+		var ok bool
+		out, payload, ok = f.q.take(out, udpBatchLimit)
+		if !ok {
+			return
+		}
+		if _, err := f.st.Write(out); err != nil {
+			f.close()
+			return
+		}
+		st.Down.Add(int64(payload))
+	}
 }
 
 func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
@@ -571,7 +645,7 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 			mu.Lock()
 			for k, f := range flows {
 				if f.last.Load() < cut {
-					f.st.Close()
+					f.close()
 					delete(flows, k)
 				}
 			}
@@ -604,11 +678,12 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 					mu.Unlock()
 					return
 				}
-				f := &udpFlow{st: st}
+				f := &udpFlow{st: st, q: newDatagramBatch(udpQueueCap)}
 				f.last.Store(time.Now().UnixNano())
 				flows[key] = f
 				mu.Unlock()
-				f.send(first, s.st)
+				go f.runWriter(s.st)
+				f.send(first)
 				s.carry(func() {
 					bp := dgramBufs.Get().(*[]byte)
 					defer dgramBufs.Put(bp)
@@ -622,7 +697,7 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 						s.st.Up.Add(int64(len(p)))
 						_, _ = pc.WriteToUDPAddrPort(p, addr)
 					}
-					st.Close()
+					f.close()
 				})
 				mu.Lock()
 				if flows[key] == f {
@@ -633,7 +708,7 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 		}
 		mu.Unlock()
 		if f != nil {
-			f.send(buf[:n], s.st)
+			f.send(buf[:n])
 		}
 	}
 }
@@ -648,21 +723,14 @@ func evictOldestFlow(flows map[string]*udpFlow) {
 		}
 	}
 	if oldestKey != "" {
-		flows[oldestKey].st.Close()
+		flows[oldestKey].close()
 		delete(flows, oldestKey)
 	}
 }
 
-func (f *udpFlow) send(p []byte, st *Stats) {
+func (f *udpFlow) send(p []byte) {
 	f.last.Store(time.Now().UnixNano())
-	f.wmu.Lock()
-	err := writeDatagram(f.st, p)
-	f.wmu.Unlock()
-	if err != nil {
-		f.st.Close()
-		return
-	}
-	st.Down.Add(int64(len(p)))
+	f.q.push(p)
 }
 
 type connStack struct {

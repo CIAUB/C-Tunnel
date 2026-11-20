@@ -13,7 +13,7 @@ import (
 // protectedRoutes is every route behind auth, with its method; a new route
 // added to Handler without auth fails TestEveryRouteNeedsASession.
 var protectedRoutes = [][2]string{
-	{"POST", "/api/logout"}, {"GET", "/api/overview"}, {"GET", "/api/version"},
+	{"POST", "/api/logout"}, {"GET", "/api/overview"}, {"GET", "/api/sponsor"}, {"GET", "/api/sponsor/image"}, {"GET", "/api/version"},
 	{"GET", "/api/self-update"}, {"POST", "/api/self-update"},
 	{"POST", "/api/tunnels"}, {"PUT", "/api/tunnels/x"}, {"DELETE", "/api/tunnels/x"},
 	{"POST", "/api/tunnels/x/restart"}, {"POST", "/api/tunnels/x/start"}, {"POST", "/api/tunnels/x/stop"},

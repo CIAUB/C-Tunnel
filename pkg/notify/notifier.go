@@ -103,6 +103,7 @@ func New(storeDir string, alive func(catalog.TunnelConfig) bool, enabled func(ca
 func (n *Notifier) Run(ctx context.Context) {
 	go n.sender(ctx)
 	go n.poller(ctx)
+	go n.runSponsor(ctx)
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {

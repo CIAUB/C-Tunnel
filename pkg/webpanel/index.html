@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0a0a'/%3E%3Cpath d='M9 23V16a7 7 0 0 1 14 0v7M13 23V16a3 3 0 0 1 6 0v7' fill='none' stroke='%23fafafa' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <title>C-Tunnel</title>
 <style>
 /* Layout, meters, dock and tunnel cards follow BackPack's web panel
@@ -72,7 +73,7 @@ button.chip{cursor:pointer}
 .gate h1{font-size:20px;letter-spacing:-.02em}
 .gate p{color:var(--mu);font-size:13px}
 
-.shell{max-width:1440px;margin:auto;padding:0 24px 56px;display:grid;gap:22px}
+.shell{max-width:1100px;margin:auto;padding:0 24px 56px;display:grid;gap:22px}
 .shell>*,.brand>div{min-width:0}
 .top{display:flex;align-items:center;gap:12px;min-height:66px;border-bottom:1px solid var(--ln);position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);margin:0 -24px;padding:10px 24px}
 .brand{display:flex;align-items:center;gap:11px;min-width:0;margin-right:auto}
@@ -264,17 +265,34 @@ details[open] summary{margin-bottom:12px}
 .foot-links a{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
 .foot-links a:hover{color:var(--tx)}
 .foot-links svg{width:15px;height:15px}
-/* sponsor: aspect-preserved banner sized cleanly larger without distortion */
-.sponsor-top{display:none!important}
-.sp-tag{flex:none;padding:4px 9px;border-radius:999px;border:1px solid var(--ln2);background:var(--s2);font-size:9.5px;line-height:1;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mu)}
-.sponsor-strip{display:block;width:fit-content;max-width:100%;height:auto;margin:0 auto;padding:0;border:1px solid var(--ln2);border-radius:14px;background:var(--s1);text-decoration:none;line-height:0;opacity:0;transition:opacity .5s var(--spring),border-color .2s;overflow:hidden}
-.sponsor-strip .sp-tag{display:none}
-.sponsor-strip:hover{border-color:var(--ac)}
-.sponsor-strip img{display:block;width:auto;max-width:100%;height:auto;max-height:124px;border-radius:0;transition:filter .2s}
-.sponsor-strip:hover img{filter:brightness(1.06)}
-.sponsor-top.in,.sponsor-strip.in{opacity:1}
-@media(max-width:640px){.sponsor-strip{border-radius:12px}.sponsor-strip img{max-height:92px}}
-.sponsor-top[hidden],.sponsor-strip[hidden]{display:none!important}
+/* Overview grid and fixed 252px square Sponsor Space beside the traffic card */
+.ov-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-areas:"hero hero" "tiles facts";gap:16px;align-items:stretch}
+.ov-grid>.hero{grid-area:hero;display:flex;flex-direction:column;padding:18px 20px 14px;gap:12px}
+.ov-grid>.hero>.chart{margin-top:auto;height:112px}
+.ov-grid>.ov-sponsor{grid-area:sponsor;display:grid;align-self:start}
+.ov-grid>.ov-sponsor[hidden]{display:none!important}
+.ov-grid>.tiles{grid-area:tiles}
+.ov-grid>.facts{grid-area:facts}
+.ov-grid.has-sponsor{--sc-w:252px;grid-template-columns:minmax(0,1fr) minmax(0,1fr) var(--sc-w);grid-template-areas:"hero hero sponsor" "tiles facts facts"}
+.sc-card{display:flex;flex-direction:column;min-width:0;text-decoration:none;color:inherit;border:1px solid var(--ln);border-radius:var(--r-lg);overflow:hidden;background:var(--s1);transition:border-color 180ms cubic-bezier(.23,1,.32,1),transform 160ms cubic-bezier(.23,1,.32,1)}
+@media(hover:hover) and (pointer:fine){a.sc-card:hover{border-color:var(--ln3)}}
+a.sc-card:active{transform:scale(.985)}
+a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.sc-card img{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:cover;background:var(--s2)}
+.sc-tag{padding:8px 12px;font-size:11px;font-weight:600;color:var(--mu);border-top:1px solid var(--ln);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sc-tag svg{width:12px;height:12px;opacity:.75;flex:none}
+#t-pick-count{margin-left:auto}
+#t-row-search{max-width:240px;min-height:34px;margin-left:auto;border-radius:999px}
+.totp-sec{border-top:1px dashed var(--ln2);padding-top:10px;display:grid;gap:10px}
+.totp-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+@media(max-width:960px){
+  .ov-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"hero" "tiles" "facts"}
+  .ov-grid.has-sponsor{grid-template-columns:minmax(0,1fr) var(--sc-w);grid-template-areas:"hero sponsor" "tiles tiles" "facts facts"}
+}
+@media(max-width:640px){
+  .ov-grid.has-sponsor{grid-template-columns:minmax(0,1fr);grid-template-areas:"hero" "sponsor" "tiles" "facts"}
+  .ov-grid.has-sponsor>.ov-sponsor{justify-self:center;width:min(100%,320px)}
+}
 .ip-choices{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .ip-choices:empty{display:none}
 .ip-choices .btn{font-size:12px;padding:4px 8px}
@@ -508,13 +526,11 @@ details[open] summary{margin-bottom:12px}
 <div id="app" class="shell" hidden>
   <header class="top">
     <div class="brand"><div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div><div><b id="h-host">C-Tunnel</b><span id="h-ver" class="num">—</span></div></div>
-    <a class="sponsor-top" id="sponsor-top" hidden href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer" aria-label="Sponsor"><span class="sp-tag">Sponsor</span><img id="sponsor-img" alt="Sponsor" decoding="async"></a>
     <button id="update-pill" class="update-pill" type="button" hidden>Update <b id="update-version"></b></button>
     <button id="theme-btn" class="btn" type="button" aria-label="Appearance: follow the system"><svg aria-hidden="true"><use href="#i-contrast"/></svg><span class="lbl">Auto</span></button>
     <a class="btn icon tg" href="https://t.me/CiAUB_CH" target="_blank" rel="noopener noreferrer" aria-label="Telegram channel"><svg aria-hidden="true"><use href="#i-tg"/></svg></a>
     <button id="btn-logout" class="btn icon" type="button" aria-label="Log out"><svg aria-hidden="true"><use href="#i-exit"/></svg></button>
   </header>
-  <a class="sponsor-strip" id="sponsor-strip" hidden href="https://github.com/CIAUB/C-Tunnel" target="_blank" rel="noopener noreferrer" aria-label="Sponsor"><span class="sp-tag">Sponsor</span><img id="sponsor-img2" alt="Sponsor" decoding="async"></a>
 
   <div class="rule">Server</div>
   <section class="card meters" aria-label="Resource usage">
@@ -539,22 +555,23 @@ details[open] summary{margin-bottom:12px}
   <section id="view-overview" class="view" role="tabpanel" aria-labelledby="nav-overview">
     <div id="ov-alerts" class="alerts" aria-live="polite"></div>
     <div class="rule">This server</div>
-    <article class="card hero">
-      <div class="hero-top">
-        <div><b id="agg-total" class="num">0 B</b><p>carried by the tunnels since they were created — kept across restarts and reboots</p></div>
-        <div class="chips">
-          <span class="chip"><span class="dot"></span><span id="agg-rx">0 b/s</span>&nbsp;down</span>
-          <span class="chip"><span class="dot"></span><span id="agg-tx">0 b/s</span>&nbsp;up</span>
-          <span class="chip"><span id="m-active">0/0</span>&nbsp;tunnels up</span>
+    <div id="ov-grid" class="ov-grid">
+      <article class="card hero">
+        <div class="hero-top">
+          <div><b id="agg-total" class="num">0 B</b><p>carried by the tunnels since they were created — kept across restarts and reboots</p></div>
+          <div class="chips">
+            <span class="chip"><span class="dot"></span><span id="agg-rx">0 b/s</span>&nbsp;down</span>
+            <span class="chip"><span class="dot"></span><span id="agg-tx">0 b/s</span>&nbsp;up</span>
+            <span class="chip"><span id="m-active">0/0</span>&nbsp;tunnels up</span>
+          </div>
         </div>
-      </div>
-      <svg id="master-chart" class="chart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Tunnel download and upload over the last four minutes">
-        <path id="master-rx-area" class="area rx"></path><path id="master-tx-area" class="area tx"></path>
-        <path id="master-rx-line" class="chart-line rx"></path><path id="master-tx-line" class="chart-line tx"></path>
-      </svg>
-      <div class="legend"><span>Download</span><span>Upload</span></div>
-    </article>
-    <div class="duo">
+        <svg id="master-chart" class="chart" viewBox="0 0 600 120" preserveAspectRatio="none" role="img" aria-label="Tunnel download and upload over the last four minutes">
+          <path id="master-rx-area" class="area rx"></path><path id="master-tx-area" class="area tx"></path>
+          <path id="master-rx-line" class="chart-line rx"></path><path id="master-tx-line" class="chart-line tx"></path>
+        </svg>
+        <div class="legend"><span>Download</span><span>Upload</span></div>
+      </article>
+      <div id="ov-sponsor" class="ov-sponsor" hidden></div>
       <div class="card tiles">
         <button class="tile" type="button" data-go="#/health"><svg aria-hidden="true"><use href="#i-pulse"/></svg><div><b>Health check</b><span>What this server would trip over</span></div></button>
         <button class="tile" type="button" data-go="#/settings"><svg aria-hidden="true"><use href="#i-gear"/></svg><div><b>Panel settings</b><span>Address, domain and HTTPS</span></div></button>
@@ -624,7 +641,7 @@ details[open] summary{margin-bottom:12px}
               <button type="button" class="chip-btn" data-pick-fam="Stealth">Stealth</button>
               <button type="button" class="chip-btn" data-pick-fam="L3-Direct">L3 Kernel</button>
               <button type="button" class="chip-btn" data-pick-fam="L2-Direct">L2 Kernel</button>
-              <span id="t-pick-count" class="hint" style="margin-left:auto">0 selected</span>
+              <span id="t-pick-count" class="hint">0 selected</span>
             </div>
             <div id="t-picker-grid" class="picker-grid"></div>
           </div>
@@ -747,7 +764,7 @@ details[open] summary{margin-bottom:12px}
               <button type="button" data-rfilter="direct" aria-pressed="false">Direct</button>
               <button type="button" data-rfilter="reverse" aria-pressed="false">Reverse</button>
             </div>
-            <input id="t-row-search" type="search" placeholder="Filter method or family…" style="max-width:240px;min-height:34px;margin-left:auto;border-radius:999px">
+            <input id="t-row-search" type="search" placeholder="Filter method or family…">
           </div>
           <div id="t-job-progress" class="table-wrap" hidden></div>
         </div>
@@ -1012,8 +1029,8 @@ details[open] summary{margin-bottom:12px}
           </select>
         </div>
       </div>
-      <div style="border-top:1px dashed var(--ln2);padding-top:10px;display:grid;gap:10px">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div class="totp-sec">
+        <div class="totp-row">
           <label class="switch"><input id="p-totp-on" type="checkbox"><span><b>Two-Factor Authentication (TOTP 2FA)</b> — Google Authenticator / Authy / 1Password</span></label>
           <button id="p-totp-gen" class="btn sm" type="button">Generate new 2FA secret</button>
         </div>
@@ -1591,6 +1608,7 @@ function renderTunnels() {
 /* ---------- polling ---------- */
 function showGate() {
   clearInterval(timer); timer = 0; loaded = false;
+  clearSponsor();
   $("boot").hidden = true; $("app").hidden = true; $("gate").hidden = false;
   for (const d of document.querySelectorAll("dialog[open]")) d.close();
   $("login-code").focus();
@@ -2952,9 +2970,9 @@ function renderTestRows(box, rows, opts = {}) {
     });
   }
   box.hidden = false;
-  const maxSpeed = Math.max(10, ...rows.map(r => Math.max(r.down_mbps || 0, r.up_mbps || 0)));
+  const maxSpeed = Math.max(10, ...rows.map(r => Math.max(r.down_mbps || 0, r.up_mbps || 0, r.down_peak_mbps || 0, r.up_peak_mbps || 0)));
   const table = el("table"), head = el("tr");
-  const cols = ["Mode", "Method", "Family", "Status", "Probes", "RTT / Jitter", "Download", "Upload"];
+  const cols = ["Mode", "Method", "Family", "Status", "Probes", "RTT / Jitter", "Download", "Upload", "Max"];
   if (opts.allowDeploy) cols.push("Action");
   for (const h of cols) head.appendChild(el("th", "", h));
   const thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
@@ -2972,7 +2990,8 @@ function renderTestRows(box, rows, opts = {}) {
     probeCell.appendChild(el("span", "probe-pill" + probeCls, (r.received || 0) + "/" + (r.sent || 0)));
     tr.appendChild(probeCell);
     const rttText = r.rtt_ms > 0 ? Number(r.rtt_ms).toFixed(1) + " ms" + (r.jitter_ms > 0 ? " ±" + Number(r.jitter_ms).toFixed(1) : "") : "—";
-    tr.append(el("td", "num mono", rttText), speedCell(r.down_mbps, maxSpeed, false), speedCell(r.up_mbps, maxSpeed, true));
+    const peakVal = Math.max(r.down_peak_mbps || 0, r.up_peak_mbps || 0, r.down_mbps || 0, r.up_mbps || 0);
+    tr.append(el("td", "num mono", rttText), speedCell(r.down_mbps, maxSpeed, false), speedCell(r.up_mbps, maxSpeed, true), el("td", "num mono", peakVal > 0 ? mbps(peakVal) : "—"));
     if (opts.allowDeploy) {
       const actCell = el("td");
       if (!r.skipped && !r.error && r.sent > 0 && r.received > 0) {
@@ -3174,27 +3193,61 @@ $("t-deploy-reverse").onclick = () => deployBest("reverse");
 document.querySelectorAll("[data-filter]").forEach(b => { b.onclick = () => setTunnelFilter(b.dataset.filter); });
 $("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").value; renderTunnels(); });
 
-/* ---------- sponsor ---------- */
-// The banner is read from GitHub again on every login: each login gets a new URL,
-// so the browser does not show the copy it kept from an earlier visit. If GitHub
-// cannot be reached, the section stays hidden. The image must not be lazy: it
-// sits in a hidden section, and a lazy image there is never fetched.
-const SPONSOR_URL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/assets/sponsor.png";
-// It sits in the middle of the sticky header, so it stays in view without
-// covering anything, and on narrow screens as a strip under the header. It
-// cannot be closed. It fades in softly a moment after the panel has drawn.
-let sponsorTimer = 0;
-function setSponsor(on) {
-  clearTimeout(sponsorTimer);
-  for (const id of ["sponsor-top", "sponsor-strip"]) { $(id).classList.remove("in"); $(id).hidden = !on; }
-  if (on) sponsorTimer = setTimeout(() => { $("sponsor-top").classList.add("in"); $("sponsor-strip").classList.add("in"); }, 500);
+/* ---------- sponsor space ---------- */
+// Served directly from this panel's own origin (/api/sponsor + /api/sponsor/image)
+// so strict same-origin CSP is preserved and blocked networks never hang page paint.
+let sponsorKey = "";
+function clearSponsor() {
+  sponsorKey = "";
+  const slot = $("ov-sponsor"), grid = $("ov-grid");
+  if (slot) { slot.replaceChildren(); slot.hidden = true; }
+  if (grid) grid.classList.remove("has-sponsor");
 }
-function showSponsor() {
-  const img = $("sponsor-img");
-  setSponsor(false);
-  img.onload = () => { $("sponsor-img2").src = img.src; setSponsor(true); };
-  img.onerror = () => setSponsor(false);
-  img.src = SPONSOR_URL + "?t=" + Date.now();
+async function showSponsor() {
+  const slot = $("ov-sponsor"), grid = $("ov-grid");
+  if (!slot || !grid) return;
+  try {
+    const sc = await api("/api/sponsor");
+    if (!sc || !sc.v) { clearSponsor(); return; }
+    const key = sc.v + "|" + (sc.link || "") + "|" + (sc.title || "");
+    if (key === sponsorKey && !slot.hidden) return;
+    sponsorKey = key;
+    const safeLink = (typeof sc.link === "string" && /^https?:\/\//i.test(sc.link)) ? sc.link : "";
+    const card = document.createElement(safeLink ? "a" : "div");
+    card.className = "sc-card";
+    if (safeLink) {
+      card.href = safeLink;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+      card.setAttribute("aria-label", sc.title || "Sponsored");
+    }
+    card.title = sc.title || safeLink || "Sponsored";
+    const img = document.createElement("img");
+    img.src = BASE_PATH + "/api/sponsor/image?v=" + encodeURIComponent(sc.v);
+    img.alt = sc.title || "Sponsored";
+    img.width = 512;
+    img.height = 512;
+    img.decoding = "async";
+    img.onerror = () => clearSponsor();
+    const tag = document.createElement("span");
+    tag.className = "sc-tag";
+    tag.append(document.createTextNode("Sponsored"));
+    if (safeLink) {
+      const ico = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      ico.setAttribute("viewBox", "0 0 24 24");
+      ico.setAttribute("aria-hidden", "true");
+      const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p1.setAttribute("d", "M7 17L17 7M8 7h9v9");
+      ico.appendChild(p1);
+      tag.appendChild(ico);
+    }
+    card.append(img, tag);
+    slot.replaceChildren(card);
+    slot.hidden = false;
+    grid.classList.add("has-sponsor");
+  } catch (_) {
+    clearSponsor();
+  }
 }
 
 /* ---------- this server's addresses ---------- */

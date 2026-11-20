@@ -22,37 +22,43 @@ const BinPath = "/usr/local/bin/ctunnel"
 
 // EffectiveHours returns the interval a request for `hours` actually produces.
 //
-// cron has no way to say "every 36 hours", so anything above a day is rounded
-// down to a whole number of days — which is a fine thing for a scheduler to do
-// and a bad thing for it to do quietly. Asking for 36 gave a job that ran every
-// 24, and every screen went on reporting 36 because it was reading back the
-// number it had been given rather than the one in the crontab.
-//
-// Callers show this rather than what was typed.
+// Sub-24h cron intervals (`0 */N * * *`) reset at midnight, so an interval that
+// does not divide 24 fires twice close together across midnight (for example
+// every 23h fires at 23:00 and 00:00). Sub-day intervals therefore round down
+// to the largest divisor of 24 (1, 2, 3, 4, 6, 8, 12, 24), and intervals above
+// a day round down to whole multiples of 24 hours.
 func EffectiveHours(hours int) int {
 	switch {
 	case hours <= 0:
 		return 0
-	case hours <= 24:
-		return hours
+	case hours < 24:
+		for d := hours; d >= 1; d-- {
+			if 24%d == 0 {
+				return d
+			}
+		}
+		return 1
+	case hours == 24:
+		return 24
 	default:
 		return (hours / 24) * 24
 	}
 }
 
-// HourlySpec returns a cron schedule string that fires every `hours` hours.
+// HourlySpec returns a cron schedule string that fires every effective interval.
 func HourlySpec(hours int) string {
+	h := EffectiveHours(hours)
 	switch {
-	case hours <= 0:
+	case h <= 0:
 		return ""
-	case hours == 1:
+	case h == 1:
 		return "0 * * * *"
-	case hours < 24:
-		return fmt.Sprintf("0 */%d * * *", hours)
-	case hours == 24:
+	case h < 24:
+		return fmt.Sprintf("0 */%d * * *", h)
+	case h == 24:
 		return "0 0 * * *"
 	default:
-		days := hours / 24
+		days := h / 24
 		return fmt.Sprintf("0 0 */%d * *", days)
 	}
 }

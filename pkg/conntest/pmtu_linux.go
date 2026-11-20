@@ -51,20 +51,5 @@ func PathMTU(ctx context.Context, l Link) int {
 		}
 		return false
 	}
-	if try(1500) {
-		return 1500
-	}
-	lo, hi := 576, 1499
-	if !try(lo) {
-		return 0
-	}
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if try(mid) {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	return lo
+	return searchPMTU(ctx, try, nil)
 }

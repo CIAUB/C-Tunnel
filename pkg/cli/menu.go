@@ -183,9 +183,23 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 		if reverse {
 			desc = f.reverse
 		}
-		if desc != "" {
+		if desc == "" {
+			continue
+		}
+		count := 0
+		for _, g := range f.groups {
+			for _, n := range g.methods {
+				if _, ok := usable(n); ok {
+					count++
+				}
+			}
+		}
+		if count > 0 {
 			fams = append(fams, f)
-			famOpts = append(famOpts, MenuOpt{Title: f.title, Desc: desc})
+			famOpts = append(famOpts, MenuOpt{
+				Title: fmt.Sprintf("%s (%d)", f.title, count),
+				Desc:  desc,
+			})
 		}
 	}
 	Header()
@@ -508,15 +522,24 @@ func stateLabel(s tunnel.Status) string {
 }
 
 func printStatusTable(st *catalog.Store) {
-	fmt.Printf(" %s%-9s %-12s %-6s %-16s %-14s %-6s %-8s %s%s\n", Bold+White,
-		"NAME", "METHOD", "ROLE", "REMOTE", "TUNNEL IP", "PORT", "STATE", "RX / TX", Reset)
+	statuses := tunnel.GetStatuses(st.Tunnels)
+	entries := BuildTunnelEntries(st.Tunnels, statuses)
+	groups := GroupTunnels(entries)
+
+	Info(TunnelSummaryLine(entries))
+	fmt.Println()
+	fmt.Printf(" %s%-12s %-13s %-6s %-18s %-10s %s%s\n", Bold+White,
+		"NAME", "METHOD", "ROLE", "ENDPOINT / PORTS", "STATE", "RX / TX", Reset)
 	Rule()
-	for _, t := range st.Tunnels {
-		s := tunnel.GetStatus(t)
-		meth := methodLabel(t)
-		fmt.Printf(" %-9s %-12s %-6s %-16s %-14s %-6d %-8s %s / %s\n",
-			t.Name, meth, t.Role, t.RemoteIP, t.TunLocal4, t.Port, stateLabel(s),
-			humanBytes(s.RxBytes), humanBytes(s.TxBytes))
+	for _, g := range groups {
+		fmt.Printf("\n %s── %s %s(%d/%d up)%s\n", Bold+Red, strings.ToUpper(g.Category.Title), Gray, g.UpCount, len(g.Items), Reset)
+		for _, e := range g.Items {
+			t := e.Tunnel
+			s := e.Status
+			fmt.Printf(" %-12s %-13s %-6s %-18s %s  %s / %s\n",
+				t.Name, e.Method, t.Role, tunnelEndpointHint(t), statusBadge(s),
+				humanBytes(s.RxBytes), humanBytes(s.TxBytes))
+		}
 	}
 }
 
@@ -695,20 +718,34 @@ func selectTestMethods() ([]string, bool) {
 			{"F5", catalog.FamilyKernelL2, "L2 Kernel (vxlan, geneve, eoip, gretap, l2tpv3...)"},
 		}
 		for _, fg := range families {
-			fmt.Printf("  %s[%s]%s %s\n", Bold+Red, fg.code, Reset, fg.name)
-		}
-		fmt.Println()
-		for i, m := range all {
-			mark := Gray + "[ ]" + Reset
-			if selected[m.Name] {
-				mark = Bold + White + "[✓]" + Reset
+			var members []int
+			selCount := 0
+			for i, m := range all {
+				if m.Family == fg.fam {
+					members = append(members, i)
+					if selected[m.Name] {
+						selCount++
+					}
+				}
 			}
-			fmt.Printf("  %s %2d) %-13s %s(%s)%s", mark, i+1, m.Name, Gray, m.Family, Reset)
-			if i%2 == 1 || i == len(all)-1 {
-				fmt.Println()
-			} else {
-				fmt.Print("   ")
+			if len(members) == 0 {
+				continue
 			}
+			fmt.Printf("  %s── [%s] %s %s(%d/%d selected)%s\n", Bold+Red, fg.code, strings.ToUpper(fg.name), Gray, selCount, len(members), Reset)
+			for col, idx := range members {
+				m := all[idx]
+				mark := Gray + "[ ]" + Reset
+				if selected[m.Name] {
+					mark = Green + "[✓]" + Reset
+				}
+				fmt.Printf("  %s %2d) %-15s", mark, idx+1, m.Name)
+				if col%3 == 2 || col == len(members)-1 {
+					fmt.Println()
+				} else {
+					fmt.Print(" ")
+				}
+			}
+			fmt.Println()
 		}
 		var picked []string
 		for _, m := range all {

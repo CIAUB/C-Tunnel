@@ -33,11 +33,16 @@ func TestEveryIntervalReadsBackAsItWasWritten(t *testing.T) {
 // caller can ask about rather than something it finds out later.
 func TestAnIntervalCronCannotExpressIsReportedAsWhatItBecomes(t *testing.T) {
 	for _, tc := range []struct{ asked, want int }{
-		{0, 0}, {1, 1}, {23, 23}, {24, 24},
+		{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 4},
+		{5, 4}, {6, 6}, {7, 6}, {8, 8}, {9, 8}, {11, 8},
+		{12, 12}, {13, 12}, {23, 12}, {24, 24},
 		{25, 24}, {36, 24}, {47, 24}, {48, 48}, {70, 48}, {72, 72},
 	} {
 		if got := EffectiveHours(tc.asked); got != tc.want {
 			t.Errorf("asking for %dh gives %dh, want %dh", tc.asked, got, tc.want)
+		}
+		if tc.asked > 0 && tc.asked < 24 && 24%EffectiveHours(tc.asked) != 0 {
+			t.Errorf("EffectiveHours(%d) = %d does not divide 24", tc.asked, EffectiveHours(tc.asked))
 		}
 		// And what it becomes is what the crontab reads back as.
 		if tc.asked > 0 {
