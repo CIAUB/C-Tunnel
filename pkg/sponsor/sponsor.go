@@ -30,6 +30,12 @@ import (
 //go:embed default.png
 var defaultImage []byte
 
+//go:embed default_spontext.txt
+var defaultSpontext string
+
+//go:embed default_sponlink.txt
+var defaultSponlink string
+
 var defaultHash = func() string {
 	sum := sha256.Sum256(defaultImage)
 	return hex.EncodeToString(sum[:8])
@@ -86,13 +92,21 @@ type State struct {
 // Present reports whether there is a displayable sponsor image.
 func (s State) Present() bool { return !s.Withdrawn && s.Hash != "" && s.Type != "" }
 
-// DefaultState returns the embedded native C-Tunnel Sponsor Space metadata.
+// DefaultState returns the embedded native C-Tunnel Sponsor Space metadata
+// (banner, formatted Telegram caption from default_spontext.txt, and link/button
+// from default_sponlink.txt) so pre-release/offline binaries work out of the box.
 func DefaultState() State {
+	link, btn := parseLinkFile(defaultSponlink, DefaultLink)
+	if link == "" {
+		link = DefaultLink
+	}
 	return State{
-		Link:  DefaultLink,
-		Title: DefaultTitle,
-		Type:  "image/png",
-		Hash:  defaultHash,
+		Link:       link,
+		ButtonText: btn,
+		Title:      DefaultTitle,
+		Caption:    cleanTextFile(defaultSpontext),
+		Type:       "image/png",
+		Hash:       defaultHash,
 	}
 }
 
@@ -303,8 +317,15 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, bool,
 		return State{}, nil, false, err
 	}
 	switch {
-	case status == http.StatusNotFound || status == http.StatusGone:
+	case status == http.StatusGone:
 		return State{}, nil, false, errWithdrawn
+	case status == http.StatusNotFound:
+		// Withdraw only when a previously published remote manifest is removed;
+		// before the remote manifest exists on GitHub, keep the embedded defaults.
+		if prev.Image != "" {
+			return State{}, nil, false, errWithdrawn
+		}
+		return State{}, nil, false, fmt.Errorf("manifest HTTP %d (keeping embedded defaults)", status)
 	case status != http.StatusOK:
 		return State{}, nil, false, fmt.Errorf("manifest HTTP %d", status)
 	}
@@ -439,6 +460,37 @@ func sanitizeLink(raw string) string {
 	return link
 }
 
+func cleanTextFile(raw string) string {
+	text := strings.TrimPrefix(raw, "\uFEFF")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return truncateRunes(strings.TrimSpace(text), maxCaptionRunes)
+}
+
+func parseLinkFile(raw, fallbackLink string) (string, string) {
+	text := strings.TrimPrefix(raw, "\uFEFF")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	var lines []string
+	for _, ln := range strings.Split(text, "\n") {
+		if s := strings.TrimSpace(ln); s != "" {
+			lines = append(lines, s)
+		}
+	}
+	if len(lines) == 0 {
+		return "", ""
+	}
+	link := sanitizeLink(lines[0])
+	if link == "" {
+		return fallbackLink, ""
+	}
+	var btn string
+	if len(lines) >= 2 {
+		btn = truncateRunes(lines[1], 64)
+	}
+	return link, btn
+}
+
 // fetchTextFile fetches optional Telegram caption text (spontext.txt) resolved
 // relative to manifestURL. 404/410 returns ("", false); transient/network errors
 // return (prev, true) so Refresh can retry via tunnel relay.
@@ -457,10 +509,7 @@ func fetchTextFile(c *http.Client, manifestURL, ref, prev string) (string, bool)
 	if status != http.StatusOK {
 		return prev, true
 	}
-	text := strings.TrimPrefix(string(b), "\uFEFF")
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
-	return truncateRunes(strings.TrimSpace(text), maxCaptionRunes), false
+	return cleanTextFile(string(b)), false
 }
 
 // fetchLinkFile fetches optional sponsor link file (sponlink.txt) resolved
@@ -481,26 +530,7 @@ func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn strin
 	if status != http.StatusOK {
 		return fallbackLink, prevBtn, true
 	}
-	raw := strings.TrimPrefix(string(b), "\uFEFF")
-	raw = strings.ReplaceAll(raw, "\r\n", "\n")
-	raw = strings.ReplaceAll(raw, "\r", "\n")
-	var lines []string
-	for _, ln := range strings.Split(raw, "\n") {
-		if s := strings.TrimSpace(ln); s != "" {
-			lines = append(lines, s)
-		}
-	}
-	if len(lines) == 0 {
-		return "", "", false
-	}
-	link := sanitizeLink(lines[0])
-	if link == "" {
-		return fallbackLink, "", false
-	}
-	var btn string
-	if len(lines) >= 2 {
-		btn = truncateRunes(lines[1], 64)
-	}
+	link, btn := parseLinkFile(string(b), fallbackLink)
 	return link, btn, false
 }
 

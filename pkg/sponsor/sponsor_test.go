@@ -17,12 +17,31 @@ import (
 func TestDefaultFallbackPresentOffline(t *testing.T) {
 	dir := t.TempDir()
 	st := Load(dir)
-	if !st.Present() || st.Link != DefaultLink {
-		t.Fatalf("expected embedded default sponsor, got %+v", st)
+	if !st.Present() || st.Link != DefaultLink || st.Caption == "" || st.ButtonText == "" {
+		t.Fatalf("expected embedded default sponsor with caption+link+button, got %+v", st)
 	}
 	img, typ, hash, err := Image(dir)
 	if err != nil || typ != "image/png" || len(img) == 0 || hash != st.Hash {
 		t.Fatalf("Image() = (len=%d, typ=%q, hash=%q, err=%v)", len(img), typ, hash, err)
+	}
+}
+
+func TestInitialManifest404KeepsEmbeddedDefaults(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	oldURL, oldClient := ManifestURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, HTTPClient = oldURL, oldClient })
+	ManifestURL = srv.URL + "/assets/sponsor.json"
+	HTTPClient = srv.Client()
+
+	dir := t.TempDir()
+	if err := Refresh(dir); err == nil {
+		t.Fatal("expected error when unpublished remote manifest returns 404")
+	}
+	st := Load(dir)
+	if !st.Present() || st.Caption == "" || st.Link != DefaultLink {
+		t.Fatalf("initial 404 hid embedded defaults: %+v", st)
 	}
 }
 
