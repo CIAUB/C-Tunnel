@@ -100,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/self-update", s.auth(s.handleSelfUpdate))
 	mux.HandleFunc("POST /api/tunnels", s.auth(s.handleCreate))
 	mux.HandleFunc("PUT /api/tunnels/{name}", s.auth(s.handleUpdate))
+	mux.HandleFunc("POST /api/tunnels/{name}/peer", s.auth(s.handleSetPeer))
 	mux.HandleFunc("DELETE /api/tunnels/{name}", s.auth(s.handleDelete))
 	mux.HandleFunc("POST /api/tunnels/{name}/restart", s.auth(s.handleRestart))
 	mux.HandleFunc("POST /api/tunnels/{name}/start", s.auth(s.handleStart))
@@ -532,6 +533,79 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.applyAndRespond(w, tc)
+}
+
+func (s *Server) handleSetPeer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var req struct {
+		RemoteIP string `json:"remote_ip"`
+		ApplyAll bool   `json:"apply_all"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid peer IP payload"})
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.store()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	existing, ok := st.Find(name)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
+		return
+	}
+	var updated []catalog.TunnelConfig
+	oldIP := existing.RemoteIP
+	if req.ApplyAll && tunnel.IsConcreteIP(oldIP) {
+		updated, err = tunnel.UpdatePeerMatching(st, oldIP, req.RemoteIP, existing.Role)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	} else {
+		tc, prev, err := tunnel.UpdatePeer(st, name, req.RemoteIP)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		oldIP = prev
+		updated = []catalog.TunnelConfig{tc}
+	}
+
+	var primary catalog.TunnelConfig
+	names := make([]string, 0, len(updated))
+	var applyErrs []string
+	for _, tc := range updated {
+		names = append(names, tc.Name)
+		if tc.Name == name {
+			primary = tc
+		}
+		if err := tunnel.Apply(tc); err != nil {
+			applyErrs = append(applyErrs, tc.Name+": "+err.Error())
+		}
+	}
+	if primary.Name == "" && len(updated) > 0 {
+		primary = updated[0]
+	}
+	link, _ := catalog.EncodeSetupLink(primary)
+	resp := map[string]any{
+		"ok":         len(applyErrs) == 0,
+		"name":       primary.Name,
+		"role":       primary.Role,
+		"old_ip":     oldIP,
+		"remote_ip":  primary.RemoteIP,
+		"updated":    names,
+		"token":      primary.Token,
+		"setup_link": link,
+		"mikrotik":   tunnel.MikroTik(primary),
+	}
+	if len(applyErrs) > 0 {
+		resp["error"] = strings.Join(applyErrs, "; ")
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {

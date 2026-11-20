@@ -15,7 +15,7 @@ import (
 var protectedRoutes = [][2]string{
 	{"POST", "/api/logout"}, {"GET", "/api/overview"}, {"GET", "/api/sponsor"}, {"GET", "/api/sponsor/image"}, {"GET", "/api/version"},
 	{"GET", "/api/self-update"}, {"POST", "/api/self-update"},
-	{"POST", "/api/tunnels"}, {"PUT", "/api/tunnels/x"}, {"DELETE", "/api/tunnels/x"},
+	{"POST", "/api/tunnels"}, {"PUT", "/api/tunnels/x"}, {"POST", "/api/tunnels/x/peer"}, {"DELETE", "/api/tunnels/x"},
 	{"POST", "/api/tunnels/x/restart"}, {"POST", "/api/tunnels/x/start"}, {"POST", "/api/tunnels/x/stop"},
 	{"GET", "/api/tunnels/x/logs"}, {"POST", "/api/restart-all"}, {"GET", "/api/health"},
 	{"GET", "/api/backup"}, {"POST", "/api/backup/restore"}, {"POST", "/api/import"},

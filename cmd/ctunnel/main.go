@@ -44,6 +44,9 @@ func main() {
 		}
 		tunnelCommand(os.Args[1], args[0])
 
+	case "set-peer":
+		setPeerCommand(args)
+
 	case "apply-link":
 		if len(args) != 1 {
 			log.Fatal("usage: ctunnel apply-link 'ctunnel://...'")
@@ -151,6 +154,8 @@ func main() {
   (no command)                 interactive menu
   status                       tunnel table with state and traffic
   up|restart|down <name>       start, restart or stop a tunnel
+  set-peer <name> <ip>         change peer IP (Iran IP on Kharej / Kharej IP on Iran) and restart
+  set-peer -all <old> <new>    replace peer IP on every tunnel matching <old> and restart
   link <name>                  print the setup link for the other server
   apply-link 'ctunnel://...'   create and start the tunnel from a link
   conntest-server [ip]         iran side of the connection test: prints a link
@@ -193,6 +198,48 @@ func tunnelCommand(cmd, name string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func setPeerCommand(args []string) {
+	fs := flag.NewFlagSet("set-peer", flag.ExitOnError)
+	all := fs.Bool("all", false, "replace peer IP on all tunnels currently matching <old-ip>")
+	_ = fs.Parse(args)
+	if fs.NArg() != 2 {
+		log.Fatal("usage: ctunnel set-peer <name> <new-ip>  |  ctunnel set-peer -all <old-ip> <new-ip>")
+	}
+	st, err := catalog.LoadStore(cli.StoreDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if *all {
+		oldIP, newIP := fs.Arg(0), fs.Arg(1)
+		updated, err := tunnel.UpdatePeerMatching(st, oldIP, newIP, "")
+		if err != nil {
+			log.Fatal(err)
+		}
+		var failed int
+		for _, tc := range updated {
+			if err := tunnel.Apply(tc); err != nil {
+				log.Printf("%s: restart failed: %v", tc.Name, err)
+				failed++
+			} else {
+				fmt.Printf("%s (%s): %s -> %s (restarted)\n", tc.Name, tc.Role, oldIP, tc.RemoteIP)
+			}
+		}
+		if failed > 0 {
+			os.Exit(1)
+		}
+		return
+	}
+	name, newIP := fs.Arg(0), fs.Arg(1)
+	tc, oldIP, err := tunnel.UpdatePeer(st, name, newIP)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := tunnel.Apply(tc); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s (%s): %s %s -> %s (restarted)\n", tc.Name, tc.Role, tunnel.PeerRoleLabel(tc.Role), oldIP, tc.RemoteIP)
 }
 
 func applyLink(link string) {

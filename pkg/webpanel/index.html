@@ -509,6 +509,7 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v13M6 12l6 6 6-6M5 21h14"/></symbol>
   <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 20V7M6 12l6-6 6 6M5 3h14"/></symbol>
   <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4-9 4z"/><path d="M3 7v10l9 4 9-4V7M12 11v10"/></symbol>
+  <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 10l-4-4 4-4M3 6h14M17 14l4 4-4 4M21 18H7"/></symbol>
 </svg>
 
 <div id="boot" role="status">Connecting to C-Tunnel…</div>
@@ -1056,6 +1057,17 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
   </div>
 </dialog>
 
+<dialog id="dlg-peer" aria-labelledby="peer-title">
+  <form id="peer-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="peer-title">Change peer IP</h3><p id="peer-sub">Updates only the peer IP and restarts the tunnel without recreating it.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="peer-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+    <div><label for="peer-remote" id="peer-remote-l">Peer IP</label><input id="peer-remote" class="mono" placeholder="203.0.113.10" autocomplete="off"></div>
+    <p id="peer-hint" class="hint"></p>
+    <label id="peer-all-wrap" class="switch" hidden><input id="peer-all" type="checkbox"><span id="peer-all-label">Also update other tunnels pointing to this IP</span></label>
+    <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Update IP &amp; restart</button></div>
+  </form>
+</dialog>
+
 <dialog id="dlg-proxy" aria-labelledby="px-title">
   <form id="proxy-form" class="dbody" novalidate>
     <div class="dhead"><div><h3 id="px-title">Built-in proxy</h3><p>Runs on this server, on 127.0.0.1 and every tunnel IP. Never on the public address.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
@@ -1513,11 +1525,13 @@ function tunnelCard(t) {
 
   const band = el("div", "band");
   c.toggle = smallButton("Stop", "i-stop", e => toggleTunnel(e.currentTarget, c.t));
+  c.peerBtn = smallButton("Peer IP", "i-swap", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/peer"), "compact");
   band.append(
     c.toggle,
     smallButton("Restart", "i-refresh", e => run(e.currentTarget, () => api(tunnelURL(c.t.name, "restart"), { method: "POST", timeout: 120000 }), "Restarted " + c.t.name), "compact"),
     smallButton("Logs", "i-log", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/logs")),
     smallButton("Link", "i-link", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/link"), "compact"),
+    c.peerBtn,
     smallButton("Edit", "i-edit", () => navigate("#/t/" + encodeURIComponent(c.t.name) + "/edit"), "compact")
   );
   const del = el("button", "btn sm icon danger end");
@@ -1548,6 +1562,11 @@ function updateTunnel(c, t) {
     t.backup_method && !onBackup ? "backup " + t.backup_method : ""].filter(Boolean).join(" · ");
   c.state.textContent = st.label + (onBackup ? " · on backup" : "");
   c.peer.textContent = (t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any (dials in)") + (t.port ? " :" + t.port : "");
+  if (c.peerBtn) {
+    const lbl = t.role === "kharej" ? "Iran IP" : "Kharej IP";
+    c.peerBtn.querySelector("span").textContent = lbl;
+    c.peerBtn.title = "Change " + lbl;
+  }
   c.tunnelIP.textContent = t.family === "Reverse-L4" ? (t.direct_l4 && !t.reverse ? "none (direct L4)" : "none (layer 4)") : t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   renderForwardsCompact(c.forwards, t);
   c.io.textContent = bytes(t.status && t.status.rx_bytes) + " / " + bytes(t.status && t.status.tx_bytes);
@@ -1701,6 +1720,7 @@ function route() {
     if (!t) { toast("Tunnel " + parts[1] + " not found"); history.replaceState(null, "", "#/tunnels"); return; }
     if (parts[2] === "logs") openLogs(t);
     else if (parts[2] === "link") showLink(t.name, t.setup_link, t.mikrotik, t.token, true);
+    else if (parts[2] === "peer") openPeer(t);
     else if (parts[2] === "edit") openCreate(t);
     return;
   }
@@ -1969,13 +1989,14 @@ function syncForm() {
   $("bport-wrap").hidden = !$("f-backup").value;
   const m = methods.find(x => x.Name === $("f-method").value);
   const iran = $("f-role").value === "iran", revIran = rev && iran;
-  $("f-remote").required = !revIran;
+  const passiveKharej = !rev && !iran && (l4 || $("f-carrier").checked);
+  $("f-remote").required = !(revIran || passiveKharej);
   // Kharej is built by hand here as easily as from a link: the secret moves
   // out of Advanced, and the port is asked for where it must match Iran's.
   $("kharej-hint").hidden = iran;
   ($("f-role").value === "kharej" ? $("token-slot") : $("adv-stack")).prepend($("token-wrap"));
   $("f-token").placeholder = iran ? "empty = random; required on kharej without a link" : "the secret the Iran server shows for this tunnel";
-  $("f-remote-l").textContent = iran ? "Remote server IP" : "Iran server IP";
+  $("f-remote-l").textContent = iran ? "Kharej server IP" : "Iran server IP";
   $("l4-wrap").hidden = !l4;
   $("sni-wrap").hidden = !(l4 && $("f-method").value.startsWith("ws"));
   $("f-l4port").required = l4 && !iran;
@@ -2040,6 +2061,61 @@ function openImport() {
   $("import-error").hidden = true;
   openRouteDialog("dlg-import");
 }
+function isPassivePeer(t) {
+  return !!((t.reverse && t.role === "iran") || ((t.direct_l4 || t.carrier) && t.role === "kharej"));
+}
+function openPeer(t) {
+  const form = $("peer-form");
+  form.reset(); form.tunnel = t;
+  $("peer-error").hidden = true;
+  const label = t.role === "kharej" ? "Iran IP" : "Kharej IP";
+  const passive = isPassivePeer(t);
+  const concrete = !!(t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::");
+  $("peer-title").textContent = "Change " + label + " — " + t.name;
+  $("peer-sub").textContent = "Updates only the " + label + " and restarts " + t.name + "; method, ports, token and tunnel IPs stay unchanged.";
+  $("peer-remote-l").textContent = "New " + label;
+  const inp = $("peer-remote");
+  inp.value = concrete ? t.remote_ip : "";
+  inp.required = !passive;
+  inp.placeholder = passive ? "Leave empty for any, or enter " + label : (t.role === "kharej" ? "198.51.100.10" : "203.0.113.10");
+  $("peer-hint").textContent = passive
+    ? "Passive listener mode: enter a specific " + label + ", or leave empty to accept any peer."
+    : "Current " + label + ": " + (concrete ? t.remote_ip : "not set") + ".";
+  const siblings = concrete ? allTunnels.filter(x => x.name !== t.name && x.role === t.role && x.remote_ip === t.remote_ip) : [];
+  $("peer-all").checked = false;
+  $("peer-all-wrap").hidden = siblings.length === 0;
+  if (siblings.length > 0) {
+    $("peer-all-label").textContent = "Also update " + siblings.length + " other " + t.role + " tunnel" + (siblings.length === 1 ? "" : "s") + " using " + t.remote_ip;
+  }
+  openRouteDialog("dlg-peer");
+  setTimeout(() => { inp.focus(); inp.select(); }, 20);
+}
+$("peer-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const form = e.currentTarget, t = form.tunnel;
+  if (!t || form.busy || !validateForm(form, "peer-error")) return;
+  const btn = e.submitter || form.querySelector('[type="submit"]');
+  form.busy = true; btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try {
+    const r = await api(tunnelURL(t.name, "peer"), {
+      method: "POST", timeout: 120000,
+      body: JSON.stringify({ remote_ip: $("peer-remote").value.trim(), apply_all: $("peer-all").checked })
+    });
+    if (r.ok === false) throw new Error(r.error || "restart failed");
+    await refresh();
+    $("dlg-peer").close();
+    const label = t.role === "kharej" ? "Iran IP" : "Kharej IP";
+    const shownIP = r.remote_ip === "0.0.0.0" || r.remote_ip === "::" ? "any" : r.remote_ip;
+    const count = Array.isArray(r.updated) ? r.updated.length : 1;
+    toast(count > 1 ? ("Updated " + label + " on " + count + " tunnels to " + shownIP) : ("Updated " + label + " to " + shownIP), true);
+  } catch (err) {
+    formError("peer-error", err.message);
+    toast(err.message);
+    await refresh();
+  } finally {
+    form.busy = false; btn.disabled = false; btn.removeAttribute("aria-busy");
+  }
+});
 function showLink(name, link, mikrotik, token, routed) {
   $("d-title").textContent = "Setup link for " + name;
   $("d-token").textContent = token || "";

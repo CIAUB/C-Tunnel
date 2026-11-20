@@ -271,6 +271,86 @@ func TestUpdateTunnel(t *testing.T) {
 	}
 }
 
+func TestSetPeerKharejAndIran(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+
+	// 1. Kharej reverse L4 tunnels: change Iran IP on one, then bulk-update two sharing the same old Iran IP.
+	token1 := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	token2 := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	res, out := c.do("POST", "/api/tunnels", map[string]any{
+		"name": "kh-a", "role": "kharej", "method": "tcpmux", "reverse": true,
+		"local_ip": "203.0.113.10", "remote_ip": "198.51.100.1", "port": 3081, "token": token1,
+	})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("create kh-a: %d %v", res.StatusCode, out)
+	}
+	res, out = c.do("POST", "/api/tunnels", map[string]any{
+		"name": "kh-b", "role": "kharej", "method": "udpmux", "reverse": true,
+		"local_ip": "203.0.113.10", "remote_ip": "198.51.100.1", "port": 3082, "token": token2,
+	})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("create kh-b: %d %v", res.StatusCode, out)
+	}
+
+	// Single update keeps sibling untouched and preserves token/port.
+	res, out = c.do("POST", "/api/tunnels/kh-a/peer", map[string]any{"remote_ip": "198.51.100.20"})
+	if res.StatusCode != http.StatusOK || out["ok"] != true || out["remote_ip"] != "198.51.100.20" {
+		t.Fatalf("set peer kh-a: %d %v", res.StatusCode, out)
+	}
+	saved, _ := catalog.LoadStore(st.Dir)
+	a, _ := saved.Find("kh-a")
+	b, _ := saved.Find("kh-b")
+	if a.RemoteIP != "198.51.100.20" || a.Token != token1 || a.Port != 3081 || b.RemoteIP != "198.51.100.1" {
+		t.Fatalf("after single kharej update: a=%+v b=%+v", a, b)
+	}
+
+	// Move kh-a back to 198.51.100.1, then apply_all to 198.51.100.99 updates both kh-a and kh-b.
+	_, _ = c.do("POST", "/api/tunnels/kh-a/peer", map[string]any{"remote_ip": "198.51.100.1"})
+	res, out = c.do("POST", "/api/tunnels/kh-a/peer", map[string]any{"remote_ip": "198.51.100.99", "apply_all": true})
+	if res.StatusCode != http.StatusOK || out["ok"] != true {
+		t.Fatalf("bulk set peer: %d %v", res.StatusCode, out)
+	}
+	saved, _ = catalog.LoadStore(st.Dir)
+	a, _ = saved.Find("kh-a")
+	b, _ = saved.Find("kh-b")
+	if a.RemoteIP != "198.51.100.99" || b.RemoteIP != "198.51.100.99" {
+		t.Fatalf("after bulk kharej update: a=%s b=%s", a.RemoteIP, b.RemoteIP)
+	}
+
+	// 2. Iran side: Direct GRE (must reject invalid/0.0.0.0) + Reverse L4 (supports specific IP and clearing to any).
+	res, out = c.do("POST", "/api/tunnels", map[string]any{
+		"name": "ir-gre", "role": "iran", "method": "gre",
+		"local_ip": "198.51.100.99", "remote_ip": "203.0.113.10", "ports": []string{"443"},
+	})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("create ir-gre: %d %v", res.StatusCode, out)
+	}
+	if res, _ := c.do("POST", "/api/tunnels/ir-gre/peer", map[string]any{"remote_ip": "0.0.0.0"}); res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for 0.0.0.0 on direct GRE, got %d", res.StatusCode)
+	}
+	res, out = c.do("POST", "/api/tunnels/ir-gre/peer", map[string]any{"remote_ip": "203.0.113.55"})
+	if res.StatusCode != http.StatusOK || out["remote_ip"] != "203.0.113.55" {
+		t.Fatalf("set peer ir-gre: %d %v", res.StatusCode, out)
+	}
+
+	res, out = c.do("POST", "/api/tunnels", map[string]any{
+		"name": "ir-rev", "role": "iran", "method": "tcpmux", "reverse": true,
+		"local_ip": "198.51.100.99", "ports": []string{"2053=8443"},
+	})
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("create ir-rev: %d %v", res.StatusCode, out)
+	}
+	res, out = c.do("POST", "/api/tunnels/ir-rev/peer", map[string]any{"remote_ip": "203.0.113.55"})
+	if res.StatusCode != http.StatusOK || out["remote_ip"] != "203.0.113.55" {
+		t.Fatalf("set specific kharej IP on ir-rev: %d %v", res.StatusCode, out)
+	}
+	res, out = c.do("POST", "/api/tunnels/ir-rev/peer", map[string]any{"remote_ip": ""})
+	if res.StatusCode != http.StatusOK || out["remote_ip"] != "0.0.0.0" {
+		t.Fatalf("clear kharej IP to any on ir-rev: %d %v", res.StatusCode, out)
+	}
+}
+
 func TestVersionEndpoint(t *testing.T) {
 	c, st, _ := setup(t)
 	c.login(st.PanelCode)

@@ -187,7 +187,13 @@ func manageOne(name string) {
 		Title("Tunnel: " + t.Name)
 		fmt.Printf("  %s%s %s%s  %s\n\n", Gray, t.Role, methodLabel(t), Reset, stateWord(t))
 
+		peerTitle := "Change " + tunnel.PeerRoleLabel(t.Role)
+		peerHint := t.RemoteIP
+		if peerHint == "" || peerHint == "0.0.0.0" || peerHint == "::" {
+			peerHint = "any (dials in)"
+		}
 		idx := ChooseOpt("Action", []MenuOpt{
+			{peerTitle, peerHint + " — switch without recreating tunnel"},
 			{"Edit", "peer, ports, MTU, rate, secret"},
 			{"Start", ""},
 			{"Stop", ""},
@@ -198,20 +204,22 @@ func manageOne(name string) {
 		})
 		switch idx {
 		case 1:
-			editMenu(st, t)
+			changePeerIP(st, t)
 		case 2:
-			report(tunnel.Apply(t), "Started")
+			editMenu(st, t)
 		case 3:
-			report(tunnel.Stop(t), "Stopped")
+			report(tunnel.Apply(t), "Started")
 		case 4:
-			report(tunnel.Apply(t), "Restarted")
+			report(tunnel.Stop(t), "Stopped")
 		case 5:
+			report(tunnel.Apply(t), "Restarted")
+		case 6:
 			Info("Live Log — Ctrl+C To Return.\n")
 			followLog(t)
-		case 6:
+		case 7:
 			showLink(t)
 			Pause()
-		case 7:
+		case 8:
 			if Confirm(fmt.Sprintf("Delete %q Permanently", t.Name), false) {
 				if err := tunnel.Remove(st, t.Name); err != nil {
 					Err("Delete failed: " + err.Error())
@@ -223,6 +231,62 @@ func manageOne(name string) {
 			}
 		default:
 			return
+		}
+	}
+}
+
+func changePeerIP(st *catalog.Store, t catalog.TunnelConfig) {
+	Header()
+	label := tunnel.PeerRoleLabel(t.Role)
+	Title("Change " + label + ": " + t.Name)
+	current := t.RemoteIP
+	if current == "" || current == "0.0.0.0" || current == "::" {
+		current = "any"
+	}
+	Info(fmt.Sprintf("Current %s: %s", label, current))
+	if tunnel.IsPassivePeer(t) {
+		Subtle("Passive listener mode: enter a specific IP, or type 'any' to accept any peer.")
+	} else {
+		Subtle("Only the peer IP changes — ports, method, token and tunnel settings stay intact.")
+	}
+	fmt.Println()
+	raw := strings.TrimSpace(Ask("New "+label+" (Enter to cancel)", ""))
+	if raw == "" {
+		return
+	}
+	updated, oldIP, err := tunnel.UpdatePeer(st, t.Name, raw)
+	if err != nil {
+		Err(err.Error())
+		Pause()
+		return
+	}
+	applyAndReport(updated)
+
+	// Offer to update sibling tunnels sharing the exact same old concrete IP.
+	if tunnel.IsConcreteIP(oldIP) && oldIP != updated.RemoteIP {
+		var siblings []string
+		for _, other := range st.Tunnels {
+			if other.Name != updated.Name && other.Role == updated.Role && other.RemoteIP == oldIP {
+				siblings = append(siblings, other.Name)
+			}
+		}
+		if len(siblings) > 0 && Confirm(fmt.Sprintf("Also update %d other %s tunnel(s) using %s -> %s", len(siblings), updated.Role, oldIP, updated.RemoteIP), true) {
+			list, err := tunnel.UpdatePeerMatching(st, oldIP, raw, updated.Role)
+			if err != nil {
+				Err("Bulk update failed: " + err.Error())
+			} else {
+				okN, failN := 0, 0
+				for _, x := range list {
+					if err := tunnel.Apply(x); err != nil {
+						Err(fmt.Sprintf("%s: %v", x.Name, err))
+						failN++
+					} else {
+						okN++
+					}
+				}
+				Ok(fmt.Sprintf("Updated and restarted %d additional tunnel(s) (%d failed).", okN, failN))
+			}
+			Pause()
 		}
 	}
 }
@@ -242,8 +306,13 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 	for {
 		Header()
 		Title("Edit: " + t.Name)
+		peerLabel := tunnel.PeerRoleLabel(t.Role)
+		peerVal := t.RemoteIP
+		if peerVal == "" || peerVal == "0.0.0.0" || peerVal == "::" {
+			peerVal = "any"
+		}
 		opts := []MenuOpt{
-			{"Peer Address", t.RemoteIP},
+			{peerLabel, peerVal},
 			{"Tunnel Port", portText(t.Port)},
 			{"MTU", strconv.Itoa(t.MTU)},
 			{"Rate Limit", rateText(t.RateMbps)},
@@ -254,13 +323,20 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		changed := true
 		switch idx {
 		case 1:
-			if t.Reverse && t.Role == "iran" {
-				Warn("Reverse Iran Accepts The Peer Wherever It Dials From — Nothing To Set.")
-				changed = false
-				Pause()
-			} else {
-				t.RemoteIP = Ask("Peer address", t.RemoteIP)
+			prompt := "New " + peerLabel
+			if tunnel.IsPassivePeer(t) {
+				prompt += " (or 'any')"
 			}
+			raw := Ask(prompt, peerVal)
+			updated, _, err := tunnel.UpdatePeer(st, t.Name, raw)
+			if err != nil {
+				Err(err.Error())
+				Pause()
+				continue
+			}
+			t = updated
+			applyAndReport(t)
+			continue
 		case 2:
 			t.Port = askInt("Tunnel port (0 = none)", t.Port)
 		case 3:
