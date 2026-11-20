@@ -93,3 +93,27 @@ func TestFilterTunnels(t *testing.T) {
 		t.Fatalf("unexpected summary: %q", summary)
 	}
 }
+
+func TestPeerMenuHelpers(t *testing.T) {
+	kh := []catalog.TunnelConfig{
+		{Name: "kh-1", Role: "kharej", RemoteIP: "198.51.100.1"},
+		{Name: "kh-2", Role: "kharej", RemoteIP: "198.51.100.1"},
+		{Name: "kh-3", Role: "kharej", RemoteIP: "0.0.0.0"},
+	}
+	if title, _ := peerMenuOptionFor(kh); title != "Change Iran IP" {
+		t.Fatalf("kharej-only title=%q want Change Iran IP", title)
+	}
+	groups := uniqueConcretePeers(kh)
+	if len(groups) != 1 || groups[0].IP != "198.51.100.1" || len(groups[0].Names) != 2 {
+		t.Fatalf("unexpected peer groups: %+v", groups)
+	}
+
+	ir := []catalog.TunnelConfig{{Name: "ir-1", Role: "iran", RemoteIP: "203.0.113.5"}}
+	if title, _ := peerMenuOptionFor(ir); title != "Change Kharej IP" {
+		t.Fatalf("iran-only title=%q want Change Kharej IP", title)
+	}
+	mixed := append(kh, ir...)
+	if title, _ := peerMenuOptionFor(mixed); title != "Change Peer IP" {
+		t.Fatalf("mixed title=%q want Change Peer IP", title)
+	}
+}

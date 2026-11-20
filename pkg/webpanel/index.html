@@ -821,6 +821,13 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-refresh"/></svg></div><div><b>Restart tunnels</b><span>Restart every tunnel on this server, one after another</span></div></div>
         <div class="acts"><button id="btn-restart-all-2" class="btn" type="button">Restart all tunnels</button></div>
       </article>
+      <article class="card mcard">
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-swap"/></svg></div><div><b id="m-peer-title">Change peer IP</b><span id="m-peer-desc">Switch Iran IP (Kharej) or Kharej IP (Iran) without recreating any tunnel</span></div></div>
+        <div class="acts">
+          <select id="m-peer-tun" aria-label="Select tunnel"></select>
+          <button id="btn-manage-peer" class="btn" type="button">Change IP</button>
+        </div>
+      </article>
       <article class="card mcard wide">
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-gauge"/></svg></div><div><b>Tunnel benchmark</b><span>Speed, ping and loss of every running tunnel, measured through the tunnel one after another</span></div></div>
         <div class="acts"><button id="btn-bench" class="btn" type="button">Run benchmark</button><span id="bench-status" class="hint" aria-live="polite"></span></div>
@@ -1653,6 +1660,7 @@ async function refresh({ force = false, reportErrors = false } = {}) {
     renderSystem(data.system, data.version);
     renderTelemetry(telemetry, allTunnels);
     renderTunnels();
+    renderManagePeerCard();
     renderAlerts(allTunnels);
     $("sync-status").textContent = "Updated " + new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (!timer) timer = setInterval(refresh, 4000);
@@ -2348,11 +2356,43 @@ $("btn-bench").onclick = async e => {
 let autoRefresh = null, proxyInfo = null, cdTimer = null;
 function stopCountdown() { clearInterval(cdTimer); cdTimer = null; }
 async function loadManageExtras() {
+  renderManagePeerCard();
   api("/api/bench").then(renderBench).catch(() => {});
   try { autoRefresh = await api("/api/auto-refresh"); renderAutoRefresh(); } catch (err) { $("ar-label").textContent = err.message; }
   try { proxyInfo = await api("/api/proxy"); renderProxyCard(); } catch (err) { $("px-state").textContent = err.message; }
   try { renderTelegramCard(await api("/api/telegram")); } catch (err) { $("tg-state").textContent = err.message; }
 }
+function renderManagePeerCard() {
+  const sel = $("m-peer-tun"), btn = $("btn-manage-peer");
+  if (!sel || !btn) return;
+  const prev = sel.value;
+  sel.replaceChildren();
+  const hasIran = allTunnels.some(t => t.role === "iran");
+  const hasKharej = allTunnels.some(t => t.role === "kharej");
+  $("m-peer-title").textContent = hasKharej && !hasIran ? "Change Iran IP" : (hasIran && !hasKharej ? "Change Kharej IP" : "Change peer IP");
+  $("m-peer-desc").textContent = hasKharej && !hasIran
+    ? "Switch the Iran server IP without recreating any tunnel"
+    : (hasIran && !hasKharej ? "Switch the Kharej server IP without recreating any tunnel" : "Switch Iran IP (Kharej) or Kharej IP (Iran) without recreating any tunnel");
+  if (!allTunnels.length) {
+    sel.appendChild(el("option", "", "No tunnels yet"));
+    sel.disabled = btn.disabled = true;
+    return;
+  }
+  sel.disabled = btn.disabled = false;
+  for (const t of allTunnels) {
+    const peer = t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any";
+    const o = el("option", "", t.name + " · " + peer);
+    o.value = t.name;
+    sel.appendChild(o);
+  }
+  if (prev && allTunnels.some(t => t.name === prev)) sel.value = prev;
+}
+$("btn-manage-peer").onclick = () => {
+  const name = $("m-peer-tun").value;
+  const t = allTunnels.find(x => x.name === name);
+  if (!t) { toast("No tunnel selected"); return; }
+  openPeer(t);
+};
 
 /* ---------- Telegram alerts ---------- */
 function telegramState(t) {

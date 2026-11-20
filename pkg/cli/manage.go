@@ -27,8 +27,10 @@ import (
 func manageMenu() {
 	for {
 		Header()
+		peerTitle, peerDesc := peerMenuOption()
 		idx := ChooseOpt("Manage", []MenuOpt{
 			{"Manage Tunnels", "edit, start/stop, log, delete"},
+			{peerTitle, peerDesc},
 			{"Set Up From A Link", "paste the other server's link"},
 			{"Status", "live tunnel table"},
 			{"Health Check", "problems and fixes"},
@@ -45,33 +47,194 @@ func manageMenu() {
 		case 1:
 			manageTunnels()
 		case 2:
-			setupFromLink()
+			changePeerMenu()
 		case 3:
-			statusLive()
+			setupFromLink()
 		case 4:
-			healthCheck()
+			statusLive()
 		case 5:
-			speedTestScreen()
+			healthCheck()
 		case 6:
-			exitHealth()
+			speedTestScreen()
 		case 7:
-			tunnelMetrics()
+			exitHealth()
 		case 8:
+			tunnelMetrics()
+		case 9:
 			ok, failed := RestartAll()
 			Ok(fmt.Sprintf("Restarted %d Tunnels (%d Failed).", ok, failed))
 			Pause()
-		case 9:
-			autoRefreshMenu()
 		case 10:
-			builtinProxyMenu()
+			autoRefreshMenu()
 		case 11:
-			telegramMenu()
+			builtinProxyMenu()
 		case 12:
+			telegramMenu()
+		case 13:
 			fileLocations()
 		default:
 			return
 		}
 	}
+}
+
+func peerMenuOption() (string, string) {
+	st, err := catalog.LoadStore(StoreDir)
+	if err != nil {
+		return "Change Peer IP", "change Iran IP or Kharej IP without recreating tunnel"
+	}
+	return peerMenuOptionFor(st.Tunnels)
+}
+
+func peerMenuOptionFor(tunnels []catalog.TunnelConfig) (string, string) {
+	hasIran, hasKharej := false, false
+	for _, t := range tunnels {
+		if t.Role == "iran" {
+			hasIran = true
+		} else if t.Role == "kharej" {
+			hasKharej = true
+		}
+	}
+	switch {
+	case hasKharej && !hasIran:
+		return "Change Iran IP", "switch Iran server IP without recreating tunnel"
+	case hasIran && !hasKharej:
+		return "Change Kharej IP", "switch Kharej server IP without recreating tunnel"
+	default:
+		return "Change Peer IP", "switch Iran IP (Kharej) or Kharej IP (Iran) without recreating"
+	}
+}
+
+type peerIPGroup struct {
+	Role  string
+	IP    string
+	Names []string
+}
+
+func uniqueConcretePeers(tunnels []catalog.TunnelConfig) []peerIPGroup {
+	var groups []peerIPGroup
+	idx := map[string]int{}
+	for _, t := range tunnels {
+		if !tunnel.IsConcreteIP(t.RemoteIP) {
+			continue
+		}
+		key := t.Role + "|" + t.RemoteIP
+		if i, ok := idx[key]; ok {
+			groups[i].Names = append(groups[i].Names, t.Name)
+		} else {
+			idx[key] = len(groups)
+			groups = append(groups, peerIPGroup{Role: t.Role, IP: t.RemoteIP, Names: []string{t.Name}})
+		}
+	}
+	return groups
+}
+
+// changePeerMenu lets the user switch Iran IP (on Kharej) or Kharej IP (on Iran)
+// directly from the Manage menu without recreating any tunnel.
+func changePeerMenu() {
+	for {
+		st, ok := loadStore()
+		if !ok {
+			return
+		}
+		if len(st.Tunnels) == 0 {
+			Warn("No Tunnels Yet.")
+			Pause()
+			return
+		}
+		statuses := tunnel.GetStatuses(st.Tunnels)
+		entries := BuildTunnelEntries(st.Tunnels, statuses)
+		groups := GroupTunnels(entries)
+		title, _ := peerMenuOptionFor(st.Tunnels)
+
+		Header()
+		Title(title + " (Without Recreating)")
+		Subtle("Pick a tunnel to change its peer IP and restart, or type 'all' to replace one IP across all matching tunnels.")
+		fmt.Println()
+
+		var flat []catalog.TunnelConfig
+		for _, g := range groups {
+			fmt.Printf("  %s── %s %s(%s)%s\n", Bold+Red, strings.ToUpper(g.Category.Title), Gray, g.Category.Code, Reset)
+			for _, e := range g.Items {
+				flat = append(flat, e.Tunnel)
+				n := len(flat)
+				peer := e.Tunnel.RemoteIP
+				if !tunnel.IsConcreteIP(peer) {
+					peer = "any (dials in)"
+				}
+				fmt.Printf("  %s%2d)%s %s%-14s%s  %s%-6s%s  %-12s  %s  %s%s: %s%s\n",
+					Red, n, Reset,
+					Bold+White, e.Tunnel.Name, Reset,
+					Gray, strings.ToUpper(e.Tunnel.Role), Reset,
+					e.Method,
+					statusBadge(e.Status),
+					White, tunnel.PeerRoleLabel(e.Tunnel.Role), peer, Reset)
+			}
+			fmt.Println()
+		}
+
+		peerGroups := uniqueConcretePeers(st.Tunnels)
+		Rule()
+		prompt := "Select tunnel [1-" + strconv.Itoa(len(flat)) + "]"
+		if len(peerGroups) > 0 && len(flat) > 1 {
+			prompt += ", 'all' for bulk IP replace"
+		}
+		prompt += ", or 0=back"
+		raw := strings.TrimSpace(Ask(prompt, "0"))
+		if raw == "" || raw == "0" || strings.EqualFold(raw, "q") {
+			return
+		}
+		if strings.EqualFold(raw, "all") && len(peerGroups) > 0 {
+			bulkChangePeerIP(st, peerGroups)
+			continue
+		}
+		if n, err := strconv.Atoi(raw); err == nil && n >= 1 && n <= len(flat) {
+			changePeerIP(st, flat[n-1])
+		} else {
+			Warn("Invalid selection: " + raw)
+			Pause()
+		}
+	}
+}
+
+func bulkChangePeerIP(st *catalog.Store, groups []peerIPGroup) {
+	Header()
+	Title("Bulk Replace Peer IP")
+	opts := make([]MenuOpt, 0, len(groups))
+	for _, g := range groups {
+		opts = append(opts, MenuOpt{
+			Title: fmt.Sprintf("%s (%s)", g.IP, tunnel.PeerRoleLabel(g.Role)),
+			Desc:  fmt.Sprintf("%d tunnel(s): %s", len(g.Names), strings.Join(g.Names, ", ")),
+		})
+	}
+	idx := ChooseOpt("Select Old IP To Replace", opts)
+	if idx == 0 {
+		return
+	}
+	chosen := groups[idx-1]
+	label := tunnel.PeerRoleLabel(chosen.Role)
+	newIP := strings.TrimSpace(Ask(fmt.Sprintf("New %s to replace %s (Enter to cancel)", label, chosen.IP), ""))
+	if newIP == "" {
+		return
+	}
+	updated, err := tunnel.UpdatePeerMatching(st, chosen.IP, newIP, chosen.Role)
+	if err != nil {
+		Err(err.Error())
+		Pause()
+		return
+	}
+	okN, failN := 0, 0
+	for _, tc := range updated {
+		if err := tunnel.Apply(tc); err != nil {
+			Err(fmt.Sprintf("%s: %v", tc.Name, err))
+			failN++
+		} else {
+			okN++
+		}
+	}
+	Ok(fmt.Sprintf("Updated %s %s -> %s on %d tunnel(s) (%d restarted, %d failed).",
+		label, chosen.IP, newIP, len(updated), okN, failN))
+	Pause()
 }
 
 // RestartAll restarts every tunnel; used by the menu and by `ctunnel restart-all`
