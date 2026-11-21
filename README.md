@@ -33,6 +33,7 @@
 
 ## Contents
 
+- [Changelog (v2.0.0)](#changelog-v200)
 - [How it works](#how-it-works)
 - [Features](#features)
 - [Requirements](#requirements)
@@ -47,6 +48,19 @@
 - [Building from source](#building-from-source)
 - [License](#license)
 - [Community](#community)
+
+## Changelog (v2.0.0)
+
+Everything new and optimized in **C-Tunnel v2.0.0** (full history in [CHANGELOG.md](CHANGELOG.md)):
+
+- **Layer-4 Direct & Reverse Tunnels (New in v2):** `tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`, `udp`, and `udpmux` — isolated per-connection streams (no TCP-in-TCP), secret handshake, optional WebSocket Host/SNI, L4 failover, and real-tunnel L4 Connection Tests.
+- **Dedicated Gaming Protocols (Direct & Reverse):** `game-udp` (ultra-low ping, DSCP EF), `game-fec` (0-RTT XOR-FEC loss recovery), `game-dup` (dual-send small packets), and `game-kcp` (5 ms low-latency KCP L4) under a dedicated Gaming category in CLI and Web Panel.
+- **Stealth, Look-Alikes & New Kernel Transports:** `faketcp`, `icmp`, `stun-turn`, `gtp-u`, `esp-udp`, `bareudp`, `xgre`, and `xgre-ip`.
+- **Major Performance & Kernel Optimizations:** Go 1.26.10 runtime (zero reachable `govulncheck` CVEs), kernel TCP zero-copy splice, 16 MiB mux windows, 64 KiB frames, 10 ms batched KCP ACKs (1.6×–2.5× higher L4 throughput), UDP GSO/GRO, TUN offload, multi-CPU decapsulation, and 8× BBR Turbo Direct.
+- **Telegram Bot v2, Multi-Admin & Direct Web Panel Access:** Works on both Kharej and Iran servers (via tunnel relay); Bot API 10.1+ native tables on `/start` with live ping & network health tests, Bot API 9.4+ color-coded buttons, dedicated `Manage` submenu, Telegram Premium animated custom emojis (auto-detected with Unicode fallback), Multi-Admin management, and passwordless Web Panel access (default 1-tap HTTP signed login + automatic HTTPS Telegram Mini App).
+- **Backup, Auto-Backup & Persistent Traffic Accounting:** `ctunnel-backup/2` archives preserve per-tunnel and server-wide cumulative traffic across restores and server migrations, with manual Backup/Restore and scheduled Auto-Backup in Telegram, Web Panel, and CLI.
+- **Per-Tunnel Traffic Quotas & Bandwidth Limits:** Optional GB traffic cap (auto-stop + Telegram alert with Manual Override, Reset Usage, and interactive Add Quota) and Mbps rate cap per tunnel.
+- **Web Panel, Security & Operations:** In-place Change Peer IP (no tunnel recreation), Active Data Probe before false-down alerts, TOTP 2FA & IP allowlist, live SSE bandwidth/latency console, Connection Test v2 (`-new` / `-only`), multi-format Sponsor Space (images, GIFs, looping video + random rotation), and one-click updates.
 
 ## How it works
 

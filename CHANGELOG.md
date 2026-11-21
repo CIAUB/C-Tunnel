@@ -44,9 +44,11 @@
 - Update now (Manage): installs the latest release from the panel in a systemd unit of its own, so the update survives the panel restart, and shows its log until the result.
 
 ### Changed
-- C-Tunnel now has Go module dependencies (smux, kcp-go, gorilla/websocket, golang.org/x). Building from source fetches them through the Go module proxy.
-- Faster layer-4 tunnels on long paths: a mux stream may have 16 MiB in flight instead of 4 MiB, frames are up to 64 KiB, and a `pck` session keeps 4096 KCP segments in flight instead of 1024. Between the servers the `tcp` transport splices the bytes in the kernel instead of copying them through the process.
-- KCP sends its acks once per 10 ms tick instead of one packet per segment. `udp`, `udpmux` and `pck` ran 1.6 to 2.5 times faster between two namespaces, about 25% faster at 50 ms and 10-20% faster at 150 ms, with the same round-trip time.
+- **Performance & Kernel Optimizations:**
+  - Faster layer-4 tunnels on long paths: mux streams allow 16 MiB in flight (up from 4 MiB), frames up to 64 KiB, `pck` keeps 4096 KCP segments in flight (up from 1024), and `tcp` uses zero-copy kernel `splice` instead of userspace copies.
+  - KCP batches ACKs once per 10 ms tick instead of per segment — `udp`, `udpmux`, and `pck` run 1.6× to 2.5× faster between namespaces, ~25% faster at 50 ms RTT, and 10–20% faster at 150 ms RTT with unchanged latency.
+  - UDP GSO/GRO, TUN segmentation and receive offload for UDP-Crypt, multi-CPU kernel decapsulation with expanded softirq budgets, and 8× BBR Turbo Direct.
+  - C-Tunnel uses Go module dependencies (`smux`, `kcp-go`, `gorilla/websocket`, `golang.org/x`) built on Go 1.26.10.
 
 ### Fixed
 - The connection test in the terminal menu stopped when one of its ports (UDP 7712, TCP 7711, layer 4 7714) was taken by another program. Each now moves to the next free port, and the screen shows the ports in use.
