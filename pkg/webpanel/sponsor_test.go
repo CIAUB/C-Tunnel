@@ -80,4 +80,21 @@ func TestSponsorEndpointsServeSameOriginImage(t *testing.T) {
 	if !seenTypes["image/png"] || !seenTypes["video/mp4"] {
 		t.Fatalf("expected both image/png and video/mp4 in default pool, got %v", seenTypes)
 	}
+	// Verify ?prefer=image always returns an image (WebView video fallback) + button_text.
+	_, pref := c.do("GET", "/api/sponsor?prefer=image", nil)
+	if pref["kind"] != "image" || pref["button_text"] == "" {
+		t.Fatalf("prefer=image failed: %v", pref)
+	}
+	// Verify ETag / If-None-Match returns 304 Not Modified.
+	etagReq, _ := http.NewRequest(http.MethodGet, c.base+"/api/sponsor/image?v="+hash, nil)
+	etagReq.Header.Set("If-None-Match", `"`+hash+`"`)
+	etagReq.AddCookie(c.cookie)
+	etagRes, err := http.DefaultClient.Do(etagReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	etagRes.Body.Close()
+	if etagRes.StatusCode != http.StatusNotModified {
+		t.Fatalf("expected 304 Not Modified on ETag match, got %d", etagRes.StatusCode)
+	}
 }

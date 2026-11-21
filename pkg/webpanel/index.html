@@ -292,14 +292,28 @@ details[open] summary{margin-bottom:12px}
 .ov-grid>.tiles{grid-area:tiles}
 .ov-grid>.facts{grid-area:facts}
 .ov-grid.has-sponsor{--sc-w:252px;grid-template-columns:minmax(0,1fr) minmax(0,1fr) var(--sc-w);grid-template-areas:"hero hero sponsor" "tiles facts facts"}
-.sc-card{display:flex;flex-direction:column;min-width:0;text-decoration:none;color:inherit;border:1px solid var(--ln);border-radius:var(--r-lg);overflow:hidden;background:var(--s1);transition:border-color 180ms cubic-bezier(.23,1,.32,1),transform 160ms cubic-bezier(.23,1,.32,1)}
-@media(hover:hover) and (pointer:fine){a.sc-card:hover{border-color:var(--ln3)}}
-a.sc-card:active{transform:scale(.985)}
-a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
-.sc-card img,.sc-card video{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:cover;background:var(--s2)}
+.sc-card{display:flex;flex-direction:column;min-width:0;border:1px solid var(--ln);border-radius:var(--r-lg);overflow:hidden;background:var(--s1);box-shadow:0 12px 28px -22px rgba(0,0,0,.55);transition:border-color 180ms cubic-bezier(.23,1,.32,1),box-shadow 200ms cubic-bezier(.23,1,.32,1)}
+@media(hover:hover) and (pointer:fine){.sc-card:hover{border-color:var(--ln3)}}
+.sc-link{display:block;text-decoration:none;color:inherit;position:relative}
+.sc-link:focus-visible{outline:2px solid var(--ac);outline-offset:-2px}
 .sc-media{position:relative;width:100%;aspect-ratio:1;background:var(--s2);overflow:hidden}
-.sc-tag{padding:8px 12px;font-size:11px;font-weight:600;color:var(--mu);border-top:1px solid var(--ln);display:flex;align-items:center;justify-content:space-between;gap:8px}
-.sc-tag svg{width:12px;height:12px;opacity:.75;flex:none}
+.sc-shimmer{position:absolute;inset:0;z-index:1;transition:opacity 220ms ease-out}
+.sc-media.ready .sc-shimmer{opacity:0;pointer-events:none}
+.sc-el{display:block;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 240ms ease-out,transform 320ms cubic-bezier(.23,1,.32,1)}
+.sc-media.ready .sc-el{opacity:1}
+@media(hover:hover) and (pointer:fine){a.sc-link:hover .sc-el{transform:scale(1.015)}}
+.sc-foot{padding:8px 10px 8px 12px;border-top:1px solid var(--ln);display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:38px;background:var(--s1)}
+.sc-cta{display:inline-flex;align-items:center;gap:6px;min-width:0;flex:1;text-decoration:none;color:var(--tx2);font-size:11.5px;font-weight:600;transition:color 140ms}
+.sc-cta:hover{color:var(--tx)}
+.sc-cta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-cta svg{width:12px;height:12px;opacity:.7;flex:none;transition:transform 160ms cubic-bezier(.23,1,.32,1)}
+.sc-cta:hover svg{transform:translate(1px,-1px);opacity:1}
+.sc-dot{width:6px;height:6px;border-radius:50%;background:var(--er);flex:none;opacity:.85}
+.sc-next{width:24px;height:24px;flex:none;border-radius:8px;border:1px solid var(--ln);background:var(--s2);color:var(--mu);display:grid;place-items:center;cursor:pointer;transition:background-color 140ms,color 140ms,border-color 140ms,transform 140ms}
+.sc-next:hover{background:var(--s3);color:var(--tx);border-color:var(--ln2)}
+.sc-next:active{transform:scale(.92)}
+.sc-next svg{width:12px;height:12px}
+.sc-next[aria-busy=true] svg{animation:spin .65s linear infinite}
 .q-box{display:grid;gap:7px;padding:10px 12px;border-radius:12px;background:var(--s2);border:1px solid var(--ln);font-size:12px}
 .q-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .q-head b{font-variant-numeric:tabular-nums;font-size:12px}
@@ -3558,11 +3572,13 @@ $("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").valu
 
 /* ---------- sponsor space ---------- */
 // Served directly from this panel's own origin (/api/sponsor + /api/sponsor/image)
-// with multi-format support (PNG/JPG/WEBP/GIF + silent looping MP4/WEBM/MOV)
-// and non-repeating random selection across page loads while keeping strict CSP.
-let sponsorKey = "";
+// with multi-format support (PNG/JPG/WEBP/GIF + silent looping MP4/WEBM/MOV),
+// shimmer-to-media fade-in, automatic image fallback if a WebView cannot decode
+// video, tab-visibility pause/resume, and non-repeating random rotation.
+let sponsorKey = "", sponsorReqID = 0, sponsorVideoTimer = 0;
 function clearSponsor() {
   sponsorKey = "";
+  clearTimeout(sponsorVideoTimer);
   const slot = $("ov-sponsor"), grid = $("ov-grid");
   if (slot) { slot.replaceChildren(); slot.hidden = true; }
   if (grid) grid.classList.remove("has-sponsor");
@@ -3570,86 +3586,167 @@ function clearSponsor() {
 function showSponsorSkeleton() {
   const slot = $("ov-sponsor"), grid = $("ov-grid");
   if (!slot || !grid || sponsorKey) return;
-  const sk = el("div", "sc-card");
+  const sk = el("article", "sc-card");
   const sq = el("div", "skel skel-sq");
-  const tag = el("span", "sc-tag");
-  tag.append(el("span", "skel skel-sm"));
-  sk.append(sq, tag);
+  const foot = el("div", "sc-foot");
+  foot.append(el("span", "skel skel-sm"));
+  sk.append(sq, foot);
   slot.replaceChildren(sk);
   slot.hidden = false;
   grid.classList.add("has-sponsor");
 }
-async function showSponsor() {
+function arrowUpRightSVG() {
+  const ns = "http://www.w3.org/2000/svg";
+  const ico = document.createElementNS(ns, "svg");
+  ico.setAttribute("viewBox", "0 0 24 24");
+  ico.setAttribute("aria-hidden", "true");
+  const p1 = document.createElementNS(ns, "path");
+  p1.setAttribute("d", "M7 17L17 7M8 7h9v9");
+  ico.appendChild(p1);
+  return ico;
+}
+async function showSponsor(opts = {}) {
   const slot = $("ov-sponsor"), grid = $("ov-grid");
   if (!slot || !grid) return;
-  showSponsorSkeleton();
+  const reqID = ++sponsorReqID;
+  clearTimeout(sponsorVideoTimer);
+  if (!opts.manual && !opts.fallback) showSponsorSkeleton();
   try {
-    let prev = "";
-    try { prev = sessionStorage.getItem("ct_last_sponsor") || ""; } catch (_) {}
-    const qs = prev ? "?exclude=" + encodeURIComponent(prev) : "";
+    let exclude = opts.exclude || "";
+    if (!exclude) {
+      try { exclude = sessionStorage.getItem("ct_last_sponsor") || ""; } catch (_) {}
+    }
+    const qp = new URLSearchParams();
+    if (exclude) qp.set("exclude", exclude);
+    if (opts.prefer) qp.set("prefer", opts.prefer);
+    const qs = qp.toString() ? "?" + qp.toString() : "";
     const sc = await api("/api/sponsor" + qs);
+    if (reqID !== sponsorReqID) return;
     if (!sc || !sc.v) { clearSponsor(); return; }
     try { sessionStorage.setItem("ct_last_sponsor", sc.v); } catch (_) {}
-    const key = sc.v + "|" + (sc.kind || "") + "|" + (sc.link || "") + "|" + (sc.title || "");
-    if (key === sponsorKey && !slot.hidden) return;
+    const key = sc.v + "|" + (sc.kind || "") + "|" + (sc.link || "") + "|" + (sc.title || "") + "|" + (sc.button_text || "");
+    if (key === sponsorKey && !slot.hidden && !opts.manual) return;
     sponsorKey = key;
+
     const safeLink = (typeof sc.link === "string" && /^https?:\/\//i.test(sc.link)) ? sc.link : "";
-    const card = document.createElement(safeLink ? "a" : "div");
-    card.className = "sc-card";
+    const labelText = (sc.title || sc.button_text || "Sponsored").trim();
+    const card = el("article", "sc-card");
+
+    const mediaLink = document.createElement(safeLink ? "a" : "div");
+    mediaLink.className = "sc-link";
     if (safeLink) {
-      card.href = safeLink;
-      card.target = "_blank";
-      card.rel = "noopener noreferrer";
-      card.setAttribute("aria-label", sc.title || "Sponsored");
+      mediaLink.href = safeLink;
+      mediaLink.target = "_blank";
+      mediaLink.rel = "noopener noreferrer";
+      mediaLink.setAttribute("aria-label", labelText);
     }
-    card.title = sc.title || safeLink || "Sponsored";
+    mediaLink.title = labelText;
+
+    const mediaBox = el("div", "sc-media");
+    const shimmer = el("div", "skel sc-shimmer");
+    mediaBox.appendChild(shimmer);
+
     const mediaURL = BASE_PATH + "/api/sponsor/image?v=" + encodeURIComponent(sc.v);
     const isVideo = sc.kind === "video" || (typeof sc.mime === "string" && sc.mime.startsWith("video/"));
-    let mediaEl;
+    const markReady = () => {
+      if (reqID !== sponsorReqID) return;
+      clearTimeout(sponsorVideoTimer);
+      mediaBox.classList.add("ready");
+    };
+    const handleMediaError = () => {
+      if (reqID !== sponsorReqID) return;
+      clearTimeout(sponsorVideoTimer);
+      // Graceful fallback: if video fails to decode in a restricted WebView,
+      // automatically switch to a static image instead of hiding the card.
+      if (isVideo && !opts.fallback && (sc.count || 0) > 1) {
+        showSponsor({ exclude: sc.v, prefer: "image", fallback: true });
+        return;
+      }
+      clearSponsor();
+    };
+
     if (isVideo) {
       const vid = document.createElement("video");
+      vid.className = "sc-el";
       vid.src = mediaURL;
       vid.autoplay = true;
       vid.loop = true;
       vid.muted = true;
       vid.playsInline = true;
-      vid.preload = "metadata";
+      vid.preload = "auto";
       vid.setAttribute("muted", "");
       vid.setAttribute("playsinline", "");
-      vid.setAttribute("aria-label", sc.title || "Sponsored");
-      vid.onloadedmetadata = () => { vid.play().catch(() => {}); };
-      vid.onerror = () => clearSponsor();
-      mediaEl = vid;
+      vid.setAttribute("aria-label", labelText);
+      vid.onloadeddata = () => {
+        markReady();
+        if (!document.hidden) vid.play().catch(() => {});
+      };
+      vid.oncanplay = markReady;
+      vid.onerror = handleMediaError;
+      if (vid.readyState >= 2) markReady();
+      // Safety net: if a browser stalls decoding for 6s, fall back to image.
+      sponsorVideoTimer = setTimeout(() => {
+        if (reqID === sponsorReqID && vid.readyState < 2) handleMediaError();
+      }, 6000);
+      mediaBox.appendChild(vid);
     } else {
       const img = document.createElement("img");
+      img.className = "sc-el";
       img.src = mediaURL;
-      img.alt = sc.title || "Sponsored";
+      img.alt = labelText;
       img.width = 512;
       img.height = 512;
       img.decoding = "async";
-      img.onerror = () => clearSponsor();
-      mediaEl = img;
+      img.onload = markReady;
+      img.onerror = handleMediaError;
+      mediaBox.appendChild(img);
+      if (img.complete && img.naturalWidth > 0) markReady();
     }
-    const tag = document.createElement("span");
-    tag.className = "sc-tag";
-    tag.append(document.createTextNode("Sponsored"));
+
+    mediaLink.appendChild(mediaBox);
+
+    const foot = el("div", "sc-foot");
+    const cta = document.createElement(safeLink ? "a" : "span");
+    cta.className = "sc-cta";
     if (safeLink) {
-      const ico = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      ico.setAttribute("viewBox", "0 0 24 24");
-      ico.setAttribute("aria-hidden", "true");
-      const p1 = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      p1.setAttribute("d", "M7 17L17 7M8 7h9v9");
-      ico.appendChild(p1);
-      tag.appendChild(ico);
+      cta.href = safeLink;
+      cta.target = "_blank";
+      cta.rel = "noopener noreferrer";
     }
-    card.append(mediaEl, tag);
+    const shortCTA = (sc.button_text && sc.button_text.length <= 28) ? sc.button_text : "Sponsored";
+    cta.title = labelText;
+    cta.append(el("span", "sc-dot"), el("span", "", shortCTA));
+    if (safeLink) cta.appendChild(arrowUpRightSVG());
+    foot.appendChild(cta);
+
+    if ((sc.count || 0) > 1) {
+      const nextBtn = el("button", "sc-next");
+      nextBtn.type = "button";
+      nextBtn.title = "Switch sponsor preview";
+      nextBtn.setAttribute("aria-label", "Switch sponsor preview");
+      nextBtn.appendChild(icon("i-refresh"));
+      nextBtn.onclick = async () => {
+        nextBtn.disabled = true;
+        nextBtn.setAttribute("aria-busy", "true");
+        await showSponsor({ exclude: sc.v, manual: true });
+      };
+      foot.appendChild(nextBtn);
+    }
+
+    card.append(mediaLink, foot);
     slot.replaceChildren(card);
     slot.hidden = false;
     grid.classList.add("has-sponsor");
   } catch (_) {
-    clearSponsor();
+    if (reqID === sponsorReqID && !opts.manual) clearSponsor();
   }
 }
+document.addEventListener("visibilitychange", () => {
+  const vid = document.querySelector("#ov-sponsor video");
+  if (!vid) return;
+  if (document.hidden) vid.pause();
+  else vid.play().catch(() => {});
+});
 
 /* ---------- this server's addresses ---------- */
 // The public IPv4 and the addresses on this server are both offered; the user

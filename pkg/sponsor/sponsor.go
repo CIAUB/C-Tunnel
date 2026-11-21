@@ -119,6 +119,7 @@ type State struct {
 	Image      string      `json:"image,omitempty"`
 	ETag       string      `json:"etag,omitempty"`
 	Modified   string      `json:"modified,omitempty"`
+	AssetsETag string      `json:"assets_etag,omitempty"`
 	Items      []MediaItem `json:"items,omitempty"`
 	Withdrawn  bool        `json:"withdrawn,omitempty"`
 	Checked    time.Time   `json:"checked"`
@@ -192,6 +193,7 @@ var (
 func statePath(storeDir string) string { return filepath.Join(storeDir, "sponsor", "sponsor.json") }
 func imagePath(storeDir string) string { return filepath.Join(storeDir, "sponsor", "image") }
 func mediaDir(storeDir string) string  { return filepath.Join(storeDir, "sponsor", "media") }
+func customDir(storeDir string) string { return filepath.Join(storeDir, "sponsor", "custom") }
 func isSafeMediaHash(hash string) bool {
 	if len(hash) < 8 || len(hash) > 64 {
 		return false
@@ -302,8 +304,36 @@ func loadLocalDirItems(dir string) ([]MediaItem, map[string][]byte) {
 	return items, blobs
 }
 
+func loadCustomState(storeDir string) (State, map[string][]byte, bool) {
+	if storeDir == "" {
+		return State{}, nil, false
+	}
+	dir := customDir(storeDir)
+	items, blobs := loadLocalDirItems(dir)
+	if len(items) == 0 {
+		return State{}, nil, false
+	}
+	st := DefaultState()
+	st.Items = items
+	st.Hash, st.Type, st.Kind = items[0].Hash, items[0].Type, items[0].Kind
+	if b, err := os.ReadFile(filepath.Join(dir, defaultTextFile)); err == nil {
+		st.Caption = cleanTextFile(string(b))
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, defaultLinkFile)); err == nil {
+		link, btn := parseLinkFile(string(b), st.Link)
+		st.Link, st.ButtonText = link, btn
+	}
+	return st, blobs, true
+}
+
 // Load returns the active Sponsor Space state without touching the network.
+// Priority: (1) local custom drop-in folder (<storeDir>/sponsor/custom),
+// (2) remote disk cache (<storeDir>/sponsor), (3) optional LocalAssetsDir,
+// (4) built-in native embedded banner + promo video pool.
 func Load(storeDir string) State {
+	if st, _, ok := loadCustomState(storeDir); ok {
+		return st
+	}
 	s, ok := loadDisk(storeDir)
 	if ok {
 		if s.Withdrawn {
@@ -328,11 +358,29 @@ func Load(storeDir string) State {
 // immediate back-to-back repeats (excludeHash, or the last served hash) when
 // two or more media items are available.
 func Pick(storeDir, excludeHash string) (State, MediaItem, bool) {
+	return PickFiltered(storeDir, excludeHash, "")
+}
+
+// PickFiltered behaves like Pick, optionally preferring a specific media kind
+// ("image" or "video") when available (used for graceful WebView video fallback).
+func PickFiltered(storeDir, excludeHash, preferKind string) (State, MediaItem, bool) {
 	st := Load(storeDir)
 	if !st.Present() || len(st.Items) == 0 {
 		return st, MediaItem{}, false
 	}
 	items := st.Items
+	preferKind = strings.ToLower(strings.TrimSpace(preferKind))
+	if preferKind == KindImage || preferKind == KindVideo {
+		var filtered []MediaItem
+		for _, it := range items {
+			if it.Kind == preferKind {
+				filtered = append(filtered, it)
+			}
+		}
+		if len(filtered) > 0 {
+			items = filtered
+		}
+	}
 	if len(items) == 1 {
 		st.Hash, st.Type, st.Kind = items[0].Hash, items[0].Type, items[0].Kind
 		return st, items[0], true
@@ -400,6 +448,12 @@ func MediaByHash(storeDir, hash string) ([]byte, MediaItem, error) {
 		return nil, MediaItem{}, os.ErrNotExist
 	}
 
+	// 0. Server-local custom drop-in directory (<storeDir>/sponsor/custom).
+	if _, blobs, ok := loadCustomState(storeDir); ok {
+		if b, ok := blobs[target.Hash]; ok && len(b) > 0 {
+			return b, target, nil
+		}
+	}
 	// 1. Cached multi-item store on disk.
 	if p := mediaFilePath(storeDir, target.Hash); p != "" {
 		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
@@ -493,10 +547,10 @@ func Refresh(storeDir string) error {
 	if client == nil {
 		client = newDirectClient()
 	}
-	next, blobs, partialNetErr, err := fetch(client, ManifestURL, AssetsAPIURL, prev)
+	next, blobs, partialNetErr, err := fetch(storeDir, client, ManifestURL, AssetsAPIURL, prev)
 	if (err != nil || partialNetErr) && !errors.Is(err, errWithdrawn) && HTTPClient == nil {
 		if routes := RelayRoutes(storeDir); len(routes) > 0 {
-			if rNext, rBlobs, _, rErr := fetch(RelayClientFor(routes), ManifestURL, AssetsAPIURL, prev); rErr == nil || errors.Is(rErr, errWithdrawn) {
+			if rNext, rBlobs, _, rErr := fetch(storeDir, RelayClientFor(routes), ManifestURL, AssetsAPIURL, prev); rErr == nil || errors.Is(rErr, errWithdrawn) {
 				next, blobs, err = rNext, rBlobs, rErr
 			}
 		}
@@ -584,17 +638,34 @@ type remoteCandidate struct {
 	url  string
 }
 
-func discoverAPIMedia(c *http.Client, apiURL string) ([]remoteCandidate, bool) {
+// discoverAPIMedia queries the GitHub Contents API with If-None-Match ETag
+// revalidation (304 costs zero rate-limit quota). When rate-limited (403/429)
+// or 304 Not Modified, preservePrev=true tells the caller to retain previously
+// cached remote items so transient API limits never drop working sponsor media.
+func discoverAPIMedia(c *http.Client, apiURL, prevETag string) (out []remoteCandidate, nextETag string, preservePrev bool, netErr bool) {
 	if strings.TrimSpace(apiURL) == "" {
-		return nil, false
+		return nil, prevETag, false, false
 	}
 	hdr := http.Header{"Accept": []string{"application/vnd.github+json"}}
-	body, status, _, err := httpGet(c, apiURL, hdr, maxAPIBytes)
+	if prevETag != "" {
+		hdr.Set("If-None-Match", prevETag)
+	}
+	body, status, rh, err := httpGet(c, apiURL, hdr, maxAPIBytes)
 	if err != nil {
-		return nil, true
+		return nil, prevETag, true, true
+	}
+	if status == http.StatusNotModified {
+		return nil, prevETag, true, false
+	}
+	if status == http.StatusForbidden || status == http.StatusTooManyRequests || status >= 500 {
+		// GitHub unauthenticated rate limit or transient 5xx: preserve existing pool.
+		return nil, prevETag, true, false
 	}
 	if status != http.StatusOK {
-		return nil, false
+		return nil, prevETag, false, false
+	}
+	if et := rh.Get("ETag"); et != "" {
+		nextETag = et
 	}
 	var entries []struct {
 		Name        string `json:"name"`
@@ -602,9 +673,8 @@ func discoverAPIMedia(c *http.Client, apiURL string) ([]remoteCandidate, bool) {
 		DownloadURL string `json:"download_url"`
 	}
 	if err := json.Unmarshal(body, &entries); err != nil {
-		return nil, false
+		return nil, nextETag, false, false
 	}
-	var out []remoteCandidate
 	for _, e := range entries {
 		if e.Type != "file" || !IsSponsorMediaName(e.Name) {
 			continue
@@ -616,40 +686,48 @@ func discoverAPIMedia(c *http.Client, apiURL string) ([]remoteCandidate, bool) {
 		out = append(out, remoteCandidate{name: e.Name, url: u})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
-	return out, false
+	return out, nextETag, false, false
 }
 
-func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[string][]byte, bool, error) {
+func fetch(storeDir string, c *http.Client, manifestURL, apiURL string, prev State) (State, map[string][]byte, bool, error) {
 	body, status, _, err := httpGet(c, manifestURL, nil, maxManifestBytes)
 	if err != nil {
 		return State{}, nil, false, err
 	}
+	manifestMissing := false
 	switch {
 	case status == http.StatusGone:
 		return State{}, nil, false, errWithdrawn
 	case status == http.StatusNotFound:
-		if prev.Image != "" || len(prev.Items) > 0 {
-			return State{}, nil, false, errWithdrawn
+		// If no GitHub Contents API is configured, match legacy behavior:
+		// withdraw if previously cached, or keep embedded defaults on first install.
+		if strings.TrimSpace(apiURL) == "" {
+			if prev.Image != "" || len(prev.Items) > 0 {
+				return State{}, nil, false, errWithdrawn
+			}
+			return State{}, nil, false, fmt.Errorf("manifest HTTP %d (keeping embedded defaults)", status)
 		}
-		return State{}, nil, false, fmt.Errorf("manifest HTTP %d (keeping embedded defaults)", status)
+		manifestMissing = true
 	case status != http.StatusOK:
 		return State{}, nil, false, fmt.Errorf("manifest HTTP %d", status)
 	}
 
 	var m struct {
-		Image    string   `json:"image"`
-		Media    []string `json:"media"`
-		Link     string   `json:"link"`
-		Title    string   `json:"title"`
-		Text     string   `json:"text"`
-		LinkFile string   `json:"link_file"`
+		Image     string   `json:"image"`
+		Media     []string `json:"media"`
+		Link      string   `json:"link"`
+		Title     string   `json:"title"`
+		Text      string   `json:"text"`
+		LinkFile  string   `json:"link_file"`
+		Withdrawn bool     `json:"withdrawn"`
 	}
-	if err := json.Unmarshal(body, &m); err != nil {
-		return State{}, nil, false, fmt.Errorf("manifest JSON: %w", err)
-	}
-	explicitEmpty := strings.TrimSpace(m.Image) == "" && len(m.Media) == 0
-	if explicitEmpty {
-		return State{}, nil, false, errWithdrawn
+	if !manifestMissing {
+		if err := json.Unmarshal(body, &m); err != nil {
+			return State{}, nil, false, fmt.Errorf("manifest JSON: %w", err)
+		}
+		if m.Withdrawn || (strings.TrimSpace(m.Image) == "" && len(m.Media) == 0) {
+			return State{}, nil, false, errWithdrawn
+		}
 	}
 
 	seenURL := map[string]bool{}
@@ -670,29 +748,48 @@ func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[s
 		candidates = append(candidates, remoteCandidate{name: filepath.Base(u), url: u})
 		return nil
 	}
-	if strings.TrimSpace(m.Image) != "" {
-		if err := addRef(m.Image); err != nil {
-			return State{}, nil, false, fmt.Errorf("manifest image URL: %w", err)
+	if !manifestMissing {
+		if strings.TrimSpace(m.Image) != "" {
+			if err := addRef(m.Image); err != nil {
+				return State{}, nil, false, fmt.Errorf("manifest image URL: %w", err)
+			}
 		}
-	}
-	for _, ref := range m.Media {
-		_ = addRef(ref)
+		for _, ref := range m.Media {
+			_ = addRef(ref)
+		}
 	}
 
 	// Merge auto-discovered sponsor*/sponser* media files from GitHub Contents API
-	// when manifest points to the same repo/host (or apiURL is explicitly set).
-	apiList, apiNetErr := discoverAPIMedia(c, apiURL)
+	// with ETag caching so 304 responses consume zero GitHub rate-limit quota.
+	apiList, nextAssetsETag, preservePrevAPI, apiNetErr := discoverAPIMedia(c, apiURL, prev.AssetsETag)
 	for _, rc := range apiList {
 		if !seenURL[rc.url] {
 			seenURL[rc.url] = true
 			candidates = append(candidates, rc)
 		}
 	}
+	if preservePrevAPI {
+		for _, it := range prev.Items {
+			if it.URL != "" && !seenURL[it.URL] && IsSponsorMediaName(it.Name) {
+				seenURL[it.URL] = true
+				candidates = append(candidates, remoteCandidate{name: it.Name, url: it.URL})
+			}
+		}
+	}
+	if manifestMissing && len(candidates) == 0 {
+		if prev.Image != "" || len(prev.Items) > 0 {
+			return State{}, nil, apiNetErr, errWithdrawn
+		}
+		return State{}, nil, apiNetErr, fmt.Errorf("manifest HTTP 404 (keeping embedded defaults)")
+	}
 	if len(candidates) > maxMediaItems {
 		candidates = candidates[:maxMediaItems]
 	}
 
 	link := sanitizeLink(m.Link)
+	if manifestMissing && link == "" {
+		link = DefaultLink
+	}
 	textRef := strings.TrimSpace(m.Text)
 	if textRef == "" {
 		textRef = defaultTextFile
@@ -725,6 +822,21 @@ func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[s
 		}
 	}
 
+	hasCachedBlob := func(hash string) (bool, []byte) {
+		if p := mediaFilePath(storeDir, hash); p != "" {
+			if info, err := os.Stat(p); err == nil && info.Size() > 0 {
+				return true, nil
+			}
+		}
+		// Migrate legacy single-file sponsor/image cache on 304 so it enters media/<hash>.
+		if prev.Hash != "" && hash == prev.Hash {
+			if b, err := os.ReadFile(imagePath(storeDir)); err == nil && len(b) > 0 {
+				return true, b
+			}
+		}
+		return false, nil
+	}
+
 	var items []MediaItem
 	blobs := map[string][]byte{}
 	seenHash := map[string]bool{}
@@ -734,12 +846,19 @@ func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[s
 	for _, cand := range candidates {
 		hdr := http.Header{}
 		old, hasOld := prevByURL[cand.url]
+		var legacyBlob []byte
 		if hasOld {
-			if old.ETag != "" {
-				hdr.Set("If-None-Match", old.ETag)
-			}
-			if old.Modified != "" {
-				hdr.Set("If-Modified-Since", old.Modified)
+			if okBlob, mig := hasCachedBlob(old.Hash); okBlob {
+				legacyBlob = mig
+				if old.ETag != "" {
+					hdr.Set("If-None-Match", old.ETag)
+				}
+				if old.Modified != "" {
+					hdr.Set("If-Modified-Since", old.Modified)
+				}
+			} else {
+				// File missing from disk cache: force a fresh GET instead of 304!
+				hasOld = false
 			}
 		}
 		raw, stCode, rh, err := httpGet(c, cand.url, hdr, maxImageBytes)
@@ -756,6 +875,9 @@ func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[s
 			allGone = false
 			if !seenHash[old.Hash] {
 				seenHash[old.Hash] = true
+				if len(legacyBlob) > 0 {
+					blobs[old.Hash] = legacyBlob
+				}
 				items = append(items, old)
 			}
 			continue
@@ -807,10 +929,14 @@ func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[s
 		return State{}, nil, partialNetErr, firstErr
 	}
 
+	title := truncateRunes(strings.TrimSpace(m.Title), 120)
+	if title == "" && manifestMissing {
+		title = DefaultTitle
+	}
 	next := State{
 		Link:       link,
 		ButtonText: btnText,
-		Title:      truncateRunes(strings.TrimSpace(m.Title), 120),
+		Title:      title,
 		Caption:    caption,
 		Type:       items[0].Type,
 		Kind:       items[0].Kind,
@@ -818,6 +944,7 @@ func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[s
 		Image:      items[0].URL,
 		ETag:       items[0].ETag,
 		Modified:   items[0].Modified,
+		AssetsETag: nextAssetsETag,
 		Items:      items,
 		Checked:    time.Now(),
 	}

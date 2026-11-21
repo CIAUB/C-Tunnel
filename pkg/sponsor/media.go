@@ -2,6 +2,7 @@ package sponsor
 
 import (
 	"bytes"
+	"encoding/binary"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -57,27 +58,47 @@ func DetectMediaMIME(b []byte) (mime, kind string, ok bool) {
 	// WebM / Matroska EBML header (0x1A 0x45 0xDF 0xA3) containing "webm" DocType.
 	if b[0] == 0x1a && b[1] == 0x45 && b[2] == 0xdf && b[3] == 0xa3 {
 		head := b
-		if len(head) > 64 {
-			head = head[:64]
+		if len(head) > 128 {
+			head = head[:128]
 		}
 		if bytes.Contains(bytes.ToLower(head), []byte("webm")) {
 			return "video/webm", KindVideo, true
 		}
 	}
-	// ISO Base Media File Format (MP4 / QuickTime MOV): [4B box size]["ftyp"][4B major brand].
+	// ISO Base Media File Format (MP4 / QuickTime MOV): [4B box size]["ftyp"][4B major][4B minor][4B* compatible].
 	if string(b[4:8]) == "ftyp" {
-		brand := string(b[8:12])
-		if brand == "qt  " {
-			return "video/quicktime", KindVideo, true
-		}
-		switch brand {
-		case "isom", "iso2", "iso3", "iso4", "iso5", "iso6",
-			"mp41", "mp42", "avc1", "M4V ", "M4VH", "M4VP",
-			"dash", "MSNV", "mp71", "f4v ":
-			return "video/mp4", KindVideo, true
+		boxSize := int(binary.BigEndian.Uint32(b[0:4]))
+		if boxSize >= 12 && boxSize <= 256 {
+			if boxSize > len(b) {
+				boxSize = len(b)
+			}
+			major := string(b[8:12])
+			if mime, ok := classifyISOBMFFBrand(major); ok {
+				return mime, KindVideo, true
+			}
+			// Check compatible brands (offsets 16, 20, 24, ... inside ftyp box).
+			for off := 16; off+4 <= boxSize; off += 4 {
+				if mime, ok := classifyISOBMFFBrand(string(b[off : off+4])); ok {
+					return mime, KindVideo, true
+				}
+			}
 		}
 	}
 	return "", "", false
+}
+
+func classifyISOBMFFBrand(brand string) (string, bool) {
+	if brand == "qt  " {
+		return "video/quicktime", true
+	}
+	switch brand {
+	case "isom", "iso2", "iso3", "iso4", "iso5", "iso6",
+		"mp41", "mp42", "avc1", "hvc1", "hev1", "av01",
+		"M4V ", "M4VH", "M4VP", "dash", "MSNV", "mp71", "f4v ",
+		"3gp4", "3gp5", "3gp6", "3g2a":
+		return "video/mp4", true
+	}
+	return "", false
 }
 
 // MediaKindForMIME maps a validated MIME type to KindImage or KindVideo.

@@ -24,9 +24,10 @@ const (
 )
 
 type sponsorSent struct {
-	Friday   string   `json:"friday"`
-	To       []string `json:"to"`
-	LastHash string   `json:"last_hash,omitempty"`
+	Friday     string   `json:"friday"`
+	To         []string `json:"to"`
+	FridayHash string   `json:"friday_hash,omitempty"` // pinned for current Friday retries
+	LastHash   string   `json:"last_hash,omitempty"`   // excluded on next Friday rotation
 }
 
 func tehranLocation() *time.Location {
@@ -120,20 +121,41 @@ func sendSponsorWeekly(ctx context.Context, bot *Bot, cfg Config, storeDir, frid
 		_ = json.Unmarshal(b, &sent)
 	}
 	if sent.Friday != friday {
-		sent = sponsorSent{Friday: friday, LastHash: sent.LastHash}
+		prevHash := sent.FridayHash
+		if prevHash == "" {
+			prevHash = sent.LastHash
+		}
+		sent = sponsorSent{Friday: friday, LastHash: prevHash}
 	}
 	done := map[string]bool{}
 	for _, id := range sent.To {
 		done[id] = true
 	}
 
-	sc, item, ok := sponsor.Pick(storeDir, sent.LastHash)
-	if !ok || !sc.Present() {
-		return nil
+	var sc sponsor.State
+	var item sponsor.MediaItem
+	var img []byte
+	var ok bool
+	// If we already picked a media item for today's Friday push (e.g. partial retry
+	// for remaining admins), keep sending that exact same item.
+	if sent.FridayHash != "" {
+		sc = sponsor.Load(storeDir)
+		if sc.Present() {
+			if raw, it, err := sponsor.MediaByHash(storeDir, sent.FridayHash); err == nil && it.Hash == sent.FridayHash {
+				item, img, ok = it, raw, true
+			}
+		}
 	}
-	img, _, err := sponsor.MediaByHash(storeDir, item.Hash)
-	if err != nil {
-		return nil
+	if !ok {
+		sc, item, ok = sponsor.Pick(storeDir, sent.LastHash)
+		if !ok || !sc.Present() {
+			return nil
+		}
+		raw, _, err := sponsor.MediaByHash(storeDir, item.Hash)
+		if err != nil {
+			return nil
+		}
+		img = raw
 	}
 	mime := item.Type
 
@@ -145,6 +167,19 @@ func sendSponsorWeekly(ctx context.Context, bot *Bot, cfg Config, storeDir, frid
 			continue
 		}
 		fid, err := bot.sendSponsorMedia(ctx, chatID, sc, img, mime, fileID)
+		if err != nil && item.Kind == sponsor.KindVideo {
+			// Graceful fallback: if Telegram rejects a video format/codec (400),
+			// fall back to a static image from the sponsor pool when available.
+			var apiErr *APIError
+			if errors.As(err, &apiErr) && apiErr.Code == http.StatusBadRequest {
+				if fbState, fbItem, fbOK := sponsor.PickFiltered(storeDir, item.Hash, sponsor.KindImage); fbOK && fbItem.Hash != item.Hash {
+					if fbRaw, _, fbErr := sponsor.MediaByHash(storeDir, fbItem.Hash); fbErr == nil {
+						sc, item, img, mime, fileID = fbState, fbItem, fbRaw, fbItem.Type, ""
+						fid, err = bot.sendSponsorMedia(ctx, chatID, sc, img, mime, "")
+					}
+				}
+			}
+		}
 		if err != nil {
 			lastErr = err
 			continue
@@ -152,6 +187,7 @@ func sendSponsorWeekly(ctx context.Context, bot *Bot, cfg Config, storeDir, frid
 		if fileID == "" {
 			fileID = fid
 		}
+		sent.FridayHash = item.Hash
 		sent.LastHash = item.Hash
 		sent.To = append(sent.To, chatID)
 		if data, err := json.MarshalIndent(sent, "", "  "); err == nil {
@@ -175,19 +211,38 @@ func (b *Bot) sendSponsorMedia(ctx context.Context, chatID string, sc sponsor.St
 	fid, err := b.postSponsorMedia(ctx, chatID, sc, caption, parseMode, img, mime, fileID)
 	if err != nil && parseMode == "HTML" {
 		var apiErr *APIError
-		if errors.As(err, &apiErr) && apiErr.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(apiErr.Description), "parse") {
-			return b.postSponsorMedia(ctx, chatID, sc, stripTelegramHTML(caption), "", img, mime, fileID)
+		if errors.As(err, &apiErr) && apiErr.Code == http.StatusBadRequest {
+			desc := strings.ToLower(apiErr.Description)
+			if strings.Contains(desc, "parse") || strings.Contains(desc, "caption") || strings.Contains(desc, "too long") {
+				plain := truncateCaptionRunes(stripTelegramHTML(caption), 960)
+				return b.postSponsorMedia(ctx, chatID, sc, plain, "", img, mime, fileID)
+			}
 		}
 	}
 	return fid, err
 }
 
+func truncateCaptionRunes(s string, maxLen int) string {
+	r := []rune(s)
+	if len(r) <= maxLen {
+		return s
+	}
+	return strings.TrimSpace(string(r[:maxLen-1])) + "…"
+}
+
 func sponsorCaption(sc sponsor.State) (caption, parseMode string) {
 	if s := strings.TrimSpace(sc.Caption); s != "" {
-		return sanitizeTelegramHTML(s), "HTML"
+		clean := sanitizeTelegramHTML(s)
+		// Telegram enforces a 1024-character limit on media captions; if the
+		// sanitized HTML exceeds it, safely fall back to truncated plain text
+		// rather than slicing mid-HTML-tag.
+		if len([]rune(clean)) > 1000 {
+			return truncateCaptionRunes(stripTelegramHTML(clean), 960), ""
+		}
+		return clean, "HTML"
 	}
 	if s := strings.TrimSpace(sc.Title); s != "" {
-		return "<b>" + esc(s) + "</b>", "HTML"
+		return "<b>" + esc(truncateCaptionRunes(s, 200)) + "</b>", "HTML"
 	}
 	return "", ""
 }

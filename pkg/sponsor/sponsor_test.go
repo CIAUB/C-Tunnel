@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -344,5 +345,127 @@ func TestRemoteAPIDiscoveryFindsSponserPrefixMedia(t *testing.T) {
 	}
 	if isSafeMediaHash("..") || isSafeMediaHash("../etc/passwd") || mediaFilePath(dir, "..") != "" {
 		t.Fatal("unsafe media hash accepted by path builder")
+	}
+}
+
+func TestSponsorResilienceRateLimitLegacy304AndCustomDropIn(t *testing.T) {
+	// 1. Compatible ISOBMFF brand detection (hvc1 / av01 / qt).
+	hvc1 := make([]byte, 24)
+	hvc1[3] = 24
+	copy(hvc1[4:8], "ftyp")
+	copy(hvc1[8:12], "unkn")
+	copy(hvc1[16:20], "hvc1")
+	if mime, kind, ok := DetectMediaMIME(hvc1); !ok || mime != "video/mp4" || kind != KindVideo {
+		t.Fatalf("compatible hvc1 brand rejected: mime=%q kind=%q ok=%v", mime, kind, ok)
+	}
+
+	// 2. GitHub Contents API ETag 304 + 403 rate limit preserve discovered items,
+	// and deleting a cached blob forces fresh GET instead of broken 304.
+	var apiMode atomic.Int32 // 0=200, 1=304, 2=403
+	var videoHits atomic.Int32
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/assets/sponsor.json":
+			_, _ = w.Write([]byte(`{"image":"sponsor.png","title":"Promo"}`))
+		case "/assets/sponsor.png":
+			w.Header().Set("ETag", `"png-1"`)
+			if r.Header.Get("If-None-Match") == `"png-1"` {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			_, _ = w.Write(defaultImage)
+		case "/assets/sponser2.mp4":
+			videoHits.Add(1)
+			w.Header().Set("ETag", `"vid-1"`)
+			if r.Header.Get("If-None-Match") == `"vid-1"` {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			_, _ = w.Write(defaultPromoVideo)
+		case "/api/assets":
+			switch apiMode.Load() {
+			case 0:
+				w.Header().Set("ETag", `"api-1"`)
+				_ = json.NewEncoder(w).Encode([]map[string]string{
+					{"name": "sponser2.mp4", "type": "file", "download_url": srvURL + "/assets/sponser2.mp4"},
+				})
+			case 1:
+				if r.Header.Get("If-None-Match") != `"api-1"` {
+					t.Errorf("expected If-None-Match on AssetsAPIURL, got %q", r.Header.Get("If-None-Match"))
+				}
+				w.WriteHeader(http.StatusNotModified)
+			case 2:
+				w.WriteHeader(http.StatusForbidden)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	oldURL, oldAPI, oldClient := ManifestURL, AssetsAPIURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, AssetsAPIURL, HTTPClient = oldURL, oldAPI, oldClient })
+	ManifestURL = srv.URL + "/assets/sponsor.json"
+	AssetsAPIURL = srv.URL + "/api/assets"
+	HTTPClient = srv.Client()
+
+	dir := t.TempDir()
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("initial Refresh: %v", err)
+	}
+	if len(Load(dir).Items) != 2 {
+		t.Fatalf("want 2 items, got %d", len(Load(dir).Items))
+	}
+	// API 304 preserves both items.
+	apiMode.Store(1)
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("Refresh with API 304: %v", err)
+	}
+	if len(Load(dir).Items) != 2 {
+		t.Fatalf("API 304 lost items: %d", len(Load(dir).Items))
+	}
+	// API 403 rate limit preserves both items.
+	apiMode.Store(2)
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("Refresh with API 403 rate limit: %v", err)
+	}
+	st := Load(dir)
+	if len(st.Items) != 2 {
+		t.Fatalf("API 403 lost items: %d", len(st.Items))
+	}
+	// Deleting one cached media file from disk forces a fresh 200 GET (no broken 304!).
+	for _, it := range st.Items {
+		if it.Kind == KindVideo {
+			_ = os.Remove(mediaFilePath(dir, it.Hash))
+		}
+	}
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("Refresh after missing blob: %v", err)
+	}
+	if len(Load(dir).Items) != 2 {
+		t.Fatalf("missing blob was not re-downloaded: %+v", Load(dir).Items)
+	}
+	// PickFiltered prefers image cleanly.
+	_, picked, ok := PickFiltered(dir, "", KindImage)
+	if !ok || picked.Kind != KindImage {
+		t.Fatalf("PickFiltered image failed: ok=%v picked=%+v", ok, picked)
+	}
+
+	// 3. Server-local custom drop-in directory overrides cleanly.
+	cdir := customDir(dir)
+	if err := os.MkdirAll(cdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cdir, "sponser_local.png"), defaultImage, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cdir, "sponlink.txt"), []byte("https://example.org/custom\nCustom CTA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cst := Load(dir)
+	if cst.Link != "https://example.org/custom" || cst.ButtonText != "Custom CTA" || len(cst.Items) != 1 {
+		t.Fatalf("custom drop-in failed: %+v", cst)
 	}
 }
