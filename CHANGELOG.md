@@ -11,7 +11,26 @@
 - The terminal menu's update only runs a GitHub repository of the form owner/name, as the panel's update already required, since the name goes into a shell command.
 
 ### Added
-- Layer-4 reverse tunnels after BackPack's reverse engine: `tcp`, `tcpmux`, `pck` (TCP + PCK), `ws`, `wsmux`, `wss` and `wssmux`. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own 127.0.0.1, on a stream of its own, so TCP never runs inside TCP. Each connection between the servers opens with a handshake in which both prove they know the secret; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI. No tunnel interface or IP, so the tunnel benchmark does not apply to them. `pck` comes from BackPack (pkg/pck) and needs root.
+- **Telegram Bot v2, Multi-Admin & Passwordless Web Panel Access:**
+  - Bot API 10.1+ native Rich Message tables (`sendRichMessage` / `editMessageText` with `rich_message`, plus automatic `<pre>` box-table fallback) and Bot API 9.4+ semantic color-coded inline buttons (`primary`, `success`, `danger`).
+  - Minimal `/start` screen showing a live tunnel status & active network health/ping table; administrative tools cleanly organized under a `Manage` submenu; server total cumulative volume and admin list included inside Traffic Reports.
+  - Telegram Premium animated custom emojis (`<tg-emoji>` & `icon_custom_emoji_id` resolved via `getStickerSet`) auto-enabled when the bot owner has Telegram Premium, with transparent fallback to standard Unicode emojis.
+  - Multi-Admin support (add/remove/list up to 32 numeric Telegram User IDs via bot, CLI, or config) and works on both Kharej and Iran servers (Iran servers relay through active tunnels).
+  - Direct passwordless Web Panel access from the bot: 1-tap signed HTTP auto-login link (`#tgToken=...`) enabled by default, automatically upgrading to a native Telegram Mini App (`web_app` with HMAC-SHA256 `initData` verification) when HTTPS is configured.
+- **Backup, Restore & Auto-Backup with Persistent Cumulative Traffic:**
+  - `ctunnel-backup/2` archives include every tunnel's cumulative RX/TX counters plus archived server totals so restored or migrated servers preserve accurate running totals.
+  - Manual Backup & Restore (Safe / Overwrite) and scheduled Auto-Backup every `N` hours directly from the Telegram bot, Web Panel, and CLI.
+- **Per-Tunnel Traffic Quotas & Bandwidth Rate Limits:**
+  - Optional per-tunnel Traffic Quota (GB), Bandwidth Rate Limit (Mbps), both, or unlimited on creation and edit (CLI & Web Panel).
+  - Automatic stop and Telegram notification when a tunnel exhausts its quota, with three recovery actions: Manual Override Start, Reset Usage, and interactive `Add Quota` prompt (supporting both English and Persian digits).
+- **Dedicated Gaming Protocols (Direct & Reverse):**
+  - Dedicated Gaming category in CLI and Web Panel featuring `game-udp` (ultra-low ping, DSCP EF), `game-fec` (0-RTT XOR-FEC packet-loss recovery), `game-dup` (dual-send small packets), and `game-kcp` (5ms low-latency KCP L4 forwarding).
+- **Multi-Format Sponsor Space & Web Panel Polish:**
+  - Supports `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.mp4`, `.webm`, `.mov` with magic-byte validation, case-insensitive `sponser*`/`sponsor*` discovery, non-repeating random rotation, embedded lightweight looping promo video, Iran→Kharej tunnel relay for sponsor assets, `spontext.txt` + `sponlink.txt` Telegram formatting, and lightweight CSS-only skeleton/shimmer loading states.
+- **In-Place Peer IP Change & Active Data Probe:**
+  - Update a tunnel's remote peer IP in place (CLI & Web Panel) without recreating the tunnel.
+  - Active Data Probe verifies idle tunnels before triggering down alerts or failover.
+- Layer-4 reverse tunnels (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`), Direct L4 & `xgre`/`xgre-ip`, plus TOTP 2FA and IP allowlist panel security. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own `127.0.0.1` on an isolated stream so TCP never runs inside TCP. Each connection opens with a secret-verified handshake; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI.
 - The panel and the terminal menu build these tunnels on both servers. On Kharej the panel form asks for the Iran server's IP and the secret outside Advanced, so any tunnel can be built by hand as well as from the setup link.
 - Layer-4 transports over UDP: `udp` (a KCP session per user connection, from a pool) and `udpmux` (smux streams over a few KCP sessions), both AES-encrypted. KCP resends lost packets itself, so they suit lossy links. Each `udp` stream travels in frames with an explicit end, since KCP has no FIN: a closed or half-closed connection reaches the other side at once.
 - Stealth methods, encrypted layer-3 tunnels like UDP-Crypt whose packets do not travel as UDP, in DIRECT and REVERSE mode: `faketcp` (TLS records in hand-built TCP segments through the `pck` carrier: looks like TCP, runs at UDP speed) and `icmp` (ICMP echo; the answering kernel's own replies are dropped by an iptables rule).

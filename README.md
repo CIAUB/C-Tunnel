@@ -68,16 +68,18 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 
 | | |
 |---|---|
-| **43 methods** | Kernel L3 and L2 tunnels, eleven encrypted UDP transports, two Stealth carriers and nine layer-4 reverse transports |
-| **One Iran, many kharej** | Subnets, ports and tunnel IDs are allocated automatically, and conflicts are refused |
+| **49+ methods** | Kernel L3 and L2 tunnels, encrypted UDP transports, Stealth carriers, layer-4 Direct/Reverse transports, and **4 dedicated Gaming protocols** (`game-udp`, `game-fec`, `game-dup`, `game-kcp`) |
+| **One Iran, many kharej** | Subnets, ports and tunnel IDs are allocated automatically, conflicts are refused, and peer IPs can be changed in place without recreating tunnels |
 | **Port forwarding** | `443`, or `2053=8443` to forward to a different port. Rules are tagged per tunnel and removed cleanly. |
+| **Traffic Quotas & Rate Limits** | Optional per-tunnel GB quota (auto-stop + Telegram alert with Override / Reset / Add GB recovery) and Mbps bandwidth cap |
+| **Backup & Auto-Backup** | Full JSON backups (`ctunnel-backup/2`) preserving per-tunnel & server-wide cumulative traffic across restores and migrations, plus scheduled Auto-Backup to Telegram |
 | **Encryption** | AES-256-GCM with a separate key per direction, a 2000-packet anti-replay window and random padding |
 | **Protocol look-alike** | Each UDP-Crypt method wraps packets in the header of the protocol it is named after |
-| **Loss recovery** | `rudp-fec` adds one XOR parity packet per two data packets and rebuilds a lost packet without retransmission |
+| **Loss recovery** | `rudp-fec` and `game-fec` rebuild lost packets with 0-RTT XOR parity without retransmission |
 | **MikroTik** | Ready-to-paste RouterOS 7 commands for `gre`, `ipip`, `6to4`, `eoip`, `vxlan` and `wireguard` |
-| **Web panel** | Dark responsive UI, HTTP by default, private base path, custom domain/TLS, live traffic, tunnel management and measured deployment |
+| **Web panel** | Dark & light responsive UI, HTTP by default, private base path, custom domain/TLS, TOTP 2FA & IP allowlist, live SSE telemetry, multi-format Sponsor Space, and 1-tap passwordless login from Telegram |
 | **Connection test** | Sends real GRE, IPIP, SIT, ESP, WireGuard, VXLAN, QUIC, DTLS… packets between the two servers and runs a real tunnel for each layer-4 method, shows which methods pass or are blocked, measures speed and recommends the best one |
-| **Telegram alerts** | The Kharej servers report a tunnel down or back up, a failover switch, a restart or update, and a daily traffic report; each alert can be turned on or off in the panel or with the bot's buttons |
+| **Telegram Bot v2** | Works on both Kharej and Iran servers (via tunnel relay); native Bot API 10.1+ tables, semantic colored buttons, live `/start` network health table, Multi-Admin, Premium animated custom emojis with automatic fallback, interactive Add Quota, Backup/Restore, and direct HTTP 1-tap or HTTPS Mini App Web Panel access |
 | **One-click update** | Manage → Update now installs the latest release from the panel and shows the log |
 | **Persistent** | Every tunnel is a systemd unit, so it comes back after a reboot and is rebuilt cleanly on restart |
 
@@ -212,7 +214,8 @@ In REVERSE mode the kharej server dials in and the iran server only listens, so 
 | UDP-Crypt (`rev+dtls-1.3`, `rev+quic-v1`…) | kharej sends UDP to iran, same packets as DIRECT | lossy or high-latency links |
 | WireGuard (`rev+wireguard`) | kharej is the WireGuard client | MikroTik and standard clients |
 | Kernel L3/L2 (`frp+gre`, `frp+vxlan`…) | inside 8 parallel TCP streams that look like TLS records | clean links where only TCP gets through |
-| Layer 4 (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`, `udp`, `udpmux`) | port forwarding as in BackPack: each user connection or UDP flow has its own stream, no tunnel IP | TCP services (VLESS, Trojan…) without TCP-in-TCP, links that pass only WebSocket or TLS, and lossy links (`udp`, `udpmux`) |
+| Layer 4 (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`, `udp`, `udpmux`) | native L4 port forwarding: each user connection or UDP flow has its own stream, no tunnel IP | TCP services (VLESS, Trojan…) without TCP-in-TCP, links that pass only WebSocket or TLS, and lossy links (`udp`, `udpmux`) |
+| Dedicated Gaming (`game-udp`, `game-fec`, `game-dup`, `game-kcp`) | ultra-low-overhead UDP with DSCP EF, 0-RTT XOR-FEC, dual-send small packets, or 5ms KCP L4 | competitive online gaming (lowest ping vs. packet-loss resilience, Direct & Reverse) |
 
 Every inner connection stays on one TCP stream, so it is never reordered, and each stream has its own queue. In our test this roughly doubled the speed of the TCP carrier compared with 0.1.5 (about 390 → 690 Mbit/s on an 800 Mbit/s link). The Connection Test measures every reverse option too: a `rev+` row for each UDP method and independent `frp+METHOD` rows with fresh TCP streams, method-specific payloads, verified echoes and separate speeds for every supported FRP-style option. These are carrier/encapsulation shape tests, not kernel tunnel integration tests. Best Settings names the fastest reverse option.
 
@@ -222,7 +225,7 @@ Two layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, 
 
 | Method | Between the servers | Use when |
 |---|---|---|
-| `faketcp` | TLS records inside TCP segments built by hand and read through a packet socket (the `pck` carrier from BackPack). Middleboxes see one TCP connection with consistent sequence numbers; nothing is retransmitted inside it, so there is no TCP-in-TCP and the tunnel runs at UDP speed | UDP is blocked or shaped and TCP is not |
+| `faketcp` | TLS records inside TCP segments built by hand and read through a packet socket (`pck` carrier). Middleboxes see one TCP connection with consistent sequence numbers; nothing is retransmitted inside it, so there is no TCP-in-TCP and the tunnel runs at UDP speed | UDP is blocked or shaped and TCP is not |
 | `icmp` | ICMP echo: requests one way, replies the other, with an identifier from the secret. The answering server's kernel would reply to each request itself; an iptables rule drops those replies and keeps the tunnel's own | only ping gets through |
 
 `faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test pings the Iran server with tunnel-sized echo requests for `icmp`, and gives `faketcp` the result of the `pck` carrier it rides on.
@@ -235,7 +238,7 @@ Two layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, 
 
 ### Layer-4 reverse tunnels
 
-The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP. The Kharej server dials out to the tunnel port and sends each user connection to the target port on its own 127.0.0.1. There is no tunnel interface or tunnel IP, so the tunnel benchmark does not apply to them. Failover does, to another layer-4 method: a tunnel is up while the Kharej server holds a connection to the Iran server. The connection test starts a real tunnel of each method on the Iran server's layer-4 test port (TCP and UDP 7714 from the terminal menu, or the next free port if it is taken; the menu prints the ports to open) and measures through it.
+The Reverse-L4 engine listens on the tunnel port and on every forwarded port (TCP and UDP) on the Iran server. The Kharej server dials out to the tunnel port and sends each user connection to the target port on its own `127.0.0.1`. There is no tunnel interface or tunnel IP, so the tunnel benchmark does not apply to them. Failover does, to another layer-4 method: a tunnel is up while the Kharej server holds a connection to the Iran server. The connection test starts a real tunnel of each method on the Iran server's layer-4 test port (TCP and UDP 7714 from the terminal menu, or the next free port if it is taken; the menu prints the ports to open) and measures through it.
 
 | Method | Between the servers |
 |---|---|
@@ -249,7 +252,7 @@ The Reverse-L4 methods follow BackPack's reverse engine. The Iran server listens
 | `udp` | one KCP session over UDP per user connection, from a pool of 16; AES-encrypted. KCP resends lost packets itself, so a lossy link costs less than with TCP |
 | `udpmux` | smux streams over 2 KCP sessions over UDP; AES-encrypted |
 
-Both servers prove they know the tunnel secret when each connection opens. Past that, `tcp` and `ws` carry the users' bytes unchanged, as in BackPack; use `wss`, `wssmux`, `pck`, `udp` or `udpmux` when the link between the servers must be encrypted. `udp` and `udpmux` need the tunnel port open for UDP on the Iran server. The WebSocket methods take an optional Host / SNI. On the Kharej server a tunnel can be added from the setup link or by hand with the Iran server's IP, the method, the tunnel port and the secret.
+Both servers prove they know the tunnel secret when each connection opens. Past that, `tcp` and `ws` carry the users' bytes unchanged; use `wss`, `wssmux`, `pck`, `udp` or `udpmux` when the link between the servers must be encrypted. `udp` and `udpmux` need the tunnel port open for UDP on the Iran server. The WebSocket methods take an optional Host / SNI. On the Kharej server a tunnel can be added from the setup link or by hand with the Iran server's IP, the method, the tunnel port and the secret.
 
 Between two network namespaces on 2 CPUs (iperf3, one TCP flow through a forwarded port): `tcp` about 12.7 Gbps, `ws` 10.8, `tcpmux` 7.6, `wsmux` 6.9, `wss` 6.6, `wssmux` 4.4 and `pck` 0.8 Gbps.
 
