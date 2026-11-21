@@ -8,9 +8,9 @@ import (
 	"ctunnel/pkg/hostip"
 )
 
-func publicIPv4() string { return hostip.Public4() }
-func localIPv4() string  { return hostip.Local4() }
-func localIPv4List() []string { return hostip.Local4List() }
+func publicIPv4() string                      { return hostip.Public4() }
+func localIPv4() string                       { return hostip.Local4() }
+func localIPv4List() []string                 { return hostip.Local4List() }
 func usableForTunnels(ifc net.Interface) bool { return hostip.UsableForTunnels(ifc) }
 
 // handleHostIPs offers both addresses so the user picks the one the tunnel

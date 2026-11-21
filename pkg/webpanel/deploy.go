@@ -187,7 +187,7 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 			Reverse:  best.Mode == "REVERSE",
 			Carrier:  best.Mode == "DIRECT" && strings.HasPrefix(best.Method, "turbo+"),
 			DirectL4: best.Mode == "DIRECT" && m.Family == catalog.FamilyReverseL4,
-			LocalIP: req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports,
+			LocalIP:  req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports,
 		}
 		if tc.Role != "iran" {
 			tc.Ports = nil

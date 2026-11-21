@@ -18,4 +18,3 @@ func setCongestion(fd uintptr, algo string) {
 	}
 	_ = unix.SetsockoptString(int(fd), unix.IPPROTO_TCP, unix.TCP_CONGESTION, algo)
 }
-

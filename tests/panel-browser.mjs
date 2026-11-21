@@ -156,7 +156,8 @@ try {
  await page.waitForFunction(() => location.hash === '#/');
  await page.getByRole('tab', { name: 'Tunnels', exact: true }).click();
  await page.getByRole('button', { name: 'New tunnel', exact: true }).click();
- await page.getByLabel('Remote server IP', { exact: true }).fill('203.0.113.8');
+ await page.locator('[data-tmode="0"]').click();
+ await page.getByLabel('Kharej server IP', { exact: true }).fill('203.0.113.8');
  await page.locator('#dlg-new summary').click();
  await page.getByLabel('MTU', { exact: true }).fill('1');
  await page.locator('#create-form [type=submit]').click();
@@ -212,10 +213,10 @@ try {
  await page.locator('#t-iran-status').waitFor({ state: 'hidden' });
  await page.getByRole('tab', { name: /Kharej/ }).click();
  await page.locator('#t-link').fill('ctunnel-test://fixture');
- await page.getByRole('button', { name: 'Run test', exact: true }).click();
- await page.getByRole('button', { name: 'Deploy Best Direct', exact: true }).waitFor();
+ await page.getByRole('button', { name: 'Run connection test', exact: true }).click();
+ await page.getByRole('button', { name: /^Deploy Best Direct \(/ }).waitFor();
  await page.locator('#t-secret').fill('fixture-secret');
- await page.getByRole('button', { name: 'Deploy Best Direct', exact: true }).click();
+ await page.getByRole('button', { name: /^Deploy Best Direct \(/ }).click();
  await page.locator('#dlg-link').waitFor({ state: 'visible' }); assert.equal(state.deployCalls, 1); assert.equal(state.jobStarted, true);
  await page.locator('#dlg-link .dfoot [data-close]').click();
  await page.screenshot({ path: 'test-results/panel-mobile.png', fullPage: true });
@@ -236,7 +237,7 @@ try {
  const retryPage = await browser.newPage(); await login(retryPage);
  await retryPage.getByRole('tab', { name: 'Tunnels', exact: true }).click();
  await retryPage.getByRole('button', { name: 'New tunnel', exact: true }).click();
- await retryPage.getByLabel('Remote server IP', { exact: true }).fill('203.0.113.8');
+ await retryPage.getByLabel('Kharej server IP', { exact: true }).fill('203.0.113.8');
  await retryPage.locator('#create-form [type=submit]').click();
  await retryPage.getByRole('button', { name: 'Retry start', exact: true }).waitFor();
  await retryPage.getByRole('button', { name: 'Retry start', exact: true }).click();

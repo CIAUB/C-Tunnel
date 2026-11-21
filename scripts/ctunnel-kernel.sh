@@ -69,7 +69,7 @@ uses_fou() {
 # with no interface, routes or firewall rules here.
 is_l4() {
     case "${KIND}" in
-        tcp|tcpmux|pck|ws|wsmux|wss|wssmux|udp|udpmux) return 0 ;;
+        tcp|tcpmux|pck|ws|wsmux|wss|wssmux|udp|udpmux|game-kcp) return 0 ;;
     esac
     return 1
 }

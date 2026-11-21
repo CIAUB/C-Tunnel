@@ -219,7 +219,6 @@ func TestStagedSpeedTracksPeakAndBatchedUploadAcks(t *testing.T) {
 	}
 }
 
-
 func TestEmptyCarrierRecordRejected(t *testing.T) {
 	_, err := readRecord(bytes.NewReader([]byte{0x17, 3, 3, 0, 0}), make([]byte, 10))
 	if err == nil || err == io.EOF {

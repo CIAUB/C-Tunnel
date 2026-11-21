@@ -13,13 +13,13 @@ import (
 )
 
 const (
-	kcpUDPMTU         = 1350
-	kcpSocketBuffer   = 8 << 20
-	kcpMaxFrame       = 65534
-	kcpPing           = 0xffff
-	kcpLinger         = 10 * time.Second
-	kcpFastInterval   = 10
-	kcpIdleInterval   = 200
+	kcpUDPMTU          = 1350
+	kcpSocketBuffer    = 8 << 20
+	kcpMaxFrame        = 65534
+	kcpPing            = 0xffff
+	kcpLinger          = 10 * time.Second
+	kcpFastInterval    = 10
+	kcpIdleInterval    = 200
 	kcpIdleSwitchAfter = 5 * time.Second
 )
 
@@ -35,12 +35,12 @@ var (
 type kcpConn struct {
 	*kcp.UDPSession
 
-	rmu      sync.Mutex
-	left     int
-	eof      bool
-	rhdr     [2]byte
-	rpos     int
-	lastRx   time.Time
+	rmu    sync.Mutex
+	left   int
+	eof    bool
+	rhdr   [2]byte
+	rpos   int
+	lastRx time.Time
 
 	dmu      sync.Mutex
 	deadline time.Time
