@@ -12,7 +12,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,8 +39,21 @@ func Conflict(err error) bool {
 
 // Bot calls the Telegram Bot API with one token.
 type Bot struct {
-	token string
-	hc    *http.Client
+	token              string
+	hc                 *http.Client
+	customEmojiBlocked atomic.Bool
+	richUnsupported    atomic.Bool
+}
+
+// CustomEmojiBlocked reports whether Telegram previously rejected custom emojis
+// for this bot (e.g. bot owner does not have Telegram Premium).
+func (b *Bot) CustomEmojiBlocked() bool { return b != nil && b.customEmojiBlocked.Load() }
+
+// ResetCustomEmojiBlocked clears the cached custom-emoji rejection flag.
+func (b *Bot) ResetCustomEmojiBlocked() {
+	if b != nil {
+		b.customEmojiBlocked.Store(false)
+	}
 }
 
 func refuseRedirect(*http.Request, []*http.Request) error {
@@ -83,6 +98,9 @@ func (b *Bot) call(ctx context.Context, method string, params, out any) error {
 		Result      json.RawMessage `json:"result"`
 	}
 	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<20)).Decode(&r); err != nil {
+		if res.StatusCode >= 400 {
+			return &APIError{Code: res.StatusCode, Description: "unreadable answer"}
+		}
 		return fmt.Errorf("telegram %s: HTTP %d, unreadable answer", method, res.StatusCode)
 	}
 	if !r.OK {
@@ -104,11 +122,46 @@ type WebAppInfo struct {
 }
 
 // Button is one inline keyboard button (callback, URL, or WebApp Mini App).
+// Style uses Bot API 9.4+ semantic colors: "primary" (blue), "success" (green),
+// "danger" (red), or "" (default). IconCustomEmojiID attaches an animated
+// custom emoji icon before the label when the bot owner has Telegram Premium.
 type Button struct {
-	Text   string      `json:"text"`
-	Data   string      `json:"callback_data,omitempty"`
-	URL    string      `json:"url,omitempty"`
-	WebApp *WebAppInfo `json:"web_app,omitempty"`
+	Text              string      `json:"text"`
+	Data              string      `json:"callback_data,omitempty"`
+	URL               string      `json:"url,omitempty"`
+	WebApp            *WebAppInfo `json:"web_app,omitempty"`
+	Style             string      `json:"style,omitempty"`
+	IconCustomEmojiID string      `json:"icon_custom_emoji_id,omitempty"`
+
+	// fallbackIcon is restored as a prefix on Text if Telegram rejects
+	// icon_custom_emoji_id (non-Premium bot owner).
+	fallbackIcon string
+}
+
+// View holds a rendered Telegram bot screen: RichHTML for Bot API 10.1+
+// native rich messages (real <table> elements), Text for standard HTML
+// fallback (<pre> tables), and Rows for the inline keyboard.
+type View struct {
+	RichHTML string
+	Text     string
+	Rows     [][]Button
+}
+
+// Sticker represents one entry returned by getStickerSet.
+type Sticker struct {
+	FileID        string `json:"file_id"`
+	Emoji         string `json:"emoji,omitempty"`
+	CustomEmojiID string `json:"custom_emoji_id,omitempty"`
+	IsAnimated    bool   `json:"is_animated,omitempty"`
+	IsVideo       bool   `json:"is_video,omitempty"`
+}
+
+// StickerSet represents a Telegram sticker or custom emoji pack.
+type StickerSet struct {
+	Name        string    `json:"name"`
+	Title       string    `json:"title"`
+	StickerType string    `json:"sticker_type"`
+	Stickers    []Sticker `json:"stickers"`
 }
 
 // BotCommand is one command registered with setMyCommands.
@@ -125,6 +178,7 @@ type User struct {
 	ID        int64  `json:"id"`
 	Username  string `json:"username,omitempty"`
 	FirstName string `json:"first_name,omitempty"`
+	IsPremium bool   `json:"is_premium,omitempty"`
 }
 
 type Document struct {
@@ -158,8 +212,187 @@ type Update struct {
 	Callback *Callback `json:"callback_query"`
 }
 
+var tgEmojiTagRE = regexp.MustCompile(`<tg-emoji\s+emoji-id="[^"]*">([^<]*)</tg-emoji>`)
+
+func hasCustomEmoji(text string, rows [][]Button) bool {
+	if strings.Contains(text, "<tg-emoji") {
+		return true
+	}
+	for _, row := range rows {
+		for _, btn := range row {
+			if btn.IconCustomEmojiID != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stripCustomEmojiHTML(s string) string {
+	if !strings.Contains(s, "<tg-emoji") {
+		return s
+	}
+	return tgEmojiTagRE.ReplaceAllString(s, "$1")
+}
+
+func stripCustomEmojiButtons(rows [][]Button) [][]Button {
+	if len(rows) == 0 {
+		return rows
+	}
+	out := make([][]Button, len(rows))
+	for i, row := range rows {
+		nr := make([]Button, len(row))
+		for j, btn := range row {
+			if btn.IconCustomEmojiID != "" {
+				btn.IconCustomEmojiID = ""
+				if btn.fallbackIcon != "" && !strings.HasPrefix(btn.Text, btn.fallbackIcon) {
+					btn.Text = btn.fallbackIcon + " " + btn.Text
+				}
+			}
+			nr[j] = btn
+		}
+		out[i] = nr
+	}
+	return out
+}
+
+func isCustomEmojiAPIError(err error) bool {
+	var ae *APIError
+	if !errors.As(err, &ae) || ae.Code != http.StatusBadRequest {
+		return false
+	}
+	d := strings.ToLower(ae.Description)
+	return strings.Contains(d, "custom_emoji") ||
+		strings.Contains(d, "emoji") ||
+		strings.Contains(d, "button_icon") ||
+		strings.Contains(d, "icon_custom") ||
+		strings.Contains(d, "document_invalid") ||
+		strings.Contains(d, "not enough rights")
+}
+
+func isNotModifiedError(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Code == http.StatusBadRequest &&
+		strings.Contains(strings.ToLower(ae.Description), "message is not modified")
+}
+
+// SendView delivers a View using Bot API 10.1+ sendRichMessage (native tables)
+// when RichHTML is provided, transparently stripping custom emojis if the bot
+// owner does not have Telegram Premium and falling back to standard sendMessage
+// HTML if rich messages are unsupported.
+func (b *Bot) SendView(ctx context.Context, chat string, v View) (int, error) {
+	rich, text, rows := v.RichHTML, v.Text, v.Rows
+	if b.customEmojiBlocked.Load() {
+		rich = stripCustomEmojiHTML(rich)
+		text = stripCustomEmojiHTML(text)
+		rows = stripCustomEmojiButtons(rows)
+	}
+	if rich != "" && !b.richUnsupported.Load() {
+		id, err := b.sendRichRaw(ctx, chat, rich, rows)
+		if err == nil {
+			return id, nil
+		}
+		if isCustomEmojiAPIError(err) && hasCustomEmoji(rich, rows) {
+			b.customEmojiBlocked.Store(true)
+			rich = stripCustomEmojiHTML(rich)
+			text = stripCustomEmojiHTML(text)
+			rows = stripCustomEmojiButtons(rows)
+			if id, err2 := b.sendRichRaw(ctx, chat, rich, rows); err2 == nil {
+				return id, nil
+			} else {
+				err = err2
+			}
+		}
+		var ae *APIError
+		if errors.As(err, &ae) && (ae.Code == http.StatusNotFound || ae.Code == http.StatusBadRequest) {
+			if ae.Code == http.StatusNotFound {
+				b.richUnsupported.Store(true)
+			}
+			if text != "" {
+				return b.Send(ctx, chat, text, rows)
+			}
+		}
+		return id, err
+	}
+	return b.Send(ctx, chat, text, rows)
+}
+
+func (b *Bot) sendRichRaw(ctx context.Context, chat, richHTML string, rows [][]Button) (int, error) {
+	p := map[string]any{
+		"chat_id":      chat,
+		"rich_message": map[string]any{"html": richHTML},
+	}
+	if len(rows) > 0 {
+		p["reply_markup"] = keyboard{rows}
+	}
+	var m Message
+	err := b.call(ctx, "sendRichMessage", p, &m)
+	return m.MessageID, err
+}
+
+// EditView updates a message using Bot API 10.1+ editMessageText with
+// rich_message when RichHTML is set, with automatic custom-emoji and legacy
+// HTML fallbacks.
+func (b *Bot) EditView(ctx context.Context, chat string, id int, v View) error {
+	rich, text, rows := v.RichHTML, v.Text, v.Rows
+	if b.customEmojiBlocked.Load() {
+		rich = stripCustomEmojiHTML(rich)
+		text = stripCustomEmojiHTML(text)
+		rows = stripCustomEmojiButtons(rows)
+	}
+	if rich != "" && !b.richUnsupported.Load() {
+		err := b.editRichRaw(ctx, chat, id, rich, rows)
+		if err == nil || isNotModifiedError(err) {
+			return nil
+		}
+		if isCustomEmojiAPIError(err) && hasCustomEmoji(rich, rows) {
+			b.customEmojiBlocked.Store(true)
+			rich = stripCustomEmojiHTML(rich)
+			text = stripCustomEmojiHTML(text)
+			rows = stripCustomEmojiButtons(rows)
+			err = b.editRichRaw(ctx, chat, id, rich, rows)
+			if err == nil || isNotModifiedError(err) {
+				return nil
+			}
+		}
+		var ae *APIError
+		if errors.As(err, &ae) && (ae.Code == http.StatusNotFound || ae.Code == http.StatusBadRequest) {
+			if text != "" {
+				return b.Edit(ctx, chat, id, text, rows)
+			}
+			return nil
+		}
+		return err
+	}
+	return b.Edit(ctx, chat, id, text, rows)
+}
+
+func (b *Bot) editRichRaw(ctx context.Context, chat string, id int, richHTML string, rows [][]Button) error {
+	p := map[string]any{
+		"chat_id":      chat,
+		"message_id":   id,
+		"rich_message": map[string]any{"html": richHTML},
+		"reply_markup": keyboard{rows},
+	}
+	return b.call(ctx, "editMessageText", p, nil)
+}
+
 // Send posts an HTML message, with buttons when rows is not empty.
+// Automatically strips custom emojis and retries if Telegram rejects them.
 func (b *Bot) Send(ctx context.Context, chat, text string, rows [][]Button) (int, error) {
+	if b.customEmojiBlocked.Load() {
+		text = stripCustomEmojiHTML(text)
+		rows = stripCustomEmojiButtons(rows)
+	}
+	id, err := b.sendRaw(ctx, chat, text, rows)
+	if err != nil && isCustomEmojiAPIError(err) && hasCustomEmoji(text, rows) {
+		b.customEmojiBlocked.Store(true)
+		return b.sendRaw(ctx, chat, stripCustomEmojiHTML(text), stripCustomEmojiButtons(rows))
+	}
+	return id, err
+}
+
+func (b *Bot) sendRaw(ctx context.Context, chat, text string, rows [][]Button) (int, error) {
 	p := map[string]any{"chat_id": chat, "text": text, "parse_mode": "HTML", "disable_web_page_preview": true}
 	if len(rows) > 0 {
 		p["reply_markup"] = keyboard{rows}
@@ -171,13 +404,32 @@ func (b *Bot) Send(ctx context.Context, chat, text string, rows [][]Button) (int
 
 // Edit replaces a message's text and buttons.
 func (b *Bot) Edit(ctx context.Context, chat string, id int, text string, rows [][]Button) error {
+	if b.customEmojiBlocked.Load() {
+		text = stripCustomEmojiHTML(text)
+		rows = stripCustomEmojiButtons(rows)
+	}
 	p := map[string]any{"chat_id": chat, "message_id": id, "text": text, "parse_mode": "HTML", "reply_markup": keyboard{rows}}
 	err := b.call(ctx, "editMessageText", p, nil)
+	if err != nil && isCustomEmojiAPIError(err) && hasCustomEmoji(text, rows) {
+		b.customEmojiBlocked.Store(true)
+		p["text"] = stripCustomEmojiHTML(text)
+		p["reply_markup"] = keyboard{stripCustomEmojiButtons(rows)}
+		err = b.call(ctx, "editMessageText", p, nil)
+	}
 	var ae *APIError
 	if errors.As(err, &ae) && ae.Code == http.StatusBadRequest {
 		return nil
 	}
 	return err
+}
+
+// GetStickerSet fetches a Telegram sticker or custom emoji pack by short name.
+func (b *Bot) GetStickerSet(ctx context.Context, name string) (*StickerSet, error) {
+	var out StickerSet
+	if err := b.call(ctx, "getStickerSet", map[string]any{"name": name}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Answer closes the spinner on a pressed button.

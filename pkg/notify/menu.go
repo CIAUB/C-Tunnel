@@ -3,11 +3,13 @@ package notify
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +38,36 @@ func toggleOf(c *Config, key string) *bool {
 	return nil
 }
 
+// normalizeDigits converts Persian (۰-۹), Arabic-Indic (٠-٩) digits and Arabic
+// decimal separators (٫/،) into ASCII digits and '.' so Iranian admins can type
+// numbers naturally with a Persian keyboard.
+func normalizeDigits(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.TrimSpace(s) {
+		switch {
+		case r >= '۰' && r <= '۹':
+			b.WriteByte(byte('0' + (r - '۰')))
+		case r >= '٠' && r <= '٩':
+			b.WriteByte(byte('0' + (r - '٠')))
+		case r == '٫' || r == ',' || r == '،':
+			b.WriteByte('.')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func (n *Notifier) clearPrompts(actor int64) {
+	n.mu.Lock()
+	delete(n.restoreWait, actor)
+	delete(n.quotaWait, actor)
+	delete(n.adminWait, actor)
+	delete(n.packWait, actor)
+	n.mu.Unlock()
+}
+
 // Handle answers one Telegram update. Only configured numeric admins (or the
 // configured chat in legacy tests without From) may execute admin actions.
 func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
@@ -56,46 +88,148 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			_ = bot.Answer(ctx, c.ID, tr(lang, "notAllowed"))
 			return
 		}
+		n.observeUserPremium(ctx, bot, c.From)
+		actor := fromID
+		if actor == 0 {
+			actor = chatID
+		}
 		targetChat := strconv.FormatInt(chatID, 10)
-		// Async document send for manual backup button.
-		if c.Data == "bk-now:" {
+
+		// Special async/interactive callbacks that require ctx or bot.
+		switch {
+		case c.Data == "bk-now:":
 			if err := n.sendManualBackup(ctx, bot, targetChat); err != nil {
 				_ = bot.Answer(ctx, c.ID, tr(lang, "fail", err.Error()))
 				return
 			}
 			_ = bot.Answer(ctx, c.ID, tr(lang, "saved"))
 			return
-		}
-		if strings.HasPrefix(c.Data, "bk-rs:") {
+
+		case strings.HasPrefix(c.Data, "bk-rs:"):
 			mode := strings.TrimPrefix(c.Data, "bk-rs:")
-			actor := fromID
-			if actor == 0 {
-				actor = chatID
-			}
+			n.clearPrompts(actor)
 			n.mu.Lock()
 			if n.restoreWait == nil {
 				n.restoreWait = map[int64]restorePrompt{}
 			}
 			n.restoreWait[actor] = restorePrompt{overwrite: mode == "over", expires: n.Now().Add(5 * time.Minute)}
 			n.mu.Unlock()
-			msg := "📥 <b>Restore Ready (Keep Existing)</b>\nUpload your <code>ctunnel-backup-*.json</code> file in this chat within 5 minutes."
-			if mode == "over" {
-				msg = "♻️ <b>Restore Ready (Overwrite Existing)</b>\nUpload your <code>ctunnel-backup-*.json</code> file in this chat within 5 minutes."
-			}
+			var msg string
 			if lang == "fa" {
 				if mode == "over" {
-					msg = "♻️ <b>آماده ریستور (بازنویسی تانل‌های هم‌نام)</b>\nفایل بکاپ <code>ctunnel-backup-*.json</code> را تا ۵ دقیقه آینده در همین چت ارسال کن."
+					msg = n.em("overwrite") + " <b>آماده ریستور (بازنویسی تانل‌های هم‌نام)</b>\nفایل بکاپ <code>ctunnel-backup-*.json</code> را تا ۵ دقیقه آینده در همین چت ارسال کن."
 				} else {
-					msg = "📥 <b>آماده ریستور امن (حفظ تانل‌های فعلی)</b>\nفایل بکاپ <code>ctunnel-backup-*.json</code> را تا ۵ دقیقه آینده در همین چت ارسال کن."
+					msg = n.em("restore") + " <b>آماده ریستور امن (حفظ تانل‌های فعلی)</b>\nفایل بکاپ <code>ctunnel-backup-*.json</code> را تا ۵ دقیقه آینده در همین چت ارسال کن."
+				}
+			} else {
+				if mode == "over" {
+					msg = n.em("overwrite") + " <b>Restore Ready (Overwrite Existing)</b>\nUpload your <code>ctunnel-backup-*.json</code> file in this chat within 5 minutes."
+				} else {
+					msg = n.em("restore") + " <b>Restore Ready (Keep Existing)</b>\nUpload your <code>ctunnel-backup-*.json</code> file in this chat within 5 minutes."
 				}
 			}
-			_ = bot.Edit(ctx, targetChat, c.Message.MessageID, msg, [][]Button{{{Text: tr(lang, "b.back"), Data: "bk:"}}})
+			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "bk:")}})
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+
+		case strings.HasPrefix(c.Data, "qa-ask:"):
+			name := strings.TrimPrefix(c.Data, "qa-ask:")
+			tc, ok := n.tunnel(name)
+			if !ok {
+				v := n.statusView()
+				_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+				_ = bot.Answer(ctx, c.ID, tr(lang, "tunnel.gone"))
+				return
+			}
+			n.clearPrompts(actor)
+			n.mu.Lock()
+			if n.quotaWait == nil {
+				n.quotaWait = map[int64]quotaPrompt{}
+			}
+			n.quotaWait[actor] = quotaPrompt{tunnel: tc.Name, expires: n.Now().Add(5 * time.Minute)}
+			n.mu.Unlock()
+			rx, tx := n.Traffic(tc.Name)
+			capTxt := "∞"
+			if tc.QuotaGB > 0 {
+				capTxt = fmt.Sprintf("%.1f GB", tc.QuotaGB)
+			}
+			msg := n.em("quota") + " " + tr(lang, "quota.ask", esc(tc.Name), capTxt, bytesStr(rx+tx))
+			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "qa-cancel:"+tc.Name)}})
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+
+		case strings.HasPrefix(c.Data, "qa-cancel:"):
+			name := strings.TrimPrefix(c.Data, "qa-cancel:")
+			n.clearPrompts(actor)
+			v := n.tunnelView(name)
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+
+		case c.Data == "ad-ask:":
+			n.clearPrompts(actor)
+			n.mu.Lock()
+			if n.adminWait == nil {
+				n.adminWait = map[int64]adminPrompt{}
+			}
+			n.adminWait[actor] = adminPrompt{expires: n.Now().Add(5 * time.Minute)}
+			n.mu.Unlock()
+			msg := n.em("add") + " " + tr(lang, "admin.ask")
+			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "ad-cancel:")}})
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+
+		case c.Data == "ad-cancel:":
+			n.clearPrompts(actor)
+			v := n.adminsView()
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+
+		case strings.HasPrefix(c.Data, "em-mode:"):
+			mode := strings.TrimPrefix(c.Data, "em-mode:")
+			if mode == "auto" || mode == "on" || mode == "off" {
+				toast := n.change(func(c *Config) { c.PremiumEmoji = mode })
+				if mode != "off" {
+					bot.ResetCustomEmojiBlocked()
+					if n.premiumEmojiEligible(bot) {
+						n.ensureEmojiPack(ctx, bot)
+					}
+				}
+				v := n.emojiView()
+				_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+				_ = bot.Answer(ctx, c.ID, toast)
+				return
+			}
+
+		case c.Data == "em-pack:":
+			n.clearPrompts(actor)
+			n.mu.Lock()
+			if n.packWait == nil {
+				n.packWait = map[int64]packPrompt{}
+			}
+			n.packWait[actor] = packPrompt{expires: n.Now().Add(5 * time.Minute)}
+			n.mu.Unlock()
+			msg := n.em("emoji") + " " + tr(lang, "emoji.askPack")
+			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "em-cancel:")}})
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+
+		case c.Data == "em-cancel:":
+			n.clearPrompts(actor)
+			v := n.emojiView()
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 		}
-		text, rows, toast := n.press(c.Data, fromID)
-		if text != "" {
-			_ = bot.Edit(ctx, targetChat, c.Message.MessageID, text, rows)
+
+		v, toast := n.press(c.Data, fromID)
+		if v.Text != "" || v.RichHTML != "" {
+			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
 		}
 		_ = bot.Answer(ctx, c.ID, toast)
 		return
@@ -110,7 +244,8 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 		fromID = m.From.ID
 	}
 	chat := strconv.FormatInt(m.Chat.ID, 10)
-	cmd, arg, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
+	trimmed := strings.TrimSpace(m.Text)
+	cmd, arg, _ := strings.Cut(trimmed, " ")
 	cmd, _, _ = strings.Cut(cmd, "@")
 	arg = strings.TrimSpace(arg)
 
@@ -124,13 +259,15 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 		}
 		return
 	}
+	n.observeUserPremium(ctx, bot, m.From)
+
+	actor := fromID
+	if actor == 0 {
+		actor = m.Chat.ID
+	}
 
 	// Uploaded backup JSON document when admin initiated Restore.
 	if m.Document != nil {
-		actor := fromID
-		if actor == 0 {
-			actor = m.Chat.ID
-		}
 		n.mu.Lock()
 		rp, waiting := n.restoreWait[actor]
 		if waiting {
@@ -143,33 +280,45 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 		}
 	}
 
+	// Interactive text replies (when not a slash command).
+	if trimmed != "" && !strings.HasPrefix(trimmed, "/") {
+		if n.handlePendingTextReply(ctx, bot, chat, actor, trimmed) {
+			return
+		}
+	} else if strings.HasPrefix(trimmed, "/") {
+		n.clearPrompts(actor)
+	}
+
 	switch cmd {
 	case "/start", "/help", "/menu":
-		text, rows := n.mainView(fromID)
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.mainView(fromID)
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/panel":
-		text, rows := n.panelDirectView(fromID)
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.panelDirectView(fromID)
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/status":
-		text, rows := n.statusView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.statusView()
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/report":
-		text, rows := n.reportView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.reportView()
+		_, _ = bot.SendView(ctx, chat, v)
+	case "/manage":
+		v := n.manageView()
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/backup":
-		text, rows := n.backupView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.backupView()
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/admins":
-		text, rows := n.adminsView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.adminsView()
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/addadmin":
-		id, err := strconv.ParseInt(arg, 10, 64)
+		id, err := strconv.ParseInt(normalizeDigits(arg), 10, 64)
 		if err != nil || id <= 0 {
 			msg := "Usage: <code>/addadmin 123456789</code>"
 			if lang == "fa" {
 				msg = "فرمت صحیح: <code>/addadmin 123456789</code> (شناسه عددی تلگرام کاربر)"
 			}
-			_, _ = bot.Send(ctx, chat, msg, [][]Button{{{Text: tr(lang, "b.admins"), Data: "ad:"}}})
+			_, _ = bot.Send(ctx, chat, msg, [][]Button{{n.btn("admins", tr(lang, "l.admins"), "primary", "ad:")}})
 			return
 		}
 		var addErr error
@@ -177,16 +326,16 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 		if addErr != nil {
 			res = tr(lang, "fail", esc(addErr.Error()))
 		}
-		text, rows := n.adminsView()
-		_, _ = bot.Send(ctx, chat, res+"\n\n"+text, rows)
+		v := prependBanner(n.adminsView(), res)
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/deladmin":
-		id, err := strconv.ParseInt(arg, 10, 64)
+		id, err := strconv.ParseInt(normalizeDigits(arg), 10, 64)
 		if err != nil || id <= 0 {
 			msg := "Usage: <code>/deladmin 123456789</code>"
 			if lang == "fa" {
 				msg = "فرمت صحیح: <code>/deladmin 123456789</code>"
 			}
-			_, _ = bot.Send(ctx, chat, msg, [][]Button{{{Text: tr(lang, "b.admins"), Data: "ad:"}}})
+			_, _ = bot.Send(ctx, chat, msg, [][]Button{{n.btn("admins", tr(lang, "l.admins"), "primary", "ad:")}})
 			return
 		}
 		var rmErr error
@@ -194,18 +343,117 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 		if rmErr != nil {
 			res = tr(lang, "fail", esc(rmErr.Error()))
 		}
-		text, rows := n.adminsView()
-		_, _ = bot.Send(ctx, chat, res+"\n\n"+text, rows)
-	case "/gaming":
-		text, rows := n.gamingView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := prependBanner(n.adminsView(), res)
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/settings", "/alerts":
-		text, rows := n.alertsView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.alertsView()
+		_, _ = bot.SendView(ctx, chat, v)
 	case "/server":
-		text, rows := n.serverView()
-		_, _ = bot.Send(ctx, chat, text, rows)
+		v := n.serverView()
+		_, _ = bot.SendView(ctx, chat, v)
 	}
+}
+
+func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat string, actor int64, input string) bool {
+	lang := n.lang()
+	now := n.Now()
+
+	// 1. Pending Add Quota ("چند گیگ؟")
+	n.mu.Lock()
+	qp, waitQuota := n.quotaWait[actor]
+	if waitQuota && !now.Before(qp.expires) {
+		delete(n.quotaWait, actor)
+		waitQuota = false
+	}
+	n.mu.Unlock()
+	if waitQuota {
+		clean := normalizeDigits(input)
+		clean = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(clean), "gb"), "g"))
+		gb, err := strconv.ParseFloat(clean, 64)
+		if err != nil || math.IsNaN(gb) || math.IsInf(gb, 0) || gb <= 0 || gb > 1_000_000 {
+			_, _ = bot.Send(ctx, chat, n.em("warn")+" "+tr(lang, "quota.badNum"),
+				[][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "qa-cancel:"+qp.tunnel)}})
+			return true
+		}
+		n.mu.Lock()
+		delete(n.quotaWait, actor)
+		n.mu.Unlock()
+		_, st, _ := n.current()
+		tc, resumed, err := tunnel.AddQuotaGB(st, qp.tunnel, gb)
+		var banner string
+		if err != nil {
+			banner = tr(lang, "fail", esc(err.Error()))
+		} else {
+			resWord := ""
+			if resumed {
+				resWord = tr(lang, "quota.resumed")
+			}
+			banner = tr(lang, "quota.added", esc(tc.Name), tc.QuotaGB, resWord)
+		}
+		v := prependBanner(n.tunnelView(qp.tunnel), banner)
+		_, _ = bot.SendView(ctx, chat, v)
+		return true
+	}
+
+	// 2. Pending Add Admin (User ID)
+	n.mu.Lock()
+	ap, waitAdmin := n.adminWait[actor]
+	if waitAdmin && !now.Before(ap.expires) {
+		delete(n.adminWait, actor)
+		waitAdmin = false
+	}
+	n.mu.Unlock()
+	if waitAdmin {
+		id, err := strconv.ParseInt(normalizeDigits(input), 10, 64)
+		if err != nil || id <= 0 {
+			_, _ = bot.Send(ctx, chat, n.em("warn")+" "+tr(lang, "admin.badID"),
+				[][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "ad-cancel:")}})
+			return true
+		}
+		n.mu.Lock()
+		delete(n.adminWait, actor)
+		n.mu.Unlock()
+		var addErr error
+		res := n.change(func(c *Config) { addErr = c.AddAdmin(id) })
+		if addErr != nil {
+			res = tr(lang, "fail", esc(addErr.Error()))
+		}
+		v := prependBanner(n.adminsView(), res)
+		_, _ = bot.SendView(ctx, chat, v)
+		return true
+	}
+
+	// 3. Pending Emoji Pack short name/link
+	n.mu.Lock()
+	pp, waitPack := n.packWait[actor]
+	if waitPack && !now.Before(pp.expires) {
+		delete(n.packWait, actor)
+		waitPack = false
+	}
+	n.mu.Unlock()
+	if waitPack {
+		pack := ParseEmojiPackName(input)
+		if pack == "" || !emojiPackRE.MatchString(pack) {
+			_, _ = bot.Send(ctx, chat, n.em("warn")+" "+tr(lang, "emoji.badPack"),
+				[][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "em-cancel:")}})
+			return true
+		}
+		n.mu.Lock()
+		delete(n.packWait, actor)
+		n.emoji = emojiCache{} // force reload
+		n.mu.Unlock()
+		_ = n.change(func(c *Config) { c.EmojiPack = pack })
+		bot.ResetCustomEmojiBlocked()
+		n.ensureEmojiPack(ctx, bot)
+		n.mu.Lock()
+		cnt := len(n.emoji.keyToID)
+		n.mu.Unlock()
+		v := prependBanner(n.emojiView(), n.em("ok")+" "+tr(lang, "emoji.packSaved", esc(pack), cnt))
+		_, _ = bot.SendView(ctx, chat, v)
+		return true
+	}
+
+	return false
 }
 
 func (n *Notifier) handleRestoreUpload(ctx context.Context, bot *Bot, chat string, doc *Document, overwrite bool) {
@@ -214,53 +462,70 @@ func (n *Notifier) handleRestoreUpload(ctx context.Context, bot *Bot, chat strin
 	raw, err := bot.DownloadFile(dctx, doc.FileID, tunnel.MaxBackupBytes)
 	cancel()
 	if err != nil {
-		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{{Text: tr(lang, "b.backup"), Data: "bk:"}}})
+		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{n.btn("backup", tr(lang, "l.backup"), "primary", "bk:")}})
 		return
 	}
 	res, err := tunnel.RestoreBackup(n.StoreDir, raw, overwrite)
 	if err != nil {
-		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{{Text: tr(lang, "b.backup"), Data: "bk:"}}})
+		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{n.btn("backup", tr(lang, "l.backup"), "primary", "bk:")}})
 		return
 	}
-	title := "✅ Restore Complete"
+	title := "Restore Complete"
 	if lang == "fa" {
-		title = "✅ ریستور بکاپ انجام شد"
+		title = "ریستور بکاپ انجام شد"
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "<b>%s</b>\n%s\n<pre>", title, tr(lang, "rule"))
-	fmt.Fprintf(&b, "%-13s %d\n", "CREATED:", len(res.Created))
-	fmt.Fprintf(&b, "%-13s %d\n", "OVERWRITTEN:", len(res.Overwritten))
-	fmt.Fprintf(&b, "%-13s %d\n", "SKIPPED:", len(res.Skipped))
-	fmt.Fprintf(&b, "%-13s %d\n", "FAILED:", len(res.Failed))
-	fmt.Fprintf(&b, "%-13s %s\n", "RESTORED Σ:", bytesStr(res.RestoredRx+res.RestoredTx))
-	fmt.Fprintf(&b, "%-13s %s", "SERVER Σ:", bytesStr(res.TotalCumRx+res.TotalCumTx))
-	b.WriteString("</pre>")
+	var fb strings.Builder
+	fmt.Fprintf(&fb, "%s <b>%s</b>\n%s\n<pre>", n.em("ok"), title, tr(lang, "rule"))
+	fmt.Fprintf(&fb, "%-13s %d\n", "CREATED:", len(res.Created))
+	fmt.Fprintf(&fb, "%-13s %d\n", "OVERWRITTEN:", len(res.Overwritten))
+	fmt.Fprintf(&fb, "%-13s %d\n", "SKIPPED:", len(res.Skipped))
+	fmt.Fprintf(&fb, "%-13s %d\n", "FAILED:", len(res.Failed))
+	fmt.Fprintf(&fb, "%-13s %s\n", "RESTORED Σ:", bytesStr(res.RestoredRx+res.RestoredTx))
+	fmt.Fprintf(&fb, "%-13s %s", "SERVER Σ:", bytesStr(res.TotalCumRx+res.TotalCumTx))
+	fb.WriteString("</pre>")
 	if len(res.Failed) > 0 {
-		b.WriteString("\n⚠️ " + esc(strings.Join(res.Failed, "; ")))
+		fb.WriteString("\n" + n.em("warn") + " " + esc(strings.Join(res.Failed, "; ")))
 	}
-	_, _ = bot.Send(ctx, chat, b.String(), [][]Button{{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}}})
+	var rh strings.Builder
+	fmt.Fprintf(&rh, `<p>%s <b>%s</b></p><table border="1"><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>`, n.em("ok"), title)
+	fmt.Fprintf(&rh, "<tr><td>Created</td><td>%d</td></tr>", len(res.Created))
+	fmt.Fprintf(&rh, "<tr><td>Overwritten</td><td>%d</td></tr>", len(res.Overwritten))
+	fmt.Fprintf(&rh, "<tr><td>Skipped</td><td>%d</td></tr>", len(res.Skipped))
+	fmt.Fprintf(&rh, "<tr><td>Failed</td><td>%d</td></tr>", len(res.Failed))
+	fmt.Fprintf(&rh, "<tr><td>Restored Σ</td><td><code>%s</code></td></tr>", esc(bytesStr(res.RestoredRx+res.RestoredTx)))
+	fmt.Fprintf(&rh, "<tr><td><b>Server Σ</b></td><td><b><code>%s</code></b></td></tr></tbody></table>", esc(bytesStr(res.TotalCumRx+res.TotalCumTx)))
+	if len(res.Failed) > 0 {
+		fmt.Fprintf(&rh, "<p>%s %s</p>", n.em("warn"), esc(strings.Join(res.Failed, "; ")))
+	}
+	rows := [][]Button{{
+		n.btn("tunnels", tr(lang, "l.status"), "success", "st:"),
+		n.btn("home", tr(lang, "l.home"), "", "m:"),
+	}}
+	_, _ = bot.SendView(ctx, chat, View{RichHTML: rh.String(), Text: fb.String(), Rows: rows})
 }
 
-func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Button, toast string) {
+func (n *Notifier) press(data string, fromID int64) (v View, toast string) {
 	lang := n.lang()
 	op, arg, _ := strings.Cut(data, ":")
 	switch op {
 	case "m", "home":
-		text, rows = n.mainView(fromID)
+		v = n.mainView(fromID)
 	case "st", "status":
-		text, rows = n.statusView()
+		v = n.statusView()
 	case "rp", "report":
-		text, rows = n.reportView()
+		v = n.reportView()
+	case "mg", "manage":
+		v = n.manageView()
 	case "bk":
-		text, rows = n.backupView()
+		v = n.backupView()
 	case "ab":
 		h, err := strconv.Atoi(arg)
 		if err == nil && h >= 0 && h <= 720 {
 			toast = n.change(func(c *Config) { c.AutoBackupHours = h })
 		}
-		text, rows = n.backupView()
+		v = n.backupView()
 	case "ad":
-		text, rows = n.adminsView()
+		v = n.adminsView()
 	case "ad-rm":
 		if id, err := strconv.ParseInt(arg, 10, 64); err == nil {
 			var rmErr error
@@ -269,18 +534,17 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 				toast = rmErr.Error()
 			}
 		}
-		text, rows = n.adminsView()
-	case "gm":
-		text, rows = n.gamingView()
+		v = n.adminsView()
+	case "em":
+		v = n.emojiView()
 	case "pg":
-		text = tr(lang, "panel.httpsHint", tr(lang, "rule"))
-		rows = [][]Button{{{Text: tr(lang, "b.home"), Data: "m:"}}}
+		v = plainView(tr(lang, "panel.httpsHint", tr(lang, "rule")), [][]Button{{n.btn("home", tr(lang, "l.home"), "", "m:")}})
 	case "al", "alerts", "settings":
-		text, rows = n.alertsView()
+		v = n.alertsView()
 	case "sv", "server":
-		text, rows = n.serverView()
+		v = n.serverView()
 	case "tm":
-		text, rows = n.timeView()
+		v = n.timeView()
 	case "lg":
 		toast = n.change(func(c *Config) {
 			if c.Lang == "en" {
@@ -289,118 +553,86 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 				c.Lang = "en"
 			}
 		})
-		text, rows = n.mainView(fromID)
+		v = n.manageView()
 	case "t", "x":
 		toast = n.change(func(c *Config) {
 			if p := toggleOf(c, arg); p != nil {
 				*p = !*p
 			}
 		})
-		text, rows = n.alertsView()
+		v = n.alertsView()
 	case "at":
 		toast = n.change(func(c *Config) {
 			c.DailyAt = arg
 		})
-		text, rows = n.alertsView()
+		v = n.alertsView()
 	case "tn":
-		text, rows = n.tunnelView(arg)
+		v = n.tunnelView(arg)
 	case "lo":
-		text, rows = n.logsView(arg)
+		v = n.logsView(arg)
 	case "qr":
 		_, st, _ := n.current()
 		if _, err := tunnel.ResetQuotaUsage(st, arg); err != nil {
-			text, rows = n.tunnelView(arg)
-			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
+			v = prependBanner(n.tunnelView(arg), tr(lang, "fail", esc(err.Error())))
 		} else {
-			text, rows = n.tunnelView(arg)
-			text = tr(lang, "quota.reset", esc(arg)) + "\n\n" + text
-			toast = tr(lang, "saved")
-		}
-	case "qa10", "qa50", "qa100":
-		extra := 10.0
-		if op == "qa50" {
-			extra = 50.0
-		} else if op == "qa100" {
-			extra = 100.0
-		}
-		_, st, _ := n.current()
-		tc, resumed, err := tunnel.AddQuotaGB(st, arg, extra)
-		if err != nil {
-			text, rows = n.tunnelView(arg)
-			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
-		} else {
-			resWord := ""
-			if resumed {
-				resWord = tr(lang, "quota.resumed")
-			}
-			text, rows = n.tunnelView(arg)
-			text = tr(lang, "quota.added", esc(tc.Name), tc.QuotaGB, resWord) + "\n\n" + text
+			v = prependBanner(n.tunnelView(arg), tr(lang, "quota.reset", esc(arg)))
 			toast = tr(lang, "saved")
 		}
 	case "rs":
 		tc, ok := n.tunnel(arg)
 		if !ok {
-			text, rows = n.statusView()
-			toast = tr(lang, "tunnel.gone")
-			return
+			return n.statusView(), tr(lang, "tunnel.gone")
 		}
 		_, st, _ := n.current()
-		text = tr(lang, "ask.restart", esc(tc.Name))
+		msg := tr(lang, "ask.restart", esc(tc.Name))
 		if IranServer(st) {
-			text += tr(lang, "ask.iran")
+			msg += tr(lang, "ask.iran")
 		}
-		rows = [][]Button{{
-			{Text: tr(lang, "b.yes"), Data: "ok-rs:" + tc.Name},
-			{Text: tr(lang, "b.no"), Data: "tn:" + tc.Name},
-		}}
+		v = plainView(msg, [][]Button{{
+			n.btn("ok", tr(lang, "l.yes"), "success", "ok-rs:"+tc.Name),
+			n.btn("cancel", tr(lang, "l.no"), "danger", "tn:"+tc.Name),
+		}})
 	case "ss":
 		tc, ok := n.tunnel(arg)
 		if !ok {
-			text, rows = n.statusView()
-			toast = tr(lang, "tunnel.gone")
-			return
+			return n.statusView(), tr(lang, "tunnel.gone")
 		}
 		_, st, _ := n.current()
-		text = tr(lang, "ask.stop", esc(tc.Name))
+		msg := tr(lang, "ask.stop", esc(tc.Name))
 		if IranServer(st) {
-			text += tr(lang, "ask.iran")
+			msg += tr(lang, "ask.iran")
 		}
-		rows = [][]Button{{
-			{Text: tr(lang, "b.yes"), Data: "ok-ss:" + tc.Name},
-			{Text: tr(lang, "b.no"), Data: "tn:" + tc.Name},
-		}}
+		v = plainView(msg, [][]Button{{
+			n.btn("stop", tr(lang, "l.yes"), "danger", "ok-ss:"+tc.Name),
+			n.btn("cancel", tr(lang, "l.no"), "", "tn:"+tc.Name),
+		}})
 	case "ok-rs":
 		tc, ok := n.tunnel(arg)
 		if !ok {
-			text, rows = n.statusView()
-			return
+			return n.statusView(), ""
 		}
 		err := n.RestartTunnel(tc)
-		text, rows = n.tunnelView(tc.Name)
+		banner := tr(lang, "done.restart", esc(tc.Name))
 		if err != nil {
-			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
-		} else {
-			text = tr(lang, "done.restart", esc(tc.Name)) + "\n\n" + text
+			banner = tr(lang, "fail", esc(err.Error()))
 		}
+		v = prependBanner(n.tunnelView(tc.Name), banner)
 	case "ok-ss":
 		tc, ok := n.tunnel(arg)
 		if !ok {
-			text, rows = n.statusView()
-			return
+			return n.statusView(), ""
 		}
 		err := n.StopTunnel(tc)
-		text, rows = n.tunnelView(tc.Name)
+		banner := tr(lang, "done.stop", esc(tc.Name))
 		if err != nil {
-			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
-		} else {
-			text = tr(lang, "done.stop", esc(tc.Name)) + "\n\n" + text
+			banner = tr(lang, "fail", esc(err.Error()))
 		}
+		v = prependBanner(n.tunnelView(tc.Name), banner)
 	case "go":
 		_, st, _ := n.current()
 		tc, ok := st.Find(arg)
 		if !ok {
-			text, rows = n.statusView()
-			return
+			return n.statusView(), ""
 		}
 		// Manual start overrides exhausted quota so agent won't auto-stop it again.
 		q := tunnel.QuotaStatus(tc)
@@ -412,28 +644,28 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 			_ = st.Upsert(tc)
 		}
 		err := n.StartTunnel(tc)
-		text, rows = n.tunnelView(tc.Name)
+		var banner string
 		if err != nil {
-			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
+			banner = tr(lang, "fail", esc(err.Error()))
 		} else if overrode {
-			text = tr(lang, "quota.override", esc(tc.Name)) + "\n\n" + text
+			banner = tr(lang, "quota.override", esc(tc.Name))
 		} else {
-			text = tr(lang, "done.start", esc(tc.Name)) + "\n\n" + text
+			banner = tr(lang, "done.start", esc(tc.Name))
 		}
+		v = prependBanner(n.tunnelView(tc.Name), banner)
 	case "ral":
 		_, st, _ := n.current()
 		if len(st.Tunnels) == 0 {
-			text, rows = n.mainView(fromID)
-			return
+			return n.manageView(), ""
 		}
-		text = tr(lang, "ask.all", len(st.Tunnels))
+		msg := tr(lang, "ask.all", len(st.Tunnels))
 		if IranServer(st) {
-			text += tr(lang, "ask.iran")
+			msg += tr(lang, "ask.iran")
 		}
-		rows = [][]Button{{
-			{Text: tr(lang, "b.yes"), Data: "ok-ral:"},
-			{Text: tr(lang, "b.no"), Data: "m:"},
-		}}
+		v = plainView(msg, [][]Button{{
+			n.btn("restart", tr(lang, "l.yes"), "danger", "ok-ral:"),
+			n.btn("cancel", tr(lang, "l.no"), "", "mg:"),
+		}})
 	case "ok-ral":
 		_, st, _ := n.current()
 		okCount, failCount := 0, 0
@@ -444,10 +676,42 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 				failCount++
 			}
 		}
-		text, rows = n.mainView(fromID)
-		text = tr(lang, "done.all", okCount, failCount) + "\n\n" + text
+		v = prependBanner(n.manageView(), tr(lang, "done.all", okCount, failCount))
 	}
-	return text, rows, toast
+	return v, toast
+}
+
+func plainView(htmlText string, rows [][]Button) View {
+	var rh strings.Builder
+	for _, line := range strings.Split(htmlText, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		rh.WriteString("<p>")
+		rh.WriteString(line)
+		rh.WriteString("</p>")
+	}
+	return View{
+		RichHTML: rh.String(),
+		Text:     htmlText,
+		Rows:     rows,
+	}
+}
+
+// ltr wraps a metric or ASCII telemetry string in Unicode Left-to-Right Isolate
+// (U+2066 ... U+2069) so values like "18%/100G", "~48ms", or "↓245G · ↑147G"
+// never flip order inside Persian RTL Telegram messages.
+func ltr(s string) string { return "\u2066" + s + "\u2069" }
+
+func prependBanner(v View, banner string) View {
+	if banner == "" {
+		return v
+	}
+	v.Text = banner + "\n\n" + v.Text
+	if v.RichHTML != "" {
+		v.RichHTML = "<blockquote>" + strings.ReplaceAll(banner, "\n", " ") + "</blockquote>" + v.RichHTML
+	}
+	return v
 }
 
 func (n *Notifier) change(mut func(*Config)) string {
@@ -505,6 +769,9 @@ func bar(pct, width int) string {
 func pad(s string, width int) string {
 	r := []rune(s)
 	if len(r) > width {
+		if width <= 1 {
+			return string(r[:width])
+		}
 		return string(r[:width-1]) + "…"
 	}
 	return s + strings.Repeat(" ", width-len(r))
@@ -526,10 +793,10 @@ func uptime() time.Duration {
 func (n *Notifier) panelButton(cfg Config, lang string, actorID int64) (Button, bool, bool) {
 	panelURL, isHTTPS := ResolvePanelURL(n.StoreDir, cfg)
 	if panelURL == "" {
-		return Button{Text: tr(lang, "b.panelGuide"), Data: "pg:"}, false, false
+		return n.btn("panel", tr(lang, "l.panelGuide"), "primary", "pg:"), false, false
 	}
 	if isHTTPS {
-		return Button{Text: tr(lang, "b.openPanel"), WebApp: &WebAppInfo{URL: panelURL}}, true, true
+		return n.btnWebApp("panel", tr(lang, "l.openMiniApp"), "primary", panelURL), true, true
 	}
 	uid := actorID
 	if uid <= 0 {
@@ -542,111 +809,464 @@ func (n *Notifier) panelButton(cfg Config, lang string, actorID int64) (Button, 
 		base, _, _ := strings.Cut(panelURL, "#")
 		urlOut = base + "#tgToken=" + tok
 	}
-	return Button{Text: tr(lang, "b.openPanel"), URL: urlOut}, true, false
+	return n.btnURL("panel", tr(lang, "l.openPanel"), "primary", urlOut), true, false
 }
 
-func (n *Notifier) panelDirectView(actorID int64) (string, [][]Button) {
+func (n *Notifier) panelDirectView(actorID int64) View {
 	lang := n.lang()
 	cfg, _, _ := n.current()
 	btn, ok, isHTTPS := n.panelButton(cfg, lang, actorID)
 	if !ok {
-		return tr(lang, "panel.httpsHint", tr(lang, "rule")), [][]Button{{{Text: tr(lang, "b.home"), Data: "m:"}}}
+		return plainView(tr(lang, "panel.httpsHint", tr(lang, "rule")), [][]Button{{n.btn("home", tr(lang, "l.home"), "", "m:")}})
 	}
 	var msg string
 	if isHTTPS {
 		if lang == "fa" {
-			msg = "🌐 <b>ورود مستقیم به وب‌پنل (Mini App)</b>\nروی دکمه زیر بزنید تا پنل داخل تلگرام بدون نیاز به رمز باز شود."
+			msg = n.em("panel") + " <b>ورود مستقیم به وب‌پنل (Mini App)</b>\nروی دکمه زیر بزنید تا پنل داخل تلگرام بدون نیاز به رمز باز شود."
 		} else {
-			msg = "🌐 <b>Direct Web Panel Access (Mini App)</b>\nTap below to open the Web Panel inside Telegram with no password."
+			msg = n.em("panel") + " <b>Direct Web Panel Access (Mini App)</b>\nTap below to open the Web Panel inside Telegram with no password."
 		}
 	} else {
 		if lang == "fa" {
-			msg = "🌐 <b>ورود مستقیم به وب‌پنل (HTTP)</b>\nروی دکمه زیر بزنید تا پنل در مرورگر <b>بدون نیاز به رمز</b> باز شود (اعتبار لینک: ۳۰ دقیقه)."
+			msg = n.em("panel") + " <b>ورود مستقیم به وب‌پنل (HTTP)</b>\nروی دکمه زیر بزنید تا پنل در مرورگر <b>بدون نیاز به رمز</b> باز شود (اعتبار لینک: ۳۰ دقیقه)."
 		} else {
-			msg = "🌐 <b>Direct Web Panel Access (HTTP)</b>\nTap below to open the Web Panel in your browser with <b>no password</b> (link valid for 30 min)."
+			msg = n.em("panel") + " <b>Direct Web Panel Access (HTTP)</b>\nTap below to open the Web Panel in your browser with <b>no password</b> (link valid for 30 min)."
 		}
 	}
-	return msg, [][]Button{{btn}, {{Text: tr(lang, "b.home"), Data: "m:"}}}
+	return plainView(msg, [][]Button{{btn}, {n.btn("home", tr(lang, "l.home"), "", "m:")}})
 }
 
-func (n *Notifier) mainView(actorID int64) (string, [][]Button) {
+// tunnelHealth captures live tunnel status & active network probe metrics for /start.
+type tunnelHealth struct {
+	tc       catalog.TunnelConfig
+	stateKey string // "up", "down", "paused", "exhausted"
+	ping     tunnel.PingResult
+}
+
+func (n *Notifier) probeAllHealth(tcs []catalog.TunnelConfig) []tunnelHealth {
+	out := make([]tunnelHealth, len(tcs))
+	if len(tcs) == 0 {
+		return out
+	}
+	var wg sync.WaitGroup
+	for i, tc := range tcs {
+		out[i] = tunnelHealth{tc: tc}
+		if tc.QuotaStopped {
+			out[i].stateKey = "exhausted"
+			continue
+		}
+		if !n.Enabled(tc) {
+			out[i].stateKey = "paused"
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, t catalog.TunnelConfig) {
+			defer wg.Done()
+			var pr tunnel.PingResult
+			if n.Ping != nil {
+				pr = n.Ping(t)
+			}
+			if pr.OK {
+				out[idx].stateKey = "up"
+				out[idx].ping = pr
+				return
+			}
+			if n.Alive(t) || (n.Probe != nil && n.Probe(t)) {
+				out[idx].stateKey = "up"
+				out[idx].ping = pr
+				return
+			}
+			out[idx].stateKey = "down"
+			out[idx].ping = tunnel.PingResult{LossPct: 100}
+		}(i, tc)
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2500 * time.Millisecond):
+	}
+	// Snapshot safely if any slow goroutine hasn't finished yet.
+	for i := range out {
+		if out[i].stateKey == "" {
+			out[i].stateKey = "down"
+			out[i].ping = tunnel.PingResult{LossPct: 100}
+		}
+	}
+	return out
+}
+
+func healthLabels(lang string, h tunnelHealth) (statShort, statRich, pingStr, netRich, netShort string) {
+	switch h.stateKey {
+	case "exhausted":
+		if lang == "fa" {
+			return "QUOTA", "سهمیه", "—", "اتمام حجم", "QUOTA"
+		}
+		return "QUOTA", "Quota", "—", "Exhausted", "QUOTA"
+	case "paused":
+		if lang == "fa" {
+			return "OFF", "متوقف", "—", "خاموش", "OFF"
+		}
+		return "OFF", "Off", "—", "Stopped", "OFF"
+	case "down":
+		if lang == "fa" {
+			return "DOWN", "قطع", "—", "عدم پاسخ (100%)", "100%!"
+		}
+		return "DOWN", "Down", "—", "Unreachable", "100%!"
+	default: // "up"
+		if h.ping.OK && h.ping.RTTMs > 0 {
+			pingStr = fmt.Sprintf("%.0fms", h.ping.RTTMs)
+			loss := int(math.Round(h.ping.LossPct))
+			switch {
+			case loss == 0 && h.ping.RTTMs < 80:
+				if lang == "fa" {
+					return "UP", "وصل", pingStr, "عالی (0%)", "OK"
+				}
+				return "UP", "Up", pingStr, "Excellent (0%)", "OK"
+			case loss < 5 && h.ping.RTTMs < 180:
+				if lang == "fa" {
+					return "UP", "وصل", pingStr, fmt.Sprintf("خوب (%d%%)", loss), fmt.Sprintf("%d%%", loss)
+				}
+				return "UP", "Up", pingStr, fmt.Sprintf("Good (%d%%)", loss), fmt.Sprintf("%d%%", loss)
+			default:
+				if lang == "fa" {
+					return "UP", "وصل", pingStr, fmt.Sprintf("ناپایدار (%d%%)", loss), fmt.Sprintf("%d%%!", loss)
+				}
+				return "UP", "Up", pingStr, fmt.Sprintf("Degraded (%d%%)", loss), fmt.Sprintf("%d%%!", loss)
+			}
+		}
+		if lang == "fa" {
+			return "UP", "وصل", "فعال", "پایدار", "OK"
+		}
+		return "UP", "Up", "Active", "Healthy", "OK"
+	}
+}
+
+// mainView renders /start as a clean live table of tunnel status and active
+// network health tests — no clutter, no server volume/admins (those live in
+// Traffic Report), and all management options nested under Manage.
+func (n *Notifier) mainView(actorID int64) View {
 	lang := n.lang()
 	cfg, st, _ := n.current()
-	up, down, stopped, quotaStop := 0, 0, 0, 0
-	var allRx, allTx uint64 = st.ArchivedRx, st.ArchivedTx
-	for _, tc := range st.Tunnels {
-		rx, tx := n.Traffic(tc.Name)
-		allRx += rx
-		allTx += tx
-		if tc.QuotaStopped {
-			quotaStop++
-		}
-		icon, _ := n.state(lang, tc)
-		switch icon {
-		case "🟢":
-			up++
-		case "⏸":
-			stopped++
-		default:
-			down++
-		}
-	}
-	var b strings.Builder
-	b.WriteString(tr(lang, "menu.title") + "\n")
-	b.WriteString(tr(lang, "rule") + "\n")
-	b.WriteString(tr(lang, "menu.server", esc(n.Host), n.roleWord(lang, st), esc(version.Version), humanIn(lang, uptime())) + "\n")
-	b.WriteString(tr(lang, "rule") + "\n")
-	b.WriteString("<pre>")
-	fmt.Fprintf(&b, "%-10s %d (🟢%d 🔴%d ⏸%d)\n", "TUNNELS", len(st.Tunnels), up, down, stopped)
-	fmt.Fprintf(&b, "%-10s %s (↓%s ↑%s)\n", "TRAFFIC", shortBytes(allRx+allTx), shortBytes(allRx), shortBytes(allTx))
-	fmt.Fprintf(&b, "%-10s %d", "ADMINS", len(cfg.AdminIDs()))
-	if cfg.AutoBackupHours > 0 {
-		fmt.Fprintf(&b, " · BACKUP %dh", cfg.AutoBackupHours)
-	}
-	if quotaStop > 0 {
-		fmt.Fprintf(&b, "\n%-10s %d STOPPED BY QUOTA", "QUOTA", quotaStop)
-	}
-	activeTotal := up + down
-	if activeTotal > 0 {
-		pct := (up * 100) / activeTotal
-		fmt.Fprintf(&b, "\n%s %3d%%  %s", bar(pct, 10), pct, tr(lang, "menu.health"))
-	}
-	b.WriteString("</pre>\n")
-	b.WriteString(tr(lang, "menu.updated", n.Now().Format("15:04:05")))
+	tcs := sorted(st.Tunnels)
+	results := n.probeAllHealth(tcs)
 
-	var rows [][]Button
+	up, activeTotal := 0, 0
+	var rttSum float64
+	rttCount := 0
+	for _, r := range results {
+		if r.stateKey == "up" {
+			up++
+			activeTotal++
+			if r.ping.OK && r.ping.RTTMs > 0 {
+				rttSum += r.ping.RTTMs
+				rttCount++
+			}
+		} else if r.stateKey == "down" {
+			activeTotal++
+		}
+	}
+	healthPct := 100
+	if activeTotal > 0 {
+		healthPct = (up * 100) / activeTotal
+	} else if len(results) == 0 {
+		healthPct = 0
+	}
+	avgPing := "—"
+	if rttCount > 0 {
+		avgPing = fmt.Sprintf("~%.0fms", rttSum/float64(rttCount))
+	}
+	nowClock := n.Now().Format("15:04:05")
+
+	// 1. Native Bot API 10.1+ Rich HTML Table.
+	var rh strings.Builder
+	fmt.Fprintf(&rh, "<p>%s <b>C-Tunnel</b> · <code>%s</code> (%s)</p>",
+		n.em("shield"), esc(n.Host), n.roleWord(lang, st))
+	if len(results) == 0 {
+		fmt.Fprintf(&rh, "<p>%s</p>", tr(lang, "noTunnels"))
+	} else {
+		hTun, hSt, hPing, hNet, hSum := "تانل", "وضعیت", "پینگ", "سلامت شبکه", "سلامت کل"
+		if lang == "en" {
+			hTun, hSt, hPing, hNet, hSum = "Tunnel", "Status", "Ping", "Network Health", "Overall"
+		}
+		rh.WriteString(`<table border="1"><thead><tr>`)
+		fmt.Fprintf(&rh, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th>", hTun, hSt, hPing, hNet)
+		rh.WriteString("</tr></thead><tbody>")
+		for _, r := range results {
+			_, stRich, pingStr, netRich, _ := healthLabels(lang, r)
+			fmt.Fprintf(&rh, "<tr><td><code>%s</code></td><td>%s %s</td><td>%s</td><td>%s</td></tr>",
+				esc(r.tc.Name), n.em(r.stateKey), stRich, ltr(esc(pingStr)), esc(netRich))
+		}
+		sumState := fmt.Sprintf("%d/%d", up, len(results))
+		sumHealth := fmt.Sprintf("%d%% · %s", healthPct, nowClock)
+		fmt.Fprintf(&rh, "<tr><td>%s <b>%s</b></td><td><b>%s</b></td><td><b>%s</b></td><td><b>%s</b></td></tr>",
+			n.em("health"), hSum, ltr(esc(sumState)), ltr(esc(avgPing)), ltr(esc(sumHealth)))
+		rh.WriteString("</tbody></table>")
+	}
+
+	// 2. Fallback Standard HTML (<pre> Unicode box-drawing table).
+	var fb strings.Builder
+	fmt.Fprintf(&fb, "%s <b>C-Tunnel</b> · <code>%s</code> (%s)\n", n.em("shield"), esc(n.Host), n.roleWord(lang, st))
+	if len(results) == 0 {
+		fb.WriteString(tr(lang, "noTunnels"))
+	} else {
+		fb.WriteString("<pre>")
+		fb.WriteString("┌──────────┬─────┬──────┬───────┐\n")
+		fb.WriteString("│ TUNNEL   │ ST  │ PING │ NET   │\n")
+		fb.WriteString("├──────────┼─────┼──────┼───────┤\n")
+		for _, r := range results {
+			stShort, _, pingStr, _, netShort := healthLabels(lang, r)
+			fmt.Fprintf(&fb, "│ %s │ %s │ %s │ %s │\n",
+				esc(pad(r.tc.Name, 8)), pad(stShort, 3), pad(pingStr, 4), pad(netShort, 5))
+		}
+		fb.WriteString("├──────────┼─────┼──────┼───────┤\n")
+		fmt.Fprintf(&fb, "│ HEALTH   │ %s │ %s │ %3d%%  │\n",
+			pad(fmt.Sprintf("%d/%d", up, len(results)), 3), pad(avgPing, 4), healthPct)
+		fb.WriteString("└──────────┴─────┴──────┴───────┘</pre>\n")
+		fb.WriteString(tr(lang, "menu.updated", nowClock))
+	}
+
+	// Clean color-coded /start buttons (NO gaming button; all management under Manage).
 	pBtn, _, _ := n.panelButton(cfg, lang, actorID)
-	rows = append(rows, []Button{pBtn})
-	rows = append(rows,
-		[]Button{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.report"), Data: "rp:"}},
-		[]Button{{Text: tr(lang, "b.backup"), Data: "bk:"}, {Text: tr(lang, "b.admins"), Data: "ad:"}},
-		[]Button{{Text: tr(lang, "b.gaming"), Data: "gm:"}, {Text: tr(lang, "b.server"), Data: "sv:"}},
-		[]Button{{Text: tr(lang, "b.alerts"), Data: "al:"}, {Text: tr(lang, "b.restartAll"), Data: "ral:"}},
-		[]Button{{Text: tr(lang, "b.lang"), Data: "lg:"}, {Text: tr(lang, "b.refresh"), Data: "m:"}},
-	)
-	return b.String(), rows
+	rows := [][]Button{
+		{pBtn},
+		{
+			n.btn("tunnels", tr(lang, "l.status"), "success", "st:"),
+			n.btn("report", tr(lang, "l.report"), "primary", "rp:"),
+		},
+		{
+			n.btn("manage", tr(lang, "l.manage"), "", "mg:"),
+			n.btn("refresh", tr(lang, "l.refresh"), "", "m:"),
+		},
+	}
+	return View{RichHTML: rh.String(), Text: fb.String(), Rows: rows}
 }
 
-func (n *Notifier) statusView() (string, [][]Button) {
+// manageView holds all administrative / non-core actions cleanly under one submenu.
+func (n *Notifier) manageView() View {
+	lang := n.lang()
+	cfg, st, _ := n.current()
+	alertsOn := 0
+	for _, k := range toggleKeys {
+		if p := toggleOf(&cfg, k); p != nil && *p {
+			alertsOn++
+		}
+	}
+	autoBk := "Off"
+	if lang == "fa" {
+		autoBk = "خاموش"
+	}
+	if cfg.AutoBackupHours > 0 {
+		if lang == "fa" {
+			autoBk = fmt.Sprintf("هر %d ساعت", cfg.AutoBackupHours)
+		} else {
+			autoBk = fmt.Sprintf("Every %dh", cfg.AutoBackupHours)
+		}
+	}
+	emMode, emPack, _, emActive := n.emojiStatusSummary(lang)
+
+	var rh strings.Builder
+	fmt.Fprintf(&rh, "<p>%s %s</p>", n.em("manage"), tr(lang, "manage.title", esc(n.Host)))
+	rh.WriteString(`<table border="1"><thead><tr>`)
+	if lang == "fa" {
+		rh.WriteString("<th>بخش</th><th>وضعیت</th>")
+	} else {
+		rh.WriteString("<th>Section</th><th>Status</th>")
+	}
+	rh.WriteString("</tr></thead><tbody>")
+	if lang == "fa" {
+		fmt.Fprintf(&rh, "<tr><td>%s سرور</td><td>%s · v%s · %s</td></tr>", n.em("server"), n.roleWord(lang, st), esc(version.Version), humanIn(lang, uptime()))
+		fmt.Fprintf(&rh, "<tr><td>%s بکاپ خودکار</td><td>%s</td></tr>", n.em("backup"), esc(autoBk))
+		fmt.Fprintf(&rh, "<tr><td>%s ادمین‌ها</td><td>%d نفر</td></tr>", n.em("admins"), len(cfg.AdminIDs()))
+		fmt.Fprintf(&rh, "<tr><td>%s هشدارها</td><td>%d از %d فعال</td></tr>", n.em("alerts"), alertsOn, len(toggleKeys))
+		fmt.Fprintf(&rh, "<tr><td>%s ایموجی انیمیشن</td><td>%s (<code>%s</code>)</td></tr>", n.em("emoji"), esc(emMode), esc(emPack))
+	} else {
+		fmt.Fprintf(&rh, "<tr><td>%s Server</td><td>%s · v%s · up %s</td></tr>", n.em("server"), n.roleWord(lang, st), esc(version.Version), humanIn(lang, uptime()))
+		fmt.Fprintf(&rh, "<tr><td>%s Auto-Backup</td><td>%s</td></tr>", n.em("backup"), esc(autoBk))
+		fmt.Fprintf(&rh, "<tr><td>%s Admins</td><td>%d</td></tr>", n.em("admins"), len(cfg.AdminIDs()))
+		fmt.Fprintf(&rh, "<tr><td>%s Alerts</td><td>%d/%d active</td></tr>", n.em("alerts"), alertsOn, len(toggleKeys))
+		fmt.Fprintf(&rh, "<tr><td>%s Animated Emojis</td><td>%s (<code>%s</code>)</td></tr>", n.em("emoji"), esc(emMode), esc(emPack))
+	}
+	rh.WriteString("</tbody></table>")
+
+	var fb strings.Builder
+	fmt.Fprintf(&fb, "%s %s\n%s\n<pre>", n.em("manage"), tr(lang, "manage.title", esc(n.Host)), tr(lang, "rule"))
+	fmt.Fprintf(&fb, "%-12s %s (v%s)\n", "SERVER", n.roleWord(lang, st), version.Version)
+	fmt.Fprintf(&fb, "%-12s %s\n", "AUTO-BACKUP", autoBk)
+	fmt.Fprintf(&fb, "%-12s %d\n", "ADMINS", len(cfg.AdminIDs()))
+	fmt.Fprintf(&fb, "%-12s %d/%d\n", "ALERTS", alertsOn, len(toggleKeys))
+	fmt.Fprintf(&fb, "%-12s %s", "EMOJIS", emMode)
+	fb.WriteString("</pre>")
+
+	emStyle := ""
+	if emActive {
+		emStyle = "success"
+	}
+	rows := [][]Button{
+		{
+			n.btn("backup", tr(lang, "l.backup"), "primary", "bk:"),
+			n.btn("admins", tr(lang, "l.admins"), "primary", "ad:"),
+		},
+		{
+			n.btn("alerts", tr(lang, "l.alerts"), "", "al:"),
+			n.btn("server", tr(lang, "l.server"), "", "sv:"),
+		},
+		{
+			n.btn("emoji", tr(lang, "l.emoji"), emStyle, "em:"),
+			n.btn("lang", tr(lang, "l.lang"), "", "lg:"),
+		},
+		{
+			n.btn("restart", tr(lang, "l.restartAll"), "danger", "ral:"),
+		},
+		{
+			n.btn("home", tr(lang, "l.home"), "", "m:"),
+		},
+	}
+	return View{RichHTML: rh.String(), Text: fb.String(), Rows: rows}
+}
+
+func (n *Notifier) emojiView() View {
+	lang := n.lang()
+	n.mu.Lock()
+	mode := strings.ToLower(strings.TrimSpace(n.cfg.PremiumEmoji))
+	if mode == "" {
+		mode = "auto"
+	}
+	ownerPrem := n.ownerPremium
+	n.mu.Unlock()
+	modeLabel, packName, count, active := n.emojiStatusSummary(lang)
+
+	premTxt := "—"
+	if ownerPrem != nil {
+		if *ownerPrem {
+			if lang == "fa" {
+				premTxt = "بله (Telegram Premium)"
+			} else {
+				premTxt = "Yes (Telegram Premium)"
+			}
+		} else {
+			if lang == "fa" {
+				premTxt = "خیر (ایموجی دیفالت)"
+			} else {
+				premTxt = "No (Default Unicode)"
+			}
+		}
+	}
+
+	title := "تنظیمات ایموجی پریمیوم (Animated Emoji)"
+	if lang == "en" {
+		title = "Premium Animated Emoji Settings"
+	}
+	var rh strings.Builder
+	fmt.Fprintf(&rh, `<p>%s <b>%s</b></p><table border="1"><thead><tr>`, n.em("emoji"), title)
+	if lang == "fa" {
+		rh.WriteString("<th>تنظیم</th><th>مقدار</th>")
+	} else {
+		rh.WriteString("<th>Setting</th><th>Value</th>")
+	}
+	rh.WriteString("</tr></thead><tbody>")
+	if lang == "fa" {
+		fmt.Fprintf(&rh, "<tr><td>حالت فعلی</td><td><b>%s</b></td></tr>", esc(modeLabel))
+		fmt.Fprintf(&rh, "<tr><td>اکانت صاحب ربات</td><td>%s</td></tr>", esc(premTxt))
+		fmt.Fprintf(&rh, "<tr><td>پک ایموجی</td><td><code>%s</code> (%d ایموجی)</td></tr>", esc(packName), count)
+	} else {
+		fmt.Fprintf(&rh, "<tr><td>Current Mode</td><td><b>%s</b></td></tr>", esc(modeLabel))
+		fmt.Fprintf(&rh, "<tr><td>Owner Account</td><td>%s</td></tr>", esc(premTxt))
+		fmt.Fprintf(&rh, "<tr><td>Emoji Pack</td><td><code>%s</code> (%d loaded)</td></tr>", esc(packName), count)
+	}
+	rh.WriteString("</tbody></table>")
+	if lang == "fa" {
+		rh.WriteString("<p><i>در حالت «خودکار»، اگر اکانت صاحب ربات پریمیوم باشد ایموجی‌های متحرک پک استیکر نمایش داده می‌شوند و در غیر این صورت ایموجی استاندارد دیفالت استفاده می‌شود.</i></p>")
+	} else {
+		rh.WriteString("<p><i>In Auto mode, animated custom emojis are used automatically when the bot owner has Telegram Premium, and standard Unicode emojis otherwise.</i></p>")
+	}
+
+	var fb strings.Builder
+	fmt.Fprintf(&fb, "%s <b>%s</b>\n%s\n<pre>MODE  %s\nOWNER %s\nPACK  %s (%d)</pre>",
+		n.em("emoji"), title, tr(lang, "rule"), modeLabel, premTxt, packName, count)
+
+	styleOf := func(m string) string {
+		if mode == m {
+			if m == "off" {
+				return "danger"
+			}
+			return "success"
+		}
+		return ""
+	}
+	autoLbl, onLbl, offLbl := "خودکار", "روشن", "خاموش (دیفالت)"
+	if lang == "en" {
+		autoLbl, onLbl, offLbl = "Auto", "Force On", "Off (Default)"
+	}
+	_ = active
+	rows := [][]Button{
+		{
+			n.btn("emoji", autoLbl, styleOf("auto"), "em-mode:auto"),
+			n.btn("ok", onLbl, styleOf("on"), "em-mode:on"),
+			n.btn("off", offLbl, styleOf("off"), "em-mode:off"),
+		},
+		{
+			n.btn("backup", tr(lang, "l.emojiPack"), "primary", "em-pack:"),
+		},
+		{
+			n.btn("back", tr(lang, "l.backManage"), "", "mg:"),
+			n.btn("home", tr(lang, "l.home"), "", "m:"),
+		},
+	}
+	return View{RichHTML: rh.String(), Text: fb.String(), Rows: rows}
+}
+
+func (n *Notifier) statusView() View {
 	lang := n.lang()
 	_, st, _ := n.current()
 	tcs := sorted(st.Tunnels)
-	var b strings.Builder
-	b.WriteString(tr(lang, "status.title", esc(n.Host)) + "\n")
-	b.WriteString(tr(lang, "rule") + "\n")
 	if len(tcs) == 0 {
-		b.WriteString(tr(lang, "noTunnels"))
-		return b.String(), [][]Button{{{Text: tr(lang, "b.refresh"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}}}
+		msg := n.em("tunnels") + " " + tr(lang, "status.head", esc(n.Host)) + "\n" + tr(lang, "noTunnels")
+		return plainView(msg, [][]Button{{
+			n.btn("refresh", tr(lang, "l.refresh"), "", "st:"),
+			n.btn("home", tr(lang, "l.home"), "", "m:"),
+		}})
 	}
-	b.WriteString("<pre>")
-	b.WriteString(pad("NAME", 10) + pad("PROTO", 9) + pad("ST", 3) + pad("QUOTA", 9) + "RATE\n")
-	b.WriteString(strings.Repeat("─", 37) + "\n")
+
+	var rh, fb strings.Builder
+	fmt.Fprintf(&rh, `<p>%s %s</p><table border="1"><thead><tr>`, n.em("tunnels"), tr(lang, "status.head", esc(n.Host)))
+	if lang == "fa" {
+		rh.WriteString("<th>تانل</th><th>پروتکل</th><th>وضعیت</th><th>حجم / سقف</th><th>سرعت</th>")
+	} else {
+		rh.WriteString("<th>Tunnel</th><th>Method</th><th>Status</th><th>Quota</th><th>Rate</th>")
+	}
+	rh.WriteString("</tr></thead><tbody>")
+
+	fb.WriteString(tr(lang, "status.title", esc(n.Host)) + "\n")
+	fb.WriteString(tr(lang, "rule") + "\n<pre>")
+	fb.WriteString(pad("NAME", 10) + pad("PROTO", 9) + pad("ST", 3) + pad("QUOTA", 9) + "RATE\n")
+	fb.WriteString(strings.Repeat("─", 37) + "\n")
+
 	var btnRows [][]Button
 	var pair []Button
 	for _, tc := range tcs {
-		icon, _ := n.state(lang, tc)
-		if tc.QuotaStopped {
+		icon, word := n.state(lang, tc)
+		iconKey := "down"
+		btnStyle := "danger"
+		switch {
+		case tc.QuotaStopped:
 			icon = "⛔"
+			iconKey = "exhausted"
+			btnStyle = "danger"
+			if lang == "fa" {
+				word = "سهمیه"
+			} else {
+				word = "quota"
+			}
+		case icon == "🟢":
+			iconKey = "up"
+			btnStyle = "success"
+		case icon == "⏸":
+			iconKey = "paused"
+			btnStyle = ""
 		}
 		meth := tc.Method
 		if tc.BackupMethod != "" && n.OnBackup(tc.Name) {
@@ -664,8 +1284,11 @@ func (n *Notifier) statusView() (string, [][]Button) {
 		if tc.RateMbps > 0 {
 			rStr = fmt.Sprintf("%dM", tc.RateMbps)
 		}
-		b.WriteString(esc(pad(tc.Name, 10)) + esc(pad(meth, 9)) + icon + " " + esc(pad(qStr, 9)) + esc(rStr) + "\n")
-		pair = append(pair, Button{Text: icon + " " + tc.Name, Data: "tn:" + tc.Name})
+		fmt.Fprintf(&rh, "<tr><td><code>%s</code></td><td><code>%s</code></td><td>%s %s</td><td>%s</td><td>%s</td></tr>",
+			esc(tc.Name), esc(meth), n.em(iconKey), esc(word), esc(qStr), esc(rStr))
+		fb.WriteString(esc(pad(tc.Name, 10)) + esc(pad(meth, 9)) + icon + " " + esc(pad(qStr, 9)) + esc(rStr) + "\n")
+
+		pair = append(pair, n.btn(iconKey, tc.Name, btnStyle, "tn:"+tc.Name))
 		if len(pair) == 2 {
 			btnRows = append(btnRows, pair)
 			pair = nil
@@ -674,26 +1297,36 @@ func (n *Notifier) statusView() (string, [][]Button) {
 	if len(pair) > 0 {
 		btnRows = append(btnRows, pair)
 	}
-	text := strings.TrimRight(b.String(), "\n") + "</pre>\n" + tr(lang, "status.hint")
-	btnRows = append(btnRows, []Button{{Text: tr(lang, "b.refresh"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}})
-	return text, btnRows
+	rh.WriteString("</tbody></table><p>" + tr(lang, "status.hint") + "</p>")
+	text := strings.TrimRight(fb.String(), "\n") + "</pre>\n" + tr(lang, "status.hint")
+	btnRows = append(btnRows, []Button{
+		n.btn("refresh", tr(lang, "l.refresh"), "", "st:"),
+		n.btn("home", tr(lang, "l.home"), "", "m:"),
+	})
+	return View{RichHTML: rh.String(), Text: text, Rows: btnRows}
 }
 
-func (n *Notifier) tunnelView(name string) (string, [][]Button) {
+func (n *Notifier) tunnelView(name string) View {
 	lang := n.lang()
 	tc, ok := n.tunnel(name)
 	if !ok {
-		text, rows := n.statusView()
-		return tr(lang, "tunnel.gone") + "\n\n" + text, rows
+		return prependBanner(n.statusView(), tr(lang, "tunnel.gone"))
 	}
 	icon, word := n.state(lang, tc)
-	if tc.QuotaStopped {
+	iconKey := "down"
+	switch {
+	case tc.QuotaStopped:
 		icon = "⛔"
+		iconKey = "exhausted"
 		if lang == "fa" {
 			word = "متوقف (اتمام سهمیه)"
 		} else {
 			word = "stopped (quota)"
 		}
+	case icon == "🟢":
+		iconKey = "up"
+	case icon == "⏸":
+		iconKey = "paused"
 	}
 	roleW := tr(lang, "role.kharej")
 	if tc.Role == "iran" {
@@ -712,18 +1345,12 @@ func (n *Notifier) tunnelView(name string) (string, [][]Button) {
 	}
 	rx, tx := n.Traffic(tc.Name)
 	used := rx + tx
-	rateTxt := "Unlimited"
+	rateTxt := "∞"
 	if tc.RateMbps > 0 {
 		rateTxt = fmt.Sprintf("%d Mbps", tc.RateMbps)
 	}
-
-	var b strings.Builder
-	b.WriteString(tr(lang, "tunnel.title", icon, esc(tc.Name), esc(word)) + "\n")
-	b.WriteString(tr(lang, "rule") + "\n")
-	b.WriteString(tr(lang, "tunnel.body", roleW, esc(n.method(tc)), extra.String(), esc(since)) + "\n")
-	b.WriteString("<pre>")
-	fmt.Fprintf(&b, "RX    %-11s TX   %s\n", bytesStr(rx), bytesStr(tx))
-	fmt.Fprintf(&b, "TOTAL %-11s RATE %s", bytesStr(used), rateTxt)
+	quotaRich := "∞"
+	quotaPre := "Unlimited"
 	if tc.QuotaGB > 0 {
 		lim := tunnel.QuotaLimitBytes(tc.QuotaGB)
 		pct := 0
@@ -736,48 +1363,105 @@ func (n *Notifier) tunnelView(name string) (string, [][]Button) {
 		} else if tc.QuotaOverride {
 			qState = "OVERRIDE"
 		}
-		fmt.Fprintf(&b, "\nQUOTA %s %3d%%  %.1f GB (%s)", bar(pct, 8), pct, tc.QuotaGB, qState)
-	} else {
-		b.WriteString("\nQUOTA Unlimited")
+		quotaRich = fmt.Sprintf("%s / %.1f GB (%d%% · %s)", bytesStr(used), tc.QuotaGB, pct, qState)
+		quotaPre = fmt.Sprintf("%s %3d%%  %.1f GB (%s)", bar(pct, 8), pct, tc.QuotaGB, qState)
 	}
-	b.WriteString("</pre>\n" + tr(lang, "traffic.lgd"))
 
-	toggleBtn := Button{Text: tr(lang, "b.stop"), Data: "ss:" + tc.Name}
-	if !n.Enabled(tc) || tc.QuotaStopped {
-		lbl := tr(lang, "b.start")
-		if tc.QuotaStopped || (tc.QuotaGB > 0 && used >= tunnel.QuotaLimitBytes(tc.QuotaGB)) {
-			lbl = tr(lang, "b.overrideStart")
+	var rh strings.Builder
+	fmt.Fprintf(&rh, `<p>%s <b>%s</b> · %s</p><table border="1"><thead><tr>`, n.em(iconKey), esc(tc.Name), esc(word))
+	if lang == "fa" {
+		rh.WriteString("<th>مشخصه</th><th>مقدار</th>")
+	} else {
+		rh.WriteString("<th>Field</th><th>Value</th>")
+	}
+	rh.WriteString("</tr></thead><tbody>")
+	if lang == "fa" {
+		fmt.Fprintf(&rh, "<tr><td>نقش / پروتکل</td><td>%s · <code>%s</code></td></tr>", roleW, esc(n.method(tc)))
+		if tc.Port > 0 {
+			fmt.Fprintf(&rh, "<tr><td>پورت</td><td><code>%d</code></td></tr>", tc.Port)
 		}
-		toggleBtn = Button{Text: lbl, Data: "go:" + tc.Name}
+		fmt.Fprintf(&rh, "<tr><td>مصرف کل</td><td><code>%s</code> %s</td></tr>", esc(bytesStr(used)), ltr(fmt.Sprintf("(↓%s · ↑%s)", esc(shortBytes(rx)), esc(shortBytes(tx)))))
+		fmt.Fprintf(&rh, "<tr><td>سهمیه حجم</td><td>%s</td></tr>", ltr(esc(quotaRich)))
+		fmt.Fprintf(&rh, "<tr><td>محدودیت سرعت</td><td>%s</td></tr>", ltr(esc(rateTxt)))
+		fmt.Fprintf(&rh, "<tr><td>روشن از</td><td>%s</td></tr>", esc(since))
+	} else {
+		fmt.Fprintf(&rh, "<tr><td>Role / Method</td><td>%s · <code>%s</code></td></tr>", roleW, esc(n.method(tc)))
+		if tc.Port > 0 {
+			fmt.Fprintf(&rh, "<tr><td>Port</td><td><code>%d</code></td></tr>", tc.Port)
+		}
+		fmt.Fprintf(&rh, "<tr><td>Total Traffic</td><td><code>%s</code> (↓%s · ↑%s)</td></tr>", esc(bytesStr(used)), esc(shortBytes(rx)), esc(shortBytes(tx)))
+		fmt.Fprintf(&rh, "<tr><td>Quota</td><td>%s</td></tr>", esc(quotaRich))
+		fmt.Fprintf(&rh, "<tr><td>Rate Limit</td><td>%s</td></tr>", esc(rateTxt))
+		fmt.Fprintf(&rh, "<tr><td>Running Since</td><td>%s</td></tr>", esc(since))
+	}
+	rh.WriteString("</tbody></table>")
+
+	var fb strings.Builder
+	fb.WriteString(tr(lang, "tunnel.title", icon, esc(tc.Name), esc(word)) + "\n")
+	fb.WriteString(tr(lang, "rule") + "\n")
+	fb.WriteString(tr(lang, "tunnel.body", roleW, esc(n.method(tc)), extra.String(), esc(since)) + "\n")
+	fb.WriteString("<pre>")
+	fmt.Fprintf(&fb, "RX    %-11s TX   %s\n", bytesStr(rx), bytesStr(tx))
+	fmt.Fprintf(&fb, "TOTAL %-11s RATE %s\n", bytesStr(used), rateTxt)
+	fmt.Fprintf(&fb, "QUOTA %s</pre>\n", quotaPre)
+	fb.WriteString(tr(lang, "traffic.lgd"))
+
+	// Color-coded tunnel control buttons + SINGLE interactive "Add Quota" button!
+	toggleBtn := n.btn("stop", tr(lang, "l.stop"), "danger", "ss:"+tc.Name)
+	if !n.Enabled(tc) || tc.QuotaStopped {
+		if tc.QuotaStopped || (tc.QuotaGB > 0 && used >= tunnel.QuotaLimitBytes(tc.QuotaGB)) {
+			toggleBtn = n.btn("override", tr(lang, "l.overrideStart"), "success", "go:"+tc.Name)
+		} else {
+			toggleBtn = n.btn("start", tr(lang, "l.start"), "success", "go:"+tc.Name)
+		}
 	}
 	rows := [][]Button{
-		{{Text: tr(lang, "b.restart"), Data: "rs:" + tc.Name}, toggleBtn},
-		{{Text: tr(lang, "b.resetQuota"), Data: "qr:" + tc.Name}, {Text: "➕ +10 GB", Data: "qa10:" + tc.Name}},
-		{{Text: "➕ +50 GB", Data: "qa50:" + tc.Name}, {Text: "➕ +100 GB", Data: "qa100:" + tc.Name}},
-		{{Text: tr(lang, "b.logs"), Data: "lo:" + tc.Name}, {Text: tr(lang, "b.refresh"), Data: "tn:" + tc.Name}},
-		{{Text: tr(lang, "b.back"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}},
+		{n.btn("restart", tr(lang, "l.restart"), "primary", "rs:"+tc.Name), toggleBtn},
+		{n.btn("quota", tr(lang, "l.addQuota"), "primary", "qa-ask:"+tc.Name), n.btn("reset", tr(lang, "l.resetQuota"), "danger", "qr:"+tc.Name)},
+		{n.btn("logs", tr(lang, "l.logs"), "", "lo:"+tc.Name), n.btn("refresh", tr(lang, "l.refresh"), "", "tn:"+tc.Name)},
+		{n.btn("back", tr(lang, "l.back"), "", "st:"), n.btn("home", tr(lang, "l.home"), "", "m:")},
 	}
-	return b.String(), rows
+	return View{RichHTML: rh.String(), Text: fb.String(), Rows: rows}
 }
 
-func (n *Notifier) backupView() (string, [][]Button) {
+func (n *Notifier) backupView() View {
 	lang := n.lang()
 	cfg, st, _ := n.current()
 	rx, tx := tunnel.TotalTrafficAll(st)
 	autoTxt := "Off"
-	if cfg.AutoBackupHours > 0 {
-		autoTxt = fmt.Sprintf("Every %dh", cfg.AutoBackupHours)
-	}
-	head := "📦 <b>Backup, Restore & Auto-Backup</b>"
 	if lang == "fa" {
-		head = "📦 <b>بکاپ، ریستور و بکاپ خودکار</b>"
+		autoTxt = "خاموش"
 	}
-	var b strings.Builder
-	b.WriteString(head + "\n" + tr(lang, "rule") + "\n<pre>")
-	fmt.Fprintf(&b, "%-12s %d\n", "TUNNELS", len(st.Tunnels))
-	fmt.Fprintf(&b, "%-12s %s (↓%s ↑%s)\n", "TOTAL Σ", shortBytes(rx+tx), shortBytes(rx), shortBytes(tx))
-	fmt.Fprintf(&b, "%-12s %s", "AUTO-BACKUP", autoTxt)
-	b.WriteString("</pre>")
+	if cfg.AutoBackupHours > 0 {
+		if lang == "fa" {
+			autoTxt = fmt.Sprintf("هر %d ساعت", cfg.AutoBackupHours)
+		} else {
+			autoTxt = fmt.Sprintf("Every %dh", cfg.AutoBackupHours)
+		}
+	}
+	head := "Backup, Restore & Auto-Backup"
+	if lang == "fa" {
+		head = "بکاپ، ریستور و بکاپ خودکار"
+	}
+
+	var rh strings.Builder
+	fmt.Fprintf(&rh, `<p>%s <b>%s</b></p><table border="1"><thead><tr>`, n.em("backup"), head)
+	if lang == "fa" {
+		rh.WriteString("<th>مورد</th><th>وضعیت</th>")
+	} else {
+		rh.WriteString("<th>Item</th><th>Value</th>")
+	}
+	rh.WriteString("</tr></thead><tbody>")
+	fmt.Fprintf(&rh, "<tr><td>Tunnels</td><td>%d</td></tr>", len(st.Tunnels))
+	fmt.Fprintf(&rh, "<tr><td>Total Σ</td><td><code>%s</code> (↓%s · ↑%s)</td></tr>", esc(shortBytes(rx+tx)), esc(shortBytes(rx)), esc(shortBytes(tx)))
+	fmt.Fprintf(&rh, "<tr><td>Auto-Backup</td><td><b>%s</b></td></tr>", esc(autoTxt))
+	rh.WriteString("</tbody></table>")
+
+	var fb strings.Builder
+	fmt.Fprintf(&fb, "%s <b>%s</b>\n%s\n<pre>", n.em("backup"), head, tr(lang, "rule"))
+	fmt.Fprintf(&fb, "%-12s %d\n", "TUNNELS", len(st.Tunnels))
+	fmt.Fprintf(&fb, "%-12s %s (↓%s ↑%s)\n", "TOTAL Σ", shortBytes(rx+tx), shortBytes(rx), shortBytes(tx))
+	fmt.Fprintf(&fb, "%-12s %s</pre>", "AUTO-BACKUP", autoTxt)
 
 	var presetRow1, presetRow2 []Button
 	for i, h := range autoBackupPresets {
@@ -788,10 +1472,13 @@ func (n *Notifier) backupView() (string, [][]Button) {
 				lbl = "7d"
 			}
 		}
+		style := ""
+		iconKey := ""
 		if cfg.AutoBackupHours == h {
-			lbl = "✅ " + lbl
+			style = "primary"
+			iconKey = "ok"
 		}
-		btn := Button{Text: lbl, Data: "ab:" + strconv.Itoa(h)}
+		btn := n.btn(iconKey, lbl, style, "ab:"+strconv.Itoa(h))
 		if i < 3 {
 			presetRow1 = append(presetRow1, btn)
 		} else {
@@ -799,68 +1486,57 @@ func (n *Notifier) backupView() (string, [][]Button) {
 		}
 	}
 	rows := [][]Button{
-		{{Text: tr(lang, "b.backupNow"), Data: "bk-now:"}},
-		{{Text: tr(lang, "b.restoreSafe"), Data: "bk-rs:safe"}, {Text: tr(lang, "b.restoreOver"), Data: "bk-rs:over"}},
+		{n.btn("backupNow", tr(lang, "l.backupNow"), "success", "bk-now:")},
+		{n.btn("restore", tr(lang, "l.restoreSafe"), "primary", "bk-rs:safe"), n.btn("overwrite", tr(lang, "l.restoreOver"), "danger", "bk-rs:over")},
 		presetRow1,
 		presetRow2,
-		{{Text: tr(lang, "b.home"), Data: "m:"}},
+		{n.btn("back", tr(lang, "l.backManage"), "", "mg:"), n.btn("home", tr(lang, "l.home"), "", "m:")},
 	}
-	return b.String(), rows
+	return View{RichHTML: rh.String(), Text: fb.String(), Rows: rows}
 }
 
-func (n *Notifier) adminsView() (string, [][]Button) {
+func (n *Notifier) adminsView() View {
 	lang := n.lang()
 	n.mu.Lock()
 	cfg := n.cfg
 	n.mu.Unlock()
 	admins := cfg.AdminIDs()
-	head := "👥 <b>Bot & Mini App Admins</b>"
-	hint := "Add: <code>/addadmin 123456789</code>\nRemove: <code>/deladmin 123456789</code>"
+	head := "Bot & Web Panel Admins"
+	hint := "Tap <b>Add Admin</b> or use <code>/addadmin 123456789</code>"
 	if lang == "fa" {
-		head = "👥 <b>ادمین‌های ربات و Mini App</b>"
-		hint = "افزودن: <code>/addadmin 123456789</code>\nحذف: <code>/deladmin 123456789</code>"
+		head = "ادمین‌های ربات و وب‌پنل"
+		hint = "روی <b>افزودن ادمین</b> بزن یا دستور <code>/addadmin 123456789</code> را ارسال کن."
 	}
-	var b strings.Builder
-	b.WriteString(head + "\n" + tr(lang, "rule") + "\n<pre>")
-	b.WriteString(pad("#", 4) + pad("USER ID", 16) + "ACCESS\n")
-	b.WriteString(strings.Repeat("─", 28) + "\n")
+
+	var rh, fb strings.Builder
+	fmt.Fprintf(&rh, `<p>%s <b>%s</b></p><table border="1"><thead><tr><th>#</th><th>User ID</th><th>Role</th></tr></thead><tbody>`, n.em("admins"), head)
+	fmt.Fprintf(&fb, "%s <b>%s</b>\n%s\n<pre>", n.em("admins"), head, tr(lang, "rule"))
+	fb.WriteString(pad("#", 4) + pad("USER ID", 16) + "ACCESS\n")
+	fb.WriteString(strings.Repeat("─", 28) + "\n")
+
 	var rows [][]Button
+	rows = append(rows, []Button{n.btn("add", tr(lang, "l.addAdmin"), "success", "ad-ask:")})
 	for i, id := range admins {
-		fmt.Fprintf(&b, "%-4d%-16dADMIN\n", i+1, id)
+		role := "ADMIN"
+		if i == 0 {
+			role = "OWNER"
+		}
+		fmt.Fprintf(&rh, "<tr><td>%d</td><td><code>%d</code></td><td>%s</td></tr>", i+1, id, role)
+		fmt.Fprintf(&fb, "%-4d%-16d%s\n", i+1, id, role)
 		if len(admins) > 1 {
-			rows = append(rows, []Button{{Text: fmt.Sprintf("🗑 %d", id), Data: "ad-rm:" + strconv.FormatInt(id, 10)}})
+			rows = append(rows, []Button{n.btn("delete", fmt.Sprintf("%d", id), "danger", "ad-rm:"+strconv.FormatInt(id, 10))})
 		}
 	}
-	text := strings.TrimRight(b.String(), "\n") + "</pre>\n" + hint
-	rows = append(rows, []Button{{Text: tr(lang, "b.refresh"), Data: "ad:"}, {Text: tr(lang, "b.home"), Data: "m:"}})
-	return text, rows
+	rh.WriteString("</tbody></table><p>" + hint + "</p>")
+	text := strings.TrimRight(fb.String(), "\n") + "</pre>\n" + hint
+	rows = append(rows, []Button{
+		n.btn("back", tr(lang, "l.backManage"), "", "mg:"),
+		n.btn("home", tr(lang, "l.home"), "", "m:"),
+	})
+	return View{RichHTML: rh.String(), Text: text, Rows: rows}
 }
 
-func (n *Notifier) gamingView() (string, [][]Button) {
-	lang := n.lang()
-	head := "🎮 <b>Dedicated Gaming Protocols (Direct & Reverse)</b>"
-	if lang == "fa" {
-		head = "🎮 <b>پروتکل‌های اختصاصی گیمینگ (Direct و Reverse)</b>"
-	}
-	var b strings.Builder
-	b.WriteString(head + "\n" + tr(lang, "rule") + "\n<pre>")
-	b.WriteString(pad("METHOD", 10) + pad("MODE", 10) + "BEST FOR\n")
-	b.WriteString(strings.Repeat("─", 38) + "\n")
-	b.WriteString(pad("game-udp", 10) + pad("Dir/Rev", 10) + "Lowest ping, DSCP EF\n")
-	b.WriteString(pad("game-fec", 10) + pad("Dir/Rev", 10) + "0-RTT XOR-FEC loss\n")
-	b.WriteString(pad("game-dup", 10) + pad("Dir/Rev", 10) + "Dual-send small pkts\n")
-	b.WriteString(pad("game-kcp", 10) + pad("L4 D/R", 10) + "5ms KCP port-forward")
-	b.WriteString("</pre>\n")
-	for _, m := range catalog.Methods {
-		if m.Gaming() {
-			fmt.Fprintf(&b, "• <code>%s</code> — %s\n", esc(m.Name), esc(m.Summary))
-		}
-	}
-	rows := [][]Button{{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}}}
-	return strings.TrimRight(b.String(), "\n"), rows
-}
-
-func (n *Notifier) logsView(name string) (string, [][]Button) {
+func (n *Notifier) logsView(name string) View {
 	lang := n.lang()
 	tc, ok := n.tunnel(name)
 	if !ok {
@@ -868,12 +1544,15 @@ func (n *Notifier) logsView(name string) (string, [][]Button) {
 	}
 	raw := strings.TrimSpace(n.Logs(tc, 18))
 	var b strings.Builder
-	b.WriteString(tr(lang, "logs.title", esc(tc.Name)))
+	b.WriteString(n.em("logs") + " " + tr(lang, "logs.head", esc(tc.Name)))
+	var rh strings.Builder
+	fmt.Fprintf(&rh, "<p>%s %s</p>", n.em("logs"), tr(lang, "logs.head", esc(tc.Name)))
 	if raw == "" {
 		b.WriteString("\n" + tr(lang, "logs.none"))
+		fmt.Fprintf(&rh, "<p>%s</p>", tr(lang, "logs.none"))
 	} else {
 		lines := strings.Split(raw, "\n")
-		b.WriteString("\n<pre>")
+		var pre strings.Builder
 		for _, ln := range lines {
 			parts := strings.SplitN(ln, ": ", 2)
 			if len(parts) == 2 {
@@ -882,54 +1561,60 @@ func (n *Notifier) logsView(name string) (string, [][]Button) {
 					ln = ts[0] + " " + parts[1]
 				}
 			}
-			b.WriteString(esc(strings.TrimSpace(ln)) + "\n")
+			pre.WriteString(esc(strings.TrimSpace(ln)) + "\n")
 		}
-		text := strings.TrimRight(b.String(), "\n") + "</pre>"
-		b.Reset()
-		b.WriteString(text)
+		body := strings.TrimRight(pre.String(), "\n")
+		b.WriteString("\n<pre>" + body + "</pre>")
+		rh.WriteString("<pre>" + body + "</pre>")
 	}
-	rows := [][]Button{
-		{{Text: tr(lang, "b.refresh"), Data: "lo:" + tc.Name}, {Text: tr(lang, "b.back"), Data: "tn:" + tc.Name}},
-	}
-	return b.String(), rows
+	rows := [][]Button{{
+		n.btn("refresh", tr(lang, "l.refresh"), "", "lo:"+tc.Name),
+		n.btn("back", tr(lang, "l.back"), "", "tn:"+tc.Name),
+	}}
+	return View{RichHTML: rh.String(), Text: b.String(), Rows: rows}
 }
 
-func (n *Notifier) reportView() (string, [][]Button) {
+func (n *Notifier) reportView() View {
 	lang := n.lang()
 	_, st, _ := n.current()
 	n.stateMu.Lock()
 	s := n.loadState()
-	text := n.report(st, &s)
+	v := n.report(st, &s)
 	n.saveState(s)
 	n.stateMu.Unlock()
-	rows := [][]Button{
-		{{Text: tr(lang, "b.refresh"), Data: "rp:"}, {Text: tr(lang, "b.home"), Data: "m:"}},
-	}
-	return text, rows
+	v.Rows = [][]Button{{
+		n.btn("refresh", tr(lang, "l.refresh"), "primary", "rp:"),
+		n.btn("home", tr(lang, "l.home"), "", "m:"),
+	}}
+	return v
 }
 
-func (n *Notifier) alertsView() (string, [][]Button) {
+func (n *Notifier) alertsView() View {
 	n.mu.Lock()
 	cfg := n.cfg
 	n.mu.Unlock()
 	lang := n.lang()
 	var rows [][]Button
 	for _, k := range toggleKeys {
-		mark := "⬜"
+		on := false
 		if p := toggleOf(&cfg, k); p != nil && *p {
-			mark = "✅"
+			on = true
 		}
-		rows = append(rows, []Button{{Text: mark + " " + tr(lang, "tg."+k), Data: "x:" + k}})
+		iconKey, style := "off", ""
+		if on {
+			iconKey, style = "ok", "success"
+		}
+		rows = append(rows, []Button{n.btn(iconKey, tr(lang, "tg."+k), style, "x:"+k)})
 	}
 	rows = append(rows,
-		[]Button{{Text: tr(lang, "b.time", cfg.DailyAt), Data: "tm:"}},
-		[]Button{{Text: tr(lang, "b.home"), Data: "m:"}},
+		[]Button{n.btn("clock", tr(lang, "l.time", cfg.DailyAt), "primary", "tm:")},
+		[]Button{n.btn("back", tr(lang, "l.backManage"), "", "mg:"), n.btn("home", tr(lang, "l.home"), "", "m:")},
 	)
 	text := tr(lang, "alerts.head", esc(n.Host), tr(lang, "rule"))
-	return text, rows
+	return plainView(text, rows)
 }
 
-func (n *Notifier) timeView() (string, [][]Button) {
+func (n *Notifier) timeView() View {
 	n.mu.Lock()
 	cfg := n.cfg
 	n.mu.Unlock()
@@ -937,11 +1622,11 @@ func (n *Notifier) timeView() (string, [][]Button) {
 	var rows [][]Button
 	var pair []Button
 	for _, h := range reportHours {
-		lbl := h
+		iconKey, style := "", ""
 		if cfg.DailyAt == h {
-			lbl = "✅ " + h
+			iconKey, style = "ok", "primary"
 		}
-		pair = append(pair, Button{Text: lbl, Data: "at:" + h})
+		pair = append(pair, n.btn(iconKey, h, style, "at:"+h))
 		if len(pair) == 3 {
 			rows = append(rows, pair)
 			pair = nil
@@ -950,48 +1635,70 @@ func (n *Notifier) timeView() (string, [][]Button) {
 	if len(pair) > 0 {
 		rows = append(rows, pair)
 	}
-	rows = append(rows, []Button{{Text: tr(lang, "b.back"), Data: "al:"}, {Text: tr(lang, "b.home"), Data: "m:"}})
+	rows = append(rows, []Button{
+		n.btn("back", tr(lang, "l.back"), "", "al:"),
+		n.btn("home", tr(lang, "l.home"), "", "m:"),
+	})
 	text := tr(lang, "time.head", tr(lang, "rule"), n.Now().Format("15:04"))
-	return text, rows
+	return plainView(text, rows)
 }
 
-func (n *Notifier) serverView() (string, [][]Button) {
+func (n *Notifier) serverView() View {
 	lang := n.lang()
 	_, st, _ := n.current()
 	via := tr(lang, "route.direct")
 	if len(RelayRoutes(n.StoreDir)) > 0 {
 		via = tr(lang, "route.relay")
 	}
-	var res strings.Builder
+	var rh, res strings.Builder
+	fmt.Fprintf(&rh, `<p>%s %s</p><table border="1"><thead><tr>`, n.em("server"), tr(lang, "server.head", esc(n.Host)))
+	if lang == "fa" {
+		rh.WriteString("<th>منبع</th><th>مصرف / وضعیت</th>")
+	} else {
+		rh.WriteString("<th>Resource</th><th>Usage / Status</th>")
+	}
+	rh.WriteString("</tr></thead><tbody>")
+	fmt.Fprintf(&rh, "<tr><td>Role / Version</td><td>%s · v%s</td></tr>", n.roleWord(lang, st), esc(version.Version))
+	fmt.Fprintf(&rh, "<tr><td>Uptime</td><td>%s</td></tr>", humanIn(lang, uptime()))
+	fmt.Fprintf(&rh, "<tr><td>Telegram Route</td><td>%s</td></tr>", esc(via))
+
 	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
 		if f := strings.Fields(string(b)); len(f) > 0 {
 			load, _ := strconv.ParseFloat(f[0], 64)
 			cpus := runtime.NumCPU()
 			pct := int(load * 100 / float64(max(cpus, 1)))
 			fmt.Fprintf(&res, "CPU  %s %3.0f%%  load %s/%d\n", bar(pct, 10), float64(min(pct, 100)), f[0], cpus)
+			fmt.Fprintf(&rh, "<tr><td>CPU</td><td>%d%% (load %s / %d)</td></tr>", min(pct, 100), esc(f[0]), cpus)
 		}
 	}
 	if used, total := memInfo(); total > 0 {
 		pct := int(used * 100 / total)
 		fmt.Fprintf(&res, "RAM  %s %3.0f%%  %s/%s\n", bar(pct, 10), float64(pct), bytesStr(used), bytesStr(total))
+		fmt.Fprintf(&rh, "<tr><td>RAM</td><td>%d%% (%s / %s)</td></tr>", pct, esc(bytesStr(used)), esc(bytesStr(total)))
 	}
 	if used, total := diskInfo("/"); total > 0 {
 		pct := int(used * 100 / total)
 		fmt.Fprintf(&res, "DISK %s %3.0f%%  %s/%s\n", bar(pct, 10), float64(pct), bytesStr(used), bytesStr(total))
+		fmt.Fprintf(&rh, "<tr><td>Disk</td><td>%d%% (%s / %s)</td></tr>", pct, esc(bytesStr(used)), esc(bytesStr(total)))
 	}
 	rx, tx := tunnel.TotalTrafficAll(st)
 	fmt.Fprintf(&res, "CUM  Σ %-10s  ↓%s ↑%s\n", shortBytes(rx+tx), shortBytes(rx), shortBytes(tx))
-	var b strings.Builder
-	b.WriteString(tr(lang, "server.title", esc(n.Host)) + "\n")
-	b.WriteString(tr(lang, "rule") + "\n")
-	b.WriteString(tr(lang, "server.body", n.roleWord(lang, st), humanIn(lang, uptime()), esc(version.Version), via))
+	fmt.Fprintf(&rh, "<tr><td><b>Total Traffic Σ</b></td><td><code>%s</code> (↓%s · ↑%s)</td></tr></tbody></table>",
+		esc(shortBytes(rx+tx)), esc(shortBytes(rx)), esc(shortBytes(tx)))
+
+	var fb strings.Builder
+	fb.WriteString(tr(lang, "server.title", esc(n.Host)) + "\n")
+	fb.WriteString(tr(lang, "rule") + "\n")
+	fb.WriteString(tr(lang, "server.body", n.roleWord(lang, st), humanIn(lang, uptime()), esc(version.Version), via))
 	if res.Len() > 0 {
-		b.WriteString("\n<pre>" + strings.TrimRight(res.String(), "\n") + "</pre>")
+		fb.WriteString("\n<pre>" + strings.TrimRight(res.String(), "\n") + "</pre>")
 	}
-	rows := [][]Button{
-		{{Text: tr(lang, "b.refresh"), Data: "sv:"}, {Text: tr(lang, "b.home"), Data: "m:"}},
-	}
-	return b.String(), rows
+	rows := [][]Button{{
+		n.btn("refresh", tr(lang, "l.refresh"), "", "sv:"),
+		n.btn("back", tr(lang, "l.backManage"), "", "mg:"),
+		n.btn("home", tr(lang, "l.home"), "", "m:"),
+	}}
+	return View{RichHTML: rh.String(), Text: fb.String(), Rows: rows}
 }
 
 func diskInfo(path string) (used, total uint64) {

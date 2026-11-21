@@ -50,6 +50,12 @@ type Config struct {
 	DailyAt string `json:"daily_at"`
 	// Lang is the bot's language: "fa" (default) or "en".
 	Lang string `json:"lang,omitempty"`
+	// PremiumEmoji controls animated custom emoji pack usage when the bot owner
+	// has Telegram Premium: "auto" (default), "on", or "off".
+	PremiumEmoji string `json:"premium_emoji,omitempty"`
+	// EmojiPack is the Telegram animated custom emoji pack short name fetched via
+	// getStickerSet (defaults to "RestrictedEmoji").
+	EmojiPack string `json:"emoji_pack,omitempty"`
 }
 
 // AdminIDs returns the sorted, deduplicated list of numeric admin user IDs,
@@ -193,8 +199,9 @@ func DefaultConfig() Config {
 }
 
 var (
-	tokenRE = regexp.MustCompile(`^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$`)
-	chatRE  = regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$`)
+	tokenRE     = regexp.MustCompile(`^[0-9]{5,15}:[A-Za-z0-9_-]{30,60}$`)
+	chatRE      = regexp.MustCompile(`^(-?[0-9]{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$`)
+	emojiPackRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{1,63}$`)
 )
 
 // Validate checks the token, chat/admins, Mini App URL, auto-backup interval, language, and report time.
@@ -209,6 +216,17 @@ func (c *Config) Validate() error {
 	}
 	if c.Lang != "fa" && c.Lang != "en" {
 		return errors.New("bot language must be fa or en")
+	}
+	c.PremiumEmoji = strings.ToLower(strings.TrimSpace(c.PremiumEmoji))
+	if c.PremiumEmoji == "" {
+		c.PremiumEmoji = "auto"
+	}
+	if c.PremiumEmoji != "auto" && c.PremiumEmoji != "on" && c.PremiumEmoji != "off" {
+		return errors.New("premium_emoji must be auto, on, or off")
+	}
+	c.EmojiPack = ParseEmojiPackName(c.EmojiPack)
+	if c.EmojiPack != "" && !emojiPackRE.MatchString(c.EmojiPack) {
+		return errors.New("emoji_pack must be a valid Telegram emoji pack short name")
 	}
 	if c.Token != "" && !tokenRE.MatchString(c.Token) {
 		return errors.New("the bot token looks like 123456789:AA… as @BotFather gives it")

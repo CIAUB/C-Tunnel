@@ -151,7 +151,8 @@ func TestBotMultiAdminMiniAppBackupRestoreAndQuota(t *testing.T) {
 	restoreDoc = append([]byte(nil), sentDocs[0]...)
 	mu.Unlock()
 
-	// 5. Quota Override Start ("go:kh-gm") sets QuotaOverride=true; Reset ("qr:kh-gm") zeroes traffic; +50GB ("qa50:kh-gm") raises cap.
+	// 5. Quota Override Start ("go:kh-gm") sets QuotaOverride=true; Reset ("qr:kh-gm") zeroes traffic;
+	// Single interactive Add Quota button ("qa-ask:kh-gm") prompts admin and accepts English or Persian digits!
 	n.Handle(context.Background(), bot, Update{
 		Callback: &Callback{ID: "cb2", From: &User{ID: 2002}, Message: &Message{MessageID: 1, Chat: Chat{ID: 2002}}, Data: "go:kh-gm"},
 	})
@@ -166,11 +167,14 @@ func TestBotMultiAdminMiniAppBackupRestoreAndQuota(t *testing.T) {
 		t.Fatalf("qr did not reset usage: (%d,%d)", rx, tx)
 	}
 	n.Handle(context.Background(), bot, Update{
-		Callback: &Callback{ID: "cb4", From: &User{ID: 2002}, Message: &Message{MessageID: 1, Chat: Chat{ID: 2002}}, Data: "qa50:kh-gm"},
+		Callback: &Callback{ID: "cb4", From: &User{ID: 2002}, Message: &Message{MessageID: 1, Chat: Chat{ID: 2002}}, Data: "qa-ask:kh-gm"},
+	})
+	n.Handle(context.Background(), bot, Update{
+		Message: &Message{Chat: Chat{ID: 2002}, From: &User{ID: 2002}, Text: "۵۰"},
 	})
 	st3, _ := catalog.LoadStore(storeDir)
 	if g, _ := st3.Find("kh-gm"); g.QuotaGB != 60 {
-		t.Fatalf("qa50 QuotaGB=%v want 60", g.QuotaGB)
+		t.Fatalf("interactive qa-ask + ۵۰ QuotaGB=%v want 60", g.QuotaGB)
 	}
 
 	// 6. Auto-Backup runs when due and records LastAutoBackup.
@@ -214,5 +218,205 @@ func TestBotMultiAdminMiniAppBackupRestoreAndQuota(t *testing.T) {
 	mu.Unlock()
 	if !strings.Contains(httpMarkup, `"url":"http://203.0.113.1:6969/panel-test1234/#tgToken=2002.`) {
 		t.Fatalf("expected default HTTP 1-tap panel URL button on /start, got: %s", httpMarkup)
+	}
+}
+
+func TestBotNativeTablesStylesManageReportAndPremiumEmoji(t *testing.T) {
+	root := t.TempDir()
+	storeDir := filepath.Join(root, "store")
+	origCfg, origState, origStatus, origBase := ConfigPath, StatePath, StatusPath, APIBase
+	origTraffic, origLock, origRun := tunnel.TrafficDir, tunnel.LockDir, tunnel.Run
+	t.Cleanup(func() {
+		ConfigPath, StatePath, StatusPath, APIBase = origCfg, origState, origStatus, origBase
+		tunnel.TrafficDir, tunnel.LockDir, tunnel.Run = origTraffic, origLock, origRun
+	})
+	ConfigPath = filepath.Join(root, "telegram.json")
+	StatePath = filepath.Join(root, "telegram-state.json")
+	StatusPath = filepath.Join(root, "telegram-status.json")
+	tunnel.TrafficDir = filepath.Join(root, "traffic")
+	tunnel.LockDir = root
+	tunnel.Run = func(name string, args ...string) (string, error) { return "", nil }
+
+	st, err := catalog.LoadStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1 := catalog.TunnelConfig{Name: "ir-game", Role: "kharej", Method: "game-udp", LocalIP: "203.0.113.1", RemoteIP: "198.51.100.1", Port: 24001, QuotaGB: 100}
+	if err := tunnel.Save(st, &t1); err != nil {
+		t.Fatal(err)
+	}
+	_ = tunnel.SeedTraffic("ir-game", 4<<30, 2<<30)
+
+	var mu sync.Mutex
+	var lastRich, lastEdit string
+	var lastRichHTML, lastEditHTML string
+	extractHTML := func(raw []byte) string {
+		var p struct {
+			Text        string `json:"text"`
+			RichMessage struct {
+				HTML string `json:"html"`
+			} `json:"rich_message"`
+		}
+		_ = json.Unmarshal(raw, &p)
+		if p.RichMessage.HTML != "" {
+			return p.RichMessage.HTML
+		}
+		return p.Text
+	}
+	rejectCustomEmoji := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body := string(raw)
+		decoded := extractHTML(raw)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getStickerSet"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"name":         "RestrictedEmoji",
+					"sticker_type": "custom_emoji",
+					"stickers": []map[string]any{
+						{"file_id": "f1", "emoji": "🛡", "custom_emoji_id": "5368324170671202286", "is_animated": true},
+						{"file_id": "f2", "emoji": "📡", "custom_emoji_id": "5368324170671202287", "is_animated": true},
+						{"file_id": "f3", "emoji": "📊", "custom_emoji_id": "5368324170671202288", "is_animated": true},
+						{"file_id": "f4", "emoji": "⚙️", "custom_emoji_id": "5368324170671202289", "is_animated": true},
+					},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/sendRichMessage"):
+			mu.Lock()
+			rej := rejectCustomEmoji
+			mu.Unlock()
+			if rej && (strings.Contains(body, "icon_custom_emoji_id") || strings.Contains(decoded, "<tg-emoji")) {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 400, "description": "Bad Request: BUTTON_ICON_INVALID custom_emoji"})
+				return
+			}
+			mu.Lock()
+			lastRich = body
+			lastRichHTML = decoded
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 10}})
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			mu.Lock()
+			lastEdit = body
+			lastEditHTML = decoded
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			mu.Lock()
+			lastRich = body
+			lastRichHTML = decoded
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 11}})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
+		}
+	}))
+	defer srv.Close()
+	APIBase = srv.URL
+
+	cfg := DefaultConfig()
+	cfg.Token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	cfg.ChatID = "1001"
+	cfg.Admins = []int64{1001, 2002}
+	cfg.MiniAppURL = "https://panel.example.com/panel-test/"
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	n := New(storeDir, func(catalog.TunnelConfig) bool { return true }, func(catalog.TunnelConfig) bool { return true })
+	n.Ping = func(tc catalog.TunnelConfig) tunnel.PingResult {
+		return tunnel.PingResult{OK: true, RTTMs: 34, JitterMs: 1.8, LossPct: 0, Probe: "icmp"}
+	}
+	n.reload()
+	bot := NewBot(cfg.Token)
+
+	// 1. Non-Premium owner -> /start sends native Bot API 10.1+ <table> with live 34ms ping,
+	// semantic button colors ("primary"/"success"), NO gaming button, NO custom emoji tags.
+	n.Handle(context.Background(), bot, Update{
+		Message: &Message{Chat: Chat{ID: 1001}, From: &User{ID: 1001, IsPremium: false}, Text: "/start"},
+	})
+	mu.Lock()
+	r1, r1HTML := lastRich, lastRichHTML
+	mu.Unlock()
+	for _, want := range []string{`<table border="1">`, `ir-game`, `34ms`} {
+		if !strings.Contains(r1HTML, want) {
+			t.Fatalf("non-premium /start HTML missing %q in: %s", want, r1HTML)
+		}
+	}
+	for _, want := range []string{`"style":"primary"`, `"style":"success"`, `"callback_data":"mg:"`} {
+		if !strings.Contains(r1, want) {
+			t.Fatalf("non-premium /start payload missing %q in: %s", want, r1)
+		}
+	}
+	for _, forbid := range []string{`"callback_data":"gm:"`, `icon_custom_emoji_id`} {
+		if strings.Contains(r1, forbid) {
+			t.Fatalf("non-premium /start should not contain %q: %s", forbid, r1)
+		}
+	}
+	for _, forbid := range []string{`<tg-emoji`, `2002`} {
+		if strings.Contains(r1HTML, forbid) {
+			t.Fatalf("non-premium /start HTML should not contain %q: %s", forbid, r1HTML)
+		}
+	}
+
+	// 2. Manage submenu contains Backup, Admins, Alerts, Server, Restart All (danger), NO Gaming button.
+	n.Handle(context.Background(), bot, Update{
+		Callback: &Callback{ID: "m1", From: &User{ID: 1001}, Message: &Message{MessageID: 10, Chat: Chat{ID: 1001}}, Data: "mg:"},
+	})
+	mu.Lock()
+	mg := lastEdit
+	mu.Unlock()
+	for _, want := range []string{`"callback_data":"bk:"`, `"callback_data":"ad:"`, `"callback_data":"al:"`, `"callback_data":"sv:"`, `"callback_data":"ral:"`, `"style":"danger"`} {
+		if !strings.Contains(mg, want) {
+			t.Fatalf("manage submenu missing %q in: %s", want, mg)
+		}
+	}
+	if strings.Contains(mg, `"callback_data":"gm:"`) {
+		t.Fatalf("manage submenu must not contain gaming button: %s", mg)
+	}
+
+	// 3. Traffic Report includes BOTH Server Total Volume AND Admins list!
+	n.Handle(context.Background(), bot, Update{
+		Callback: &Callback{ID: "r1", From: &User{ID: 1001}, Message: &Message{MessageID: 10, Chat: Chat{ID: 1001}}, Data: "rp:"},
+	})
+	mu.Lock()
+	rpHTML := lastEditHTML
+	mu.Unlock()
+	for _, want := range []string{`<table border="1">`, `ir-game`, `6.0 GiB`, `1001, 2002`} {
+		if !strings.Contains(rpHTML, want) {
+			t.Fatalf("report view HTML missing %q in: %s", want, rpHTML)
+		}
+	}
+
+	// 4. Premium owner -> auto-loads RestrictedEmoji via getStickerSet and renders <tg-emoji> + icon_custom_emoji_id!
+	n.Handle(context.Background(), bot, Update{
+		Message: &Message{Chat: Chat{ID: 1001}, From: &User{ID: 1001, IsPremium: true}, Text: "/start"},
+	})
+	mu.Lock()
+	rPrem, rPremHTML := lastRich, lastRichHTML
+	mu.Unlock()
+	if !strings.Contains(rPremHTML, `<tg-emoji emoji-id="5368324170671202286">`) || !strings.Contains(rPrem, `"icon_custom_emoji_id":"5368324170671202287"`) {
+		t.Fatalf("premium /start did not emit animated custom emojis: html=%s raw=%s", rPremHTML, rPrem)
+	}
+
+	// 5. If Telegram rejects custom emoji with 400 (e.g., Premium expired), Bot automatically strips & retries cleanly!
+	mu.Lock()
+	rejectCustomEmoji = true
+	lastRich = ""
+	lastRichHTML = ""
+	mu.Unlock()
+	n.Handle(context.Background(), bot, Update{
+		Message: &Message{Chat: Chat{ID: 1001}, From: &User{ID: 1001, IsPremium: true}, Text: "/start"},
+	})
+	mu.Lock()
+	rFall, rFallHTML := lastRich, lastRichHTML
+	mu.Unlock()
+	if rFall == "" || strings.Contains(rFall, "icon_custom_emoji_id") || strings.Contains(rFallHTML, "<tg-emoji") || !strings.Contains(rFall, "📡") {
+		t.Fatalf("expected clean fallback retry without custom emoji and restored Unicode icon, got: html=%s raw=%s", rFallHTML, rFall)
+	}
+	if !bot.CustomEmojiBlocked() {
+		t.Fatal("expected bot.CustomEmojiBlocked() == true after 400 rejection")
 	}
 }

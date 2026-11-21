@@ -286,9 +286,9 @@ func TestBotButtonsAnswerOnlyTheConfiguredChat(t *testing.T) {
 		t.Fatalf("keyboard not redrawn: %+v", edits)
 	}
 	r.n.Handle(ctx, bot, Update{Message: &Message{Chat: Chat{ID: 424242}, Text: "/status@CtBot"}})
-	s := api.sent("sendMessage")
-	if last := s[len(s)-1].params["text"].(string); !strings.Contains(last, "kh443") {
-		t.Fatalf("/status: %q", last)
+	rich := api.sent("sendRichMessage")
+	if len(rich) == 0 || !strings.Contains(mustJSON(rich[len(rich)-1].params["rich_message"]), "kh443") {
+		t.Fatalf("/status rich: %+v", rich)
 	}
 }
 

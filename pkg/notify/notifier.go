@@ -31,7 +31,10 @@ type Notifier struct {
 	Alive    func(tc catalog.TunnelConfig) bool
 	// Probe sends a real active test payload through tc before declaring an
 	// idle tunnel disconnected. When nil, Alive is called a second time.
-	Probe         func(tc catalog.TunnelConfig) bool
+	Probe func(tc catalog.TunnelConfig) bool
+	// Ping measures live RTT, jitter, and packet loss for /start network health.
+	// When nil, defaults to Alive/Probe status only.
+	Ping          func(tc catalog.TunnelConfig) tunnel.PingResult
 	Enabled       func(tc catalog.TunnelConfig) bool
 	OnBackup      func(name string) bool
 	Traffic       func(name string) (rx, tx uint64)
@@ -43,18 +46,36 @@ type Notifier struct {
 	Host          string
 	BootID        func() string
 
-	mu          sync.Mutex
-	stateMu     sync.Mutex
-	cfg         Config
-	cfgTime     time.Time
-	bot         *Bot
-	cmdKey      string
-	status      Status
-	watch       map[string]*tunnelWatch
-	restoreWait map[int64]restorePrompt
-	started     bool
-	lastDaily   string
-	out         chan outMsg
+	mu           sync.Mutex
+	stateMu      sync.Mutex
+	cfg          Config
+	cfgTime      time.Time
+	bot          *Bot
+	cmdKey       string
+	status       Status
+	watch        map[string]*tunnelWatch
+	restoreWait  map[int64]restorePrompt
+	quotaWait    map[int64]quotaPrompt
+	adminWait    map[int64]adminPrompt
+	packWait     map[int64]packPrompt
+	ownerPremium *bool
+	emoji        emojiCache
+	started      bool
+	lastDaily    string
+	out          chan outMsg
+}
+
+type quotaPrompt struct {
+	tunnel  string
+	expires time.Time
+}
+
+type adminPrompt struct {
+	expires time.Time
+}
+
+type packPrompt struct {
+	expires time.Time
 }
 
 type tunnelWatch struct {
@@ -64,8 +85,9 @@ type tunnelWatch struct {
 }
 
 type outMsg struct {
-	text string
-	rows [][]Button
+	richHTML string
+	text     string
+	rows     [][]Button
 }
 
 type state struct {
@@ -73,6 +95,7 @@ type state struct {
 	BootID         string               `json:"boot_id"`
 	LastDaily      string               `json:"last_daily"`
 	LastAutoBackup time.Time            `json:"last_auto_backup,omitempty"`
+	OwnerPremium   *bool                `json:"owner_premium,omitempty"`
 	Traffic        map[string][2]uint64 `json:"traffic"`
 }
 
@@ -83,6 +106,7 @@ func New(storeDir string, alive func(catalog.TunnelConfig) bool, enabled func(ca
 		Now:           time.Now,
 		Alive:         alive,
 		Probe:         tunnel.ProbeAlive,
+		Ping:          tunnel.MeasurePing,
 		Enabled:       enabled,
 		OnBackup:      tunnel.OnBackup,
 		Traffic:       tunnel.TrafficTotal,
@@ -98,6 +122,9 @@ func New(storeDir string, alive func(catalog.TunnelConfig) bool, enabled func(ca
 		},
 		watch:       map[string]*tunnelWatch{},
 		restoreWait: map[int64]restorePrompt{},
+		quotaWait:   map[int64]quotaPrompt{},
+		adminWait:   map[int64]adminPrompt{},
+		packWait:    map[int64]packPrompt{},
 		out:         make(chan outMsg, 64),
 	}
 }
@@ -144,8 +171,8 @@ func (n *Notifier) Step() {
 func (n *Notifier) reload() {
 	fi, err := os.Stat(ConfigPath)
 	n.mu.Lock()
-	defer n.mu.Unlock()
 	if err == nil && fi.ModTime().Equal(n.cfgTime) && n.bot != nil {
+		n.mu.Unlock()
 		return
 	}
 	cfg, err := LoadConfig()
@@ -160,6 +187,21 @@ func (n *Notifier) reload() {
 		n.bot = NewBot(cfg.Token).Via(func() []tgrelay.Route { return RelayRoutes(dir) })
 	}
 	n.cfg = cfg
+	needOwnerPrem := n.ownerPremium == nil
+	n.mu.Unlock()
+	if needOwnerPrem {
+		n.stateMu.Lock()
+		s := n.loadState()
+		n.stateMu.Unlock()
+		if s.OwnerPremium != nil {
+			v := *s.OwnerPremium
+			n.mu.Lock()
+			if n.ownerPremium == nil {
+				n.ownerPremium = &v
+			}
+			n.mu.Unlock()
+		}
+	}
 }
 
 func (n *Notifier) current() (Config, *catalog.Store, bool) {
@@ -202,10 +244,14 @@ func (n *Notifier) writeStatus() {
 }
 
 func (n *Notifier) send(text string, rows [][]Button) {
+	n.sendView(View{Text: text, Rows: rows})
+}
+
+func (n *Notifier) sendView(v View) {
 	select {
-	case n.out <- outMsg{text, rows}:
+	case n.out <- outMsg{richHTML: v.RichHTML, text: v.Text, rows: v.Rows}:
 	default:
-		log.Printf("telegram: queue full, dropped: %s", firstLine(text))
+		log.Printf("telegram: queue full, dropped: %s", firstLine(v.Text))
 	}
 }
 
@@ -229,7 +275,7 @@ func (n *Notifier) sender(ctx context.Context) {
 			var err error
 			for try := 0; try < 4; try++ {
 				sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-				_, err = bot.Send(sctx, chat, m.text, m.rows)
+				_, err = bot.SendView(sctx, chat, View{RichHTML: m.richHTML, Text: m.text, Rows: m.rows})
 				cancel()
 				if err == nil {
 					sentAny = true
@@ -258,7 +304,7 @@ func (n *Notifier) sender(ctx context.Context) {
 }
 
 // QuotaAlert notifies all configured admins when a tunnel reaches its traffic
-// quota and is automatically stopped, attaching one-tap recovery buttons.
+// quota and is automatically stopped, attaching color-coded one-tap recovery buttons.
 func (n *Notifier) QuotaAlert(tc catalog.TunnelConfig, usedBytes, limitBytes uint64) {
 	n.mu.Lock()
 	cfg := n.cfg
@@ -269,9 +315,14 @@ func (n *Notifier) QuotaAlert(tc catalog.TunnelConfig, usedBytes, limitBytes uin
 	lang := n.lang()
 	text := tr(lang, "quota.hit", esc(tc.Name), esc(n.Host), bytesStr(usedBytes), bytesStr(limitBytes))
 	rows := [][]Button{
-		{{Text: tr(lang, "b.overrideStart"), Data: "go:" + tc.Name}, {Text: tr(lang, "b.resetQuota"), Data: "qr:" + tc.Name}},
-		{{Text: "➕ +10 GB", Data: "qa10:" + tc.Name}, {Text: "➕ +50 GB", Data: "qa50:" + tc.Name}},
-		{{Text: tr(lang, "b.openTunnel"), Data: "tn:" + tc.Name}},
+		{
+			n.btn("override", tr(lang, "l.overrideStart"), "success", "go:"+tc.Name),
+			n.btn("reset", tr(lang, "l.resetQuota"), "danger", "qr:"+tc.Name),
+		},
+		{
+			n.btn("quota", tr(lang, "l.addQuota"), "primary", "qa-ask:"+tc.Name),
+			n.btn("search", tr(lang, "l.openTunnel"), "", "tn:"+tc.Name),
+		},
 	}
 	n.send(text, rows)
 }
@@ -374,27 +425,34 @@ func (n *Notifier) checkDaily(cfg Config, st *catalog.Store) {
 	n.lastDaily = today
 	n.stateMu.Lock()
 	s = n.loadState()
-	text := n.report(st, &s)
+	v := n.report(st, &s)
 	s.LastDaily = today
 	n.saveState(s)
 	n.stateMu.Unlock()
-	n.send(text, nil)
+	n.sendView(v)
 }
 
-func (n *Notifier) report(st *catalog.Store, s *state) string {
+func (n *Notifier) report(st *catalog.Store, s *state) View {
 	lang := n.lang()
-	var b strings.Builder
-	b.WriteString(tr(lang, "report.head", esc(n.Host), n.Now().Format("2006-01-02 15:04")) + "\n")
-	b.WriteString(tr(lang, "rule") + "\n")
+	n.mu.Lock()
+	admins := n.cfg.AdminIDs()
+	n.mu.Unlock()
+	nowStr := n.Now().Format("2006-01-02 15:04")
 	tcs := sorted(st.Tunnels)
-	if len(tcs) == 0 && st.ArchivedRx == 0 && st.ArchivedTx == 0 {
-		b.WriteString(tr(lang, "noTunnels"))
-		return b.String()
+
+	// Collect rows once for both Rich HTML native table and <pre> fallback.
+	type row struct {
+		name  string
+		rx    uint64
+		tx    uint64
+		cap   string
+		hasD  bool
+		dRx   uint64
+		dTx   uint64
+		isArc bool
 	}
-	b.WriteString("<pre>")
-	b.WriteString(pad("TUNNEL", 10) + pad("DOWN", 8) + pad("UP", 8) + "QUOTA\n")
-	b.WriteString(strings.Repeat("─", 34) + "\n")
 	next := map[string][2]uint64{}
+	var rows []row
 	var allRx, allTx uint64
 	for _, tc := range tcs {
 		rx, tx := n.Traffic(tc.Name)
@@ -414,20 +472,103 @@ func (n *Notifier) report(st *catalog.Store, s *state) string {
 				capStr += "*"
 			}
 		}
-		b.WriteString(esc(pad(tc.Name, 10)) + esc(pad(shortBytes(rx), 8)) + esc(pad(shortBytes(tx), 8)) + esc(capStr) + "\n")
+		r := row{name: tc.Name, rx: rx, tx: tx, cap: capStr}
 		if old, ok := s.Traffic[tc.Name]; ok && rx >= old[0] && tx >= old[1] {
-			fmt.Fprintf(&b, "  Δ ↓%-8s ↑%s\n", shortBytes(rx-old[0]), shortBytes(tx-old[1]))
+			r.hasD, r.dRx, r.dTx = true, rx-old[0], tx-old[1]
 		}
+		rows = append(rows, r)
 	}
 	if st.ArchivedRx > 0 || st.ArchivedTx > 0 {
-		b.WriteString(pad("archived", 10) + pad(shortBytes(st.ArchivedRx), 8) + pad(shortBytes(st.ArchivedTx), 8) + "—\n")
 		allRx += st.ArchivedRx
 		allTx += st.ArchivedTx
+		rows = append(rows, row{name: "archived", rx: st.ArchivedRx, tx: st.ArchivedTx, cap: "—", isArc: true})
 	}
-	b.WriteString(strings.Repeat("─", 34) + "\n")
-	fmt.Fprintf(&b, "%s%s%s%s\n", pad("TOTAL Σ", 10), pad(shortBytes(allRx), 8), pad(shortBytes(allTx), 8), shortBytes(allRx+allTx))
 	s.Traffic = next
-	return strings.TrimRight(b.String(), "\n") + "</pre>\n" + tr(lang, "report.lgd")
+
+	adminStrs := make([]string, len(admins))
+	for i, id := range admins {
+		adminStrs[i] = fmt.Sprintf("%d", id)
+	}
+	adminsJoined := "—"
+	if len(adminStrs) > 0 {
+		adminsJoined = strings.Join(adminStrs, ", ")
+	}
+
+	// 1. Standard HTML fallback (<pre> box table + Server Total + Admins).
+	var fb strings.Builder
+	fb.WriteString(n.em("report") + " " + tr(lang, "report.headTitle", esc(n.Host)) + "\n")
+	fb.WriteString("🗓 " + nowStr + "\n")
+	fb.WriteString(tr(lang, "rule") + "\n")
+	if len(rows) == 0 {
+		fb.WriteString(tr(lang, "noTunnels") + "\n")
+	} else {
+		fb.WriteString("<pre>")
+		fb.WriteString(pad("TUNNEL", 10) + pad("DOWN", 8) + pad("UP", 8) + "QUOTA\n")
+		fb.WriteString(strings.Repeat("─", 34) + "\n")
+		for _, r := range rows {
+			fb.WriteString(esc(pad(r.name, 10)) + esc(pad(shortBytes(r.rx), 8)) + esc(pad(shortBytes(r.tx), 8)) + esc(r.cap) + "\n")
+			if r.hasD {
+				fmt.Fprintf(&fb, "  Δ ↓%-8s ↑%s\n", shortBytes(r.dRx), shortBytes(r.dTx))
+			}
+		}
+		fb.WriteString(strings.Repeat("─", 34) + "\n")
+		fmt.Fprintf(&fb, "%s%s%s%s", pad("TOTAL Σ", 10), pad(shortBytes(allRx), 8), pad(shortBytes(allTx), 8), shortBytes(allRx+allTx))
+		fb.WriteString("</pre>\n")
+	}
+	fmt.Fprintf(&fb, "%s <b>%s</b> <code>%s</code> (↓%s · ↑%s)\n",
+		n.em("server"), tr(lang, "report.serverVol"), bytesStr(allRx+allTx), shortBytes(allRx), shortBytes(allTx))
+	fmt.Fprintf(&fb, "%s <b>%s</b> (%d): <code>%s</code>\n",
+		n.em("admins"), tr(lang, "report.adminsLbl"), len(admins), esc(adminsJoined))
+	fb.WriteString(tr(lang, "report.lgd"))
+
+	// 2. Native Bot API 10.1+ Rich HTML Table.
+	var rh strings.Builder
+	fmt.Fprintf(&rh, "<p>%s <b>%s</b> · <code>%s</code></p>", n.em("report"), tr(lang, "report.headTitle", esc(n.Host)), nowStr)
+	if len(rows) > 0 {
+		hTun, hDn, hUp, hQ := "تانل", "دریافت ↓", "ارسال ↑", "سهمیه"
+		hTot := "مجموع سرور (Σ)"
+		if lang == "en" {
+			hTun, hDn, hUp, hQ = "Tunnel", "Down ↓", "Up ↑", "Quota"
+			hTot = "Server Total Σ"
+		}
+		rh.WriteString(`<table border="1"><thead><tr>`)
+		fmt.Fprintf(&rh, "<th>%s</th><th>%s</th><th>%s</th><th>%s</th>", hTun, hDn, hUp, hQ)
+		rh.WriteString("</tr></thead><tbody>")
+		for _, r := range rows {
+			nameCell := "<code>" + esc(r.name) + "</code>"
+			if r.isArc {
+				nameCell = "<i>" + esc(r.name) + "</i>"
+			}
+			dnCell := esc(shortBytes(r.rx))
+			upCell := esc(shortBytes(r.tx))
+			if r.hasD {
+				dnCell += " (+" + esc(shortBytes(r.dRx)) + ")"
+				upCell += " (+" + esc(shortBytes(r.dTx)) + ")"
+			}
+			fmt.Fprintf(&rh, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>", nameCell, ltr(dnCell), ltr(upCell), ltr(esc(r.cap)))
+		}
+		fmt.Fprintf(&rh, "<tr><td><b>%s</b></td><td><b>%s</b></td><td><b>%s</b></td><td><b>%s</b></td></tr>",
+			hTot, ltr(esc(shortBytes(allRx))), ltr(esc(shortBytes(allTx))), ltr(esc(bytesStr(allRx+allTx))))
+		rh.WriteString("</tbody></table>")
+	} else {
+		fmt.Fprintf(&rh, "<p>%s</p>", tr(lang, "noTunnels"))
+	}
+	// Server volume & Admins compact summary table right inside Traffic Report.
+	hItem, hVal := "بخش", "اطلاعات"
+	if lang == "en" {
+		hItem, hVal = "Summary", "Details"
+	}
+	rh.WriteString(`<table border="1"><thead><tr>`)
+	fmt.Fprintf(&rh, "<th>%s</th><th>%s</th>", hItem, hVal)
+	rh.WriteString("</tr></thead><tbody>")
+	fmt.Fprintf(&rh, "<tr><td>%s <b>%s</b></td><td><code>%s</code> %s</td></tr>",
+		n.em("server"), tr(lang, "report.serverVol"), esc(bytesStr(allRx+allTx)), ltr(fmt.Sprintf("(↓%s · ↑%s)", esc(shortBytes(allRx)), esc(shortBytes(allTx)))))
+	fmt.Fprintf(&rh, "<tr><td>%s <b>%s (%d)</b></td><td><code>%s</code></td></tr>",
+		n.em("admins"), tr(lang, "report.adminsLbl"), len(admins), esc(adminsJoined))
+	rh.WriteString("</tbody></table>")
+	fmt.Fprintf(&rh, "<p><i>%s</i></p>", tr(lang, "report.lgd"))
+
+	return View{RichHTML: rh.String(), Text: fb.String()}
 }
 
 func shortBytes(n uint64) string {
