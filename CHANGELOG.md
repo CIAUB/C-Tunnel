@@ -3,57 +3,127 @@
 ## [2.0.0]
 
 ### Security
-- Releases are built with Go 1.26.10, pinned by the `toolchain` line in go.mod, and golang.org/x/net, x/crypto and x/sys are updated (x/net 0.23 to 0.62). Earlier releases were built with Go 1.22, which no longer gets security fixes; `govulncheck` reported 37 standard-library vulnerabilities reachable from the code (net/http, crypto/tls, crypto/x509, net/url and others, in the panel's HTTPS server and the TLS transports). It now reports none reachable. Building from source needs Go 1.26 or newer, or a Go 1.21+ that can fetch the toolchain.
-- The Iran end of a layer-4 tunnel holds at most 64 connections per source address, and 1024 in all, that have not finished the handshake; past that a new connection is closed at once. Before, every connection to the tunnel port held a socket and a goroutine for up to 11 seconds, so a flood of idle connections could use up the engine's file descriptors and stop the forwarded ports. The WebSocket server also drops idle keep-alive connections after 60 seconds.
-- The panel sends `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy` and `Permissions-Policy`, and counts wrong login codes per /64 for IPv6, so one host cannot get a fresh allowance from each of its addresses.
-- The Telegram settings file, which holds the bot token, is written through a new private temporary file each time, so it can no longer inherit the mode of a stale world-readable one.
-- The connection test responder compares its token in constant time.
-- The terminal menu's update only runs a GitHub repository of the form owner/name, as the panel's update already required, since the name goes into a shell command.
+- **Go 1.26.10 Toolchain & Zero Reachable CVEs:** Releases are built with Go 1.26.10 (pinned in `go.mod`) and updated `golang.org/x/net` (`v0.62.0`), `x/crypto`, and `x/sys`. Earlier `v1.1.x` releases used Go 1.22 where `govulncheck` reported 37 reachable standard-library vulnerabilities (`net/http`, `crypto/tls`, `crypto/x509`, `net/url`); `govulncheck` now reports **0 reachable vulnerabilities**.
+- **Layer-4 Handshake Flood Protection:** The Iran end of a Layer-4 tunnel caps unauthenticated in-flight handshakes at **64 per source IP** and **1024 globally**, immediately closing excess flood connections before file descriptors or goroutines can be exhausted, and drops idle WebSocket keep-alive connections after **60 seconds**.
+- **Web Panel TOTP 2FA, IP/CIDR Allowlist & Browser Isolation Headers:**
+  - Optional **RFC 6238 TOTP Two-Factor Authentication** (`pkg/webpanel/totp.go`) compatible with Authenticator apps.
+  - Optional **IP / CIDR Allowlist** restricting Web Panel access to trusted IPv4/IPv6 ranges.
+  - Sends strict `Content-Security-Policy` (`media-src 'self'`), `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, and `Permissions-Policy` headers, and rate-limits failed login attempts per `/64` IPv6 prefix.
+- **Cryptographic Telegram Web Panel Authentication (`pkg/notify/webapp_auth.go`):**
+  - **HTTPS Mini App (`web_app`):** Verifies Telegram's signed `initData` using `HMAC-SHA256("WebAppData", botToken)`, checks `auth_date` freshness, and confirms numeric `user.id` belongs to a configured admin (`401 Unauthorized` otherwise).
+  - **Default HTTP 1-Tap Login (`#tgToken`):** Issues 30-minute `HMAC-SHA256("CTunnelPanelLoginV1", botToken)` signed tokens bound to the admin's numeric Telegram User ID and removes `#tgToken` from browser history via `history.replaceState` upon sign-in.
+- **Atomic Private Config Writes & Constant-Time Auth:** `telegram.json`, `telegram-state.json`, `panel.json`, and `state.json` are written atomically through `0600` temporary files; connection-test and peer handshake secrets are compared in constant time; self-update strictly validates `owner/repo`.
 
-### Added
-- **Telegram Bot v2, Multi-Admin & Passwordless Web Panel Access:**
-  - Bot API 10.1+ native Rich Message tables (`sendRichMessage` / `editMessageText` with `rich_message`, plus automatic `<pre>` box-table fallback) and Bot API 9.4+ semantic color-coded inline buttons (`primary`, `success`, `danger`).
-  - Minimal `/start` screen showing a live tunnel status & active network health/ping table; administrative tools cleanly organized under a `Manage` submenu; server total cumulative volume and admin list included inside Traffic Reports.
-  - Telegram Premium animated custom emojis (`<tg-emoji>` & `icon_custom_emoji_id` resolved via `getStickerSet`) auto-enabled when the bot owner has Telegram Premium, with transparent fallback to standard Unicode emojis.
-  - Multi-Admin support (add/remove/list up to 32 numeric Telegram User IDs via bot, CLI, or config) and works on both Kharej and Iran servers (Iran servers relay through active tunnels).
-  - Direct passwordless Web Panel access from the bot: 1-tap signed HTTP auto-login link (`#tgToken=...`) enabled by default, automatically upgrading to a native Telegram Mini App (`web_app` with HMAC-SHA256 `initData` verification) when HTTPS is configured.
-- **Backup, Restore & Auto-Backup with Persistent Cumulative Traffic:**
-  - `ctunnel-backup/2` archives include every tunnel's cumulative RX/TX counters plus archived server totals so restored or migrated servers preserve accurate running totals.
-  - Manual Backup & Restore (Safe / Overwrite) and scheduled Auto-Backup every `N` hours directly from the Telegram bot, Web Panel, and CLI.
-- **Per-Tunnel Traffic Quotas & Bandwidth Rate Limits:**
-  - Optional per-tunnel Traffic Quota (GB), Bandwidth Rate Limit (Mbps), both, or unlimited on creation and edit (CLI & Web Panel).
-  - Automatic stop and Telegram notification when a tunnel exhausts its quota, with three recovery actions: Manual Override Start, Reset Usage, and interactive `Add Quota` prompt (supporting both English and Persian digits).
-- **Dedicated Gaming Protocols (Direct & Reverse):**
-  - Dedicated Gaming category in CLI and Web Panel featuring `game-udp` (ultra-low ping, DSCP EF), `game-fec` (0-RTT XOR-FEC packet-loss recovery), `game-dup` (dual-send small packets), and `game-kcp` (5ms low-latency KCP L4 forwarding).
-- **Multi-Format Sponsor Space & Web Panel Polish:**
-  - Supports `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.mp4`, `.webm`, `.mov` with magic-byte validation, case-insensitive `sponser*`/`sponsor*` discovery, non-repeating random rotation, embedded lightweight looping promo video, Iran→Kharej tunnel relay for sponsor assets, `spontext.txt` + `sponlink.txt` Telegram formatting, and lightweight CSS-only skeleton/shimmer loading states.
-- **In-Place Peer IP Change & Active Data Probe:**
-  - Update a tunnel's remote peer IP in place (CLI & Web Panel) without recreating the tunnel.
-  - Active Data Probe verifies idle tunnels before triggering down alerts or failover.
-- Layer-4 reverse tunnels (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`), Direct L4 & `xgre`/`xgre-ip`, plus TOTP 2FA and IP allowlist panel security. The Iran server listens on the tunnel port and on every forwarded port, TCP and UDP; the Kharej server dials out and delivers each user connection to the target port on its own `127.0.0.1` on an isolated stream so TCP never runs inside TCP. Each connection opens with a secret-verified handshake; `wss`/`wssmux` add TLS and `pck` is AES-encrypted. The WebSocket methods take an optional Host / SNI.
-- The panel and the terminal menu build these tunnels on both servers. On Kharej the panel form asks for the Iran server's IP and the secret outside Advanced, so any tunnel can be built by hand as well as from the setup link.
-- Layer-4 transports over UDP: `udp` (a KCP session per user connection, from a pool) and `udpmux` (smux streams over a few KCP sessions), both AES-encrypted. KCP resends lost packets itself, so they suit lossy links. Each `udp` stream travels in frames with an explicit end, since KCP has no FIN: a closed or half-closed connection reaches the other side at once.
-- Stealth methods, encrypted layer-3 tunnels like UDP-Crypt whose packets do not travel as UDP, in DIRECT and REVERSE mode: `faketcp` (TLS records in hand-built TCP segments through the `pck` carrier: looks like TCP, runs at UDP speed) and `icmp` (ICMP echo; the answering kernel's own replies are dropped by an iptables rule).
-- UDP-Crypt methods `stun-turn` (TURN ChannelData, as WebRTC call relays send), `gtp-u` (GTP-U G-PDU, the mobile core's user plane) and `esp-udp` (IPsec ESP in UDP, as NAT-T sends it). The first tunnel of each takes the real protocol's port (3478, 2152, 4500) when it is free.
-- Kernel method `bareudp`: IPv4 straight inside UDP, with no header and no encryption, for links where GRE and IPIP are filtered and plain UDP passes. Needs Linux 5.7+ with the `bareudp` module; takes port 6635 when it is free. An iptables rule lets only the other server reach the port, since bareudp itself takes UDP from any address.
-- The terminal menu asks for the mode, then the family, then a group, then the method, instead of one long list.
-- The connection test covers the layer-4 methods with real tunnels: for each one the Iran server starts a tunnel on its layer-4 test port (TCP and UDP 7714 from the terminal menu, a free port from the panel), the Kharej server dials it, and the Iran server measures through it to a speed server on the Kharej server's loopback. `icmp` is measured with tunnel-sized echo requests, and `faketcp` takes the result of the `pck` carrier. Both servers need this version for the layer-4 rows; an older Iran server gets them marked as skipped.
-- The connection test can measure only some methods: `ctunnel conntest -new` for the methods new in 2.0, `-only udp,udpmux,icmp` for any list, and the same choice in the terminal menu. Every mode of a chosen method is measured (DIRECT, `rev+`, `frp+`, layer 4); a few methods take seconds instead of minutes.
-- Failover for layer-4 tunnels, to a layer-4 backup method. A layer-4 tunnel counts as down when the Kharej server holds no connection to the Iran server.
-- Telegram alerts from the Kharej servers (Manage → Telegram alerts): a tunnel down for 45 seconds and back up, a failover switch, a restart or update with its reason, and a daily report of each tunnel's state and traffic. The bot answers `/status`, `/report` and `/settings` only in the configured chat, and its buttons turn each alert on or off, as the panel does. Iran servers refuse the setting, since Telegram is filtered there.
-- Update now (Manage): installs the latest release from the panel in a systemd unit of its own, so the update survives the panel restart, and shows its log until the result.
+### Added — 21 New Transports (28 → 49 Methods Across 6 Families) & 3 Operating Modes
+- **Three Tunnel Operating Modes (CLI & Web Panel):**
+  1. **Reverse Mode (`1`):** Kharej dials in and Iran only listens (zero outbound connections from Iran to foreign IPs).
+  2. **Direct Mode (`2`):** Iran dials Kharej directly for lowest latency.
+  3. **8× BBR Turbo Direct Mode (`3`):** 8 parallel BBR-paced TCP carrier streams for maximum throughput over throttled routes.
+- **9 Layer-4 Direct & Reverse Transports (`pkg/l4`, `FamilyReverseL4`):**
+  - `tcp` — Pooled TCP connections (16-connection warm pool, zero-copy kernel `splice`, isolated stream per user connection so TCP never runs inside TCP).
+  - `tcpmux` — Multiplexed `smux` v2 streams over 4 TCP connections (`16 MiB` stream window, `64 KiB` frames).
+  - `pck` — Multiplexed `smux` over KCP inside hand-built raw-socket TCP segments (`pkg/pck`, classic BPF filter, no kernel TCP state on either side, AES-encrypted, automatic iptables RST suppression and cleanup).
+  - `ws` — WebSocket transport (1 connection per user flow, optional custom `Host` / SNI).
+  - `wsmux` — Multiplexed `smux` streams over WebSockets.
+  - `wss` — WebSocket inside TLS (auto-generated or custom TLS certificate, optional `Host` / SNI).
+  - `wssmux` — Multiplexed `smux` streams over TLS WebSockets.
+  - `udp` — Pooled KCP sessions over UDP (AES-encrypted, explicit frame FIN signaling for immediate half-close/close propagation).
+  - `udpmux` — Multiplexed `smux` streams over KCP-over-UDP sessions (AES-encrypted).
+  - Supports both TCP and UDP port forwarding, manual or `ctunnel://` link setup on Kharej, and automatic Layer-4 Failover to a backup Layer-4 method.
+- **4 Dedicated Gaming Protocols (`FamilyGaming`, Direct & Reverse):**
+  - `game-udp` — Ultra-low-overhead encrypted UDP with `DSCP EF` (`0x2e`) and `SO_PRIORITY 6` QoS prioritization, `IP_MTU_DISCOVER=DO`, and zero head-of-line blocking for lowest possible ping and jitter.
+  - `game-fec` — Gaming UDP with **0-RTT XOR Forward Error Correction** (1 parity packet per 2 data packets) reconstructing lost packets immediately without retransmission wait.
+  - `game-dup` — Gaming UDP with dual-send redundancy for small latency-critical game packets (`<= 320 B`) to survive bursty loss.
+  - `game-kcp` — Low-latency Layer-4 gaming port-forwarder using a tuned `5 ms` nodelay KCP loop (`NoDelay(1, 5, 2, 1)`) for TCP and UDP game ports.
+  - Dedicated **Gaming** category in CLI and Web Panel with Direct and Reverse subcategories and per-protocol descriptions.
+- **2 Stealth Layer-3 Transports (`FamilyStealth`, Direct & Reverse):**
+  - `faketcp` — AES-256-GCM Layer-3 tunnel encapsulated in TLS records inside hand-built raw-socket TCP segments (`pck` carrier): middleboxes see one consistent TCP TLS connection while packets travel at UDP speed with no inner retransmission.
+  - `icmp` — AES-256-GCM Layer-3 tunnel inside ICMP Echo Request/Reply (`ping`) with a secret-derived identifier and automatic kernel echo-reply suppression rule.
+- **3 New UDP-Crypt Protocol Look-Alikes (`FamilyUDPCrypt`, Direct & Reverse):**
+  - `stun-turn` — WebRTC TURN ChannelData header framing + AES-256-GCM (automatically selects UDP port `3478` when free).
+  - `gtp-u` — 3GPP mobile core GTP-U G-PDU header framing + AES-256-GCM (automatically selects UDP port `2152` when free).
+  - `esp-udp` — IPsec NAT-T ESP-in-UDP header framing + AES-256-GCM (automatically selects UDP port `4500` when free).
+- **3 New High-Speed Kernel L3 Carriers (`FamilyKernelL3`):**
+  - `bareudp` — Linux 5.7+ kernel BareUDP device encapsulating IPv4 directly in UDP with zero tunnel header overhead (automatically selects UDP port `6635` when free, locked to peer IP via iptables).
+  - `xgre` — eXtended multi-lane keyed GRE with `ignore-df`, optional FOU UDP wrapping, ECMP lanes, and MikroTik RouterOS 7 compatibility.
+  - `xgre-ip` — IPIP encapsulated inside a multi-lane keyed `xGRE` carrier.
 
-### Changed
-- **Performance & Kernel Optimizations:**
-  - Faster layer-4 tunnels on long paths: mux streams allow 16 MiB in flight (up from 4 MiB), frames up to 64 KiB, `pck` keeps 4096 KCP segments in flight (up from 1024), and `tcp` uses zero-copy kernel `splice` instead of userspace copies.
-  - KCP batches ACKs once per 10 ms tick instead of per segment — `udp`, `udpmux`, and `pck` run 1.6× to 2.5× faster between namespaces, ~25% faster at 50 ms RTT, and 10–20% faster at 150 ms RTT with unchanged latency.
-  - UDP GSO/GRO, TUN segmentation and receive offload for UDP-Crypt, multi-CPU kernel decapsulation with expanded softirq budgets, and 8× BBR Turbo Direct.
-  - C-Tunnel uses Go module dependencies (`smux`, `kcp-go`, `gorilla/websocket`, `golang.org/x`) built on Go 1.26.10.
+### Added — Telegram Bot v2, Multi-Admin, Iran Tunnel Relay & Passwordless Web Panel
+- **Bot Works on Both Kharej and Iran Servers (`pkg/tgrelay`):**
+  - Iran servers where `api.telegram.org` is filtered automatically relay all Bot API requests, file uploads/downloads, and sponsor asset fetches through active Kharej tunnels (via L3 tunnel peer proxy or L4 reserved control stream `0xFFFF`).
+- **Bot API 10.1+ Native Rich Tables & Live `/start` Network Health Probe:**
+  - Uses `sendRichMessage` and `editMessageText` (`rich_message.html`) to render native Telegram `<table border="1">` tables (with automatic fallback to `<pre>` Unicode box-drawing tables).
+  - `/start` runs a concurrent live network health test (`probeAllHealth`) across all tunnels and displays a focused table of tunnel status (`UP`/`DOWN`/`QUOTA`/`OFF`), live ping (`RTT ms`), packet loss / stability grade, and overall network health score.
+- **Bot API 9.4+ Semantic Colored Inline Buttons (`style`):**
+  - Buttons are color-coded by function: `primary` (blue: Web Panel, Traffic Report, Add Quota, Restart, Backup, Admins), `success` (green: Tunnels, Healthy tunnels, Start / Override Start, Send Backup, Add Admin, Active toggles), `danger` (red: Down/Quota-stopped tunnels, Stop, Reset Usage, Restart All, Overwrite Restore, Remove Admin, Cancel), and neutral default.
+- **Dedicated `⚙️ Manage` Submenu:**
+  - Keeps `/start` uncluttered by grouping administrative features under `Manage`: Backup & Restore, Admins, Alerts, Server Resources, Premium Animated Emojis, Language switch (`FA`/`EN`), and Restart All Tunnels.
+- **Telegram Premium Animated Custom Emojis (`pkg/notify/emoji.go`):**
+  - Automatically detects `User.is_premium` on the bot owner's Telegram account, dynamically resolves animated `.tgs` custom emoji IDs via `getStickerSet` (`RestrictedEmoji` by default, or any custom `t.me/addemoji/<pack>` set inside `Manage → Premium Emojis`), and renders `<tg-emoji>` in messages and `icon_custom_emoji_id` on buttons, with transparent fallback to standard Unicode emojis.
+- **Multi-Admin Support:**
+  - Configure up to 32 numeric Telegram User IDs via the bot (`Manage → Admins → Add Admin` interactive prompt or `/addadmin` / `/deladmin`), CLI (`Manage → Telegram alerts`), Web Panel, or `telegram.json`, with lockout prevention refusing removal of the last remaining admin.
+- **Direct Passwordless Web Panel Button on `/start`:**
+  - Shows a clickable `🌐 Open Web Panel` button on `/start` by default over plain HTTP (auto-detecting server IP, port, and private base path with a 30-minute signed `#tgToken` auto-login link), and automatically upgrades to a native Telegram Mini App (`web_app`) button when HTTPS or a public `MiniAppURL` is configured.
+- **Expanded Traffic Report (`📊 Traffic Report` & Daily Report):**
+  - Native table showing per-tunnel RX, TX, `Δ` delta since last report, Quota usage percentage, archived traffic from deleted tunnels, **Server Total Consumed Volume (`Σ`)**, and **configured Bot Admins**.
+
+### Added — Backup, Restore & Scheduled Auto-Backup with Persistent Traffic
+- **`ctunnel-backup/2` Persistent Traffic Accounting (`pkg/tunnel/backup.go`):**
+  - Stores every tunnel's cumulative RX/TX bytes (`TrafficSeedRx`, `TrafficSeedTx` + live kernel interface / L4 counters) and server-wide `ArchivedRx`/`ArchivedTx` inside both `state.json` and every backup archive.
+  - When a backup is restored or migrated to a new server, each tunnel's recorded traffic is restored and included in total cumulative server traffic (`TotalTrafficAll`).
+- **Manual Backup, Safe/Overwrite Restore & Auto-Backup (`pkg/notify/backup.go`):**
+  - Download a full JSON backup or upload a backup file directly in the Telegram bot (`Manage → Backup & Restore`), Web Panel, or CLI.
+  - Two restore modes: **Safe Restore** (keeps existing tunnels with matching names) and **Overwrite Restore** (replaces matching tunnels).
+  - Configurable **Auto-Backup** schedule in the bot (`Off`, `6h`, `12h`, `24h`, `48h`, `7d`, or `1–720h`) automatically delivering backup archives to all admins.
+
+### Added — Per-Tunnel Traffic Quotas & Bandwidth Rate Limits
+- **Configurable on Creation & Edit (CLI & Web Panel):**
+  - Each tunnel can optionally set a **Traffic Quota (`GB`)**, a **Bandwidth Rate Limit (`Mbps`)**, **both**, or **Unlimited**.
+  - Bandwidth limits are enforced via Linux `tc` on L3/L2 tunnel interfaces and a thread-safe token-bucket rate limiter (`pkg/l4/ratelimit.go`) on Layer-4 streams.
+- **Automatic Quota Stop & 3 Recovery Actions (`pkg/tunnel/quota.go`):**
+  - The agent continuously tracks cumulative RX+TX against `QuotaGB`. Upon exhaustion, it automatically stops the tunnel, marks `QuotaStopped=true`, and sends an interactive Telegram alert to all admins.
+  - Stopped tunnels stay disabled until an admin triggers one of three recovery actions (available in Telegram Bot, Web Panel, and CLI):
+    1. **Manual Start (Override Quota):** Sets `QuotaOverride=true` and starts the tunnel so it runs without being auto-stopped again.
+    2. **Reset Usage:** Resets the tunnel's cumulative traffic counter to `0` and resumes normal quota enforcement.
+    3. **Interactive Add Quota (`➕ افزودن حجم`):** Prompts the admin for how many GB to add (supporting both English `25.5` and Persian `۵۰` digits), increases `QuotaGB`, and automatically resumes the tunnel.
+
+### Added — Web Panel v2, Connection Test v2, In-Place Peer IP & Multi-Format Sponsor Space
+- **In-Place Change Peer IP (`pkg/tunnel/peer.go`):**
+  - Change any tunnel's remote server IP in place from CLI (`Manage → Change Peer IP`) or Web Panel (Manage tab & tunnel card) without deleting or recreating the tunnel; validates IP conflicts, updates config, and restarts the service cleanly.
+- **Active Data Probe (`pkg/tunnel/probe.go`) & Real ICMP Ping Cards:**
+  - Before declaring an idle tunnel disconnected or triggering failover, the agent sends an active verification probe through the tunnel (L4 stream echo, TCP echo, or ICMP ping) so idle tunnels never cause false-down alerts.
+  - Tunnel status cards in the Web Panel measure and display genuine ICMP echo RTT, jitter, and packet loss.
+- **Connection Test v2 (`pkg/conntest`):**
+  - Benchmarks real Layer-4 tunnels (`pkg/conntest/layer4.go`), `icmp` tunnel-sized echoes (`pkg/conntest/icmp.go`), `faketcp`, `rev+`, and `frp+` carriers alongside all L3/L2/UDP-Crypt methods.
+  - Supports selective fast runs: `ctunnel conntest -new` (only methods new in v2.0), `-only udp,udpmux,icmp,game-udp` (any comma-separated list), and binary-search `DF=1` Path MTU discovery (`pkg/conntest/pmtu_search.go`).
+  - Web Panel Connection Test features an Ookla-style animated sweep arc dial gauge with unified `Ping → Upload → Download` telemetry.
+- **Web Panel UX, Live SSE Telemetry & Self-Update (`pkg/webpanel`):**
+  - Light, Dark, and Auto themes; live Server-Sent Events (SSE) bandwidth and latency console; CSS-only skeleton shimmer loading states for cards, tables, and sponsor media; crisp button action spinners; and runtime HTML/CSS/JS minification (`pkg/webpanel/minify.go`).
+  - **One-Click Self-Update (`pkg/webpanel/selfupdate.go`):** Runs `install.sh` inside a dedicated transient systemd unit so the update survives panel restarts and streams live progress logs.
+  - **Smart Host IP Discovery (`pkg/hostip`):** Offers only usable local interface/public IPv4 & IPv6 addresses when creating tunnels.
+- **Multi-Format Sponsor Space (`pkg/sponsor`, `pkg/notify/sponsor.go`):**
+  - Supports images, animated GIFs, and videos: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.mp4`, `.webm`, `.mov` validated by magic bytes / ISOBMFF `ftyp` brands.
+  - Case-insensitive `sponser*`/`sponsor*` file discovery across server-local `<storeDir>/sponsor/custom/`, `assets/`, remote manifest/GitHub repository, and embedded binary defaults (`default.png` + `136 KiB` fast-start looping `default_promo.mp4`).
+  - Non-repeating random rotation on every Web Panel load (plus live `↻` switcher, `ETag` / `304 Not Modified` caching, and automatic `?prefer=image` fallback if `<video>` playback fails).
+  - Weekly Friday `12:00 Asia/Tehran` Telegram push (`sendPhoto` / `sendAnimation` / `sendVideo`) with sanitized Telegram HTML captions from `spontext.txt`, inline CTA button from `sponlink.txt`, cached `file_id` reuse, and same-Friday asset pinning across retries.
+
+### Changed — Engine & Kernel Performance Optimizations (Up to 2.5× Faster)
+- **Zero-Copy Kernel TCP `splice`:** Layer-4 `tcp` transport splices payload bytes directly between sockets in the Linux kernel instead of copying through userspace buffers.
+- **Batched 10 ms KCP ACKs & 4096 Flight Window:** KCP flushes ACKs once per `10 ms` tick instead of one packet per segment, and `pck` scales its in-flight window from `1024 → 4096` segments — accelerating `udp`, `udpmux`, and `pck` by **1.6× to 2.5×** between namespaces, **~25%** at `50 ms` RTT, and **10–20%** at `150 ms` RTT with identical latency.
+- **16 MiB `smux` v2 Stream Window & 64 KiB Frames:** Per-stream mux flow window quadrupled (`4 MiB → 16 MiB`) with `64 KiB` frames for high-bandwidth long-RTT paths.
+- **Vectorized Batch Socket I/O (`sendmmsg` / `recvmmsg`):** Batched packet transmission and reception in `pkg/pck/pckbatch_linux.go`, `pkg/l4/udpbatch.go`, and `cmd/ctunnel-engine/carrier_linux.go`.
+- **UDP GSO/GRO, TUN Segmentation Offload & Multi-CPU Decapsulation:** Kernel helper and engine enable UDP Generic Segmentation/Receive Offload, TUN GSO/GRO, RPS multi-CPU tunnel decapsulation steering, and expanded `netdev_budget` / socket buffers.
+- **Adaptive Path Controller (`pkg/pathctl`) & Userspace TCP MSS Clamping (`pkg/tcpmss`):** Real-time RTT/loss tracking dynamically adjusts FEC parity ratios, while userspace SYN MSS clamping prevents inner TCP fragmentation.
+- **Kernel-Verified `TCP_INFO` Speedtest (`pkg/speedtest/acked_linux.go`):** Measures live throughput via Linux `TCP_INFO` `Bytes_acked` over a 1-second rolling window with peer-confirmed upload accounting.
+- **Categorized 4-Step CLI Menu (`pkg/cli/categories.go`):** Terminal setup guides users through Mode → Family → Group → Method with clear descriptions instead of a flat list.
 
 ### Fixed
-- The connection test in the terminal menu stopped when one of its ports (UDP 7712, TCP 7711, layer 4 7714) was taken by another program. Each now moves to the next free port, and the screen shows the ports in use.
-- A layer-4 tunnel whose pool connections were all carrying users showed as down on the Iran server, and the health check said the Kharej server was not connected. Busy connections now count as links on both servers.
-- A `pck` or `faketcp` server with no default route could pick a tunnel interface as its way out; point-to-point interfaces are now skipped.
+- **Idle Tunnel False-Down Prevention:** Idle tunnels with zero user traffic are probed actively via `pkg/tunnel/probe.go` before being reported down or triggering failover.
+- **Busy Layer-4 Pool Health:** A Layer-4 tunnel whose pooled connections are all actively carrying user streams now counts busy connections as healthy links on both Iran and Kharej servers.
+- **Connection Test Port Collisions:** When UDP `7712`, TCP `7711`, or Layer-4 `7714` is occupied by another process, Connection Test automatically moves to the next free port and displays the active ports.
+- **Point-to-Point Default Route Guard (`pkg/pck/pckroute_linux.go`):** `pck` and `faketcp` skip point-to-point tunnel interfaces (`wg*`, `tun*`, `ct-*`) when resolving the underlay egress interface, and clean up `pck` iptables rules before engine exit.
+- **Plain-HTTP Web Panel Clipboard Copy:** Copy buttons inside Web Panel dialogs include a reliable HTTP fallback and explicit failure notice when `navigator.clipboard` is unavailable over plain HTTP.
+- **Sponsor Sync Resilience:** Fixed HTTP `304` handling so `spontext.txt` and `sponlink.txt` still refresh when media returns `304`, prevented legacy default overwrites on upgrade, stopped GitHub API `403`/`429` directory listings from wiping cached remote pools, and preserved embedded defaults on `404`.
 
 ## [1.1.2]
 
