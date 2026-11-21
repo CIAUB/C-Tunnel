@@ -25,6 +25,7 @@ type config struct {
 	secret            string
 	tunnelID          uint16
 	padding           uint8
+	rateMbps          int
 	reverse           bool
 	carrier           bool
 	forwards, sni     string // layer-4 transports only
@@ -96,6 +97,7 @@ func loadConfig(path string) (config, error) {
 	port, _ := strconv.Atoi(env["PORT"])
 	tid, _ := strconv.Atoi(env["TUNNEL_ID"])
 	pad, _ := strconv.Atoi(env["PADDING"])
+	rateMbps, _ := strconv.Atoi(env["RATE_MBIT"])
 	cfg := config{
 		kind:     m.Name,
 		name:     env["NAME"],
@@ -107,6 +109,7 @@ func loadConfig(path string) (config, error) {
 		secret:   env["SECRET"],
 		tunnelID: uint16(tid),
 		padding:  uint8(min(max(pad, 0), 255)),
+		rateMbps: max(rateMbps, 0),
 		reverse:  rev || (m.L4() && !directL4),
 		carrier:  car,
 		forwards: env["FORWARDS"],

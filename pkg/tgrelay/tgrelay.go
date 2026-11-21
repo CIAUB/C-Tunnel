@@ -26,6 +26,7 @@ const (
 
 var allowedTargets = map[string]bool{
 	"api.telegram.org:443":                     true,
+	"api.github.com:443":                       true,
 	"raw.githubusercontent.com:443":            true,
 	"github.com:443":                           true,
 	"objects.githubusercontent.com:443":        true,

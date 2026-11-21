@@ -115,9 +115,9 @@ func Run(ctx context.Context, cfg Config, st *Stats) error {
 		st = &Stats{}
 	}
 	if cfg.Role == "iran" {
-		return (&server{cfg: &cfg, st: st}).run(ctx)
+		return (&server{cfg: &cfg, st: st, limDown: newRateLimiter(cfg.RateMbps), limUp: newRateLimiter(cfg.RateMbps)}).run(ctx)
 	}
-	return (&client{cfg: &cfg, st: st}).run(ctx)
+	return (&client{cfg: &cfg, st: st, limDown: newRateLimiter(cfg.RateMbps), limUp: newRateLimiter(cfg.RateMbps)}).run(ctx)
 }
 
 type pooledConn struct {
@@ -133,10 +133,12 @@ type muxSession struct {
 }
 
 type server struct {
-	cfg   *Config
-	st    *Stats
-	guard *PeerGuard
-	pool  connStack
+	cfg     *Config
+	st      *Stats
+	guard   *PeerGuard
+	pool    connStack
+	limDown *rateLimiter
+	limUp   *rateLimiter
 
 	mu       sync.Mutex
 	sessions []muxSession
@@ -595,7 +597,7 @@ func (s *server) serveTCP(ctx context.Context, ln net.Listener, target int) {
 				u.Close()
 				return
 			}
-			s.carry(func() { pipe(u, st, &s.st.Down, &s.st.Up) })
+			s.carry(func() { pipe(u, st, &s.st.Down, &s.st.Up, s.limDown, s.limUp) })
 		}()
 	}
 }
@@ -849,7 +851,7 @@ func (s *server) serveLocal(ctx context.Context, ln net.Listener) {
 				u.Close()
 				return
 			}
-			s.carry(func() { pipe(u, st, &s.st.Down, &s.st.Up) })
+			s.carry(func() { pipe(u, st, &s.st.Down, &s.st.Up, s.limDown, s.limUp) })
 		}()
 	}
 }

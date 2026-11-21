@@ -971,7 +971,8 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 
 // NewMethods are the methods new in C-Tunnel 2.0, for testing just them.
 var NewMethods = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux",
-	"faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip"}
+	"faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip",
+	"game-udp", "game-fec", "game-dup", "game-kcp"}
 
 // CheckOnly reports a name in only that is not a method.
 func CheckOnly(only []string) error {
@@ -1317,7 +1318,9 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			downPeak = down
 		}
 		for _, ri := range targets {
-			set(ri, func(r *Result) { r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Phase = up, down, upPeak, downPeak, "" })
+			set(ri, func(r *Result) {
+				r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Phase = up, down, upPeak, downPeak, ""
+			})
 			push(ri)
 		}
 		notify()

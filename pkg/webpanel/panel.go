@@ -26,6 +26,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/conntest"
+	"ctunnel/pkg/notify"
 	"ctunnel/pkg/sysinfo"
 	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
@@ -91,10 +92,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /api/session", s.handleSession)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/auth/telegram", s.handleTelegramAuth)
 	mux.HandleFunc("POST /api/logout", s.auth(s.handleLogout))
 	mux.HandleFunc("GET /api/overview", s.auth(s.handleOverview))
 	mux.HandleFunc("GET /api/sponsor", s.auth(s.handleSponsor))
 	mux.HandleFunc("GET /api/sponsor/image", s.auth(s.handleSponsorImage))
+	mux.HandleFunc("GET /api/sponsor/media", s.auth(s.handleSponsorImage))
 	mux.HandleFunc("GET /api/version", s.auth(s.handleVersion))
 	mux.HandleFunc("GET /api/self-update", s.auth(s.handleSelfUpdate))
 	mux.HandleFunc("POST /api/self-update", s.auth(s.handleSelfUpdate))
@@ -105,6 +108,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/tunnels/{name}/restart", s.auth(s.handleRestart))
 	mux.HandleFunc("POST /api/tunnels/{name}/start", s.auth(s.handleStart))
 	mux.HandleFunc("POST /api/tunnels/{name}/stop", s.auth(s.handleStop))
+	mux.HandleFunc("POST /api/tunnels/{name}/quota/reset", s.auth(s.handleQuotaReset))
+	mux.HandleFunc("POST /api/tunnels/{name}/quota/add", s.auth(s.handleQuotaAdd))
 	mux.HandleFunc("GET /api/tunnels/{name}/logs", s.auth(s.handleLogs))
 	mux.HandleFunc("POST /api/restart-all", s.auth(s.handleRestartAll))
 	mux.HandleFunc("GET /api/health", s.auth(s.handleHealth))
@@ -133,7 +138,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("POST /api/settings", s.auth(s.handleSettings))
 	mux.HandleFunc("POST /api/deploy-best", s.auth(s.handleDeployBest))
-	return securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.securityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.configErr != nil {
 			writeJSON(w, 500, map[string]string{"error": "invalid panel configuration; inspect panel.json"})
 			return
@@ -165,7 +170,7 @@ func (s *Server) Handler() http.Handler {
 			if origin := r.Header.Get("Origin"); origin != "" {
 				u, err := url.Parse(origin)
 				scheme := "http"
-				if r.TLS != nil {
+				if isHTTPS(r) {
 					scheme = "https"
 				}
 				if err != nil || u.Host != r.Host || u.Scheme != scheme || u.Path != "" || u.User != nil {
@@ -259,22 +264,48 @@ func inlineHash(tag string) string {
 	return hashInlineTag(p.raw, tag)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func isHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		if ip := net.ParseIP(clientIP(r)); ip != nil && ip.IsLoopback() {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) telegramMiniAppEnabled() bool {
+	cfg, err := notify.LoadConfig()
+	if err != nil || !cfg.Configured() {
+		return false
+	}
+	return notify.ResolveMiniAppURL(s.storeDir, cfg) != ""
+}
+
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("Cache-Control", "no-store")
 		// No other site's window keeps a handle on the panel, no other origin
-		// may embed its responses, and the page gets no device features.
+		// may embed its responses (unless Telegram Mini App is configured), and
+		// the page gets no device features.
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), usb=(), payment=(), clipboard-read=()")
-		if r.TLS != nil {
+		if isHTTPS(r) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
-		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; form-action 'self'; base-uri 'none'")
+		frameAncestors := "'none'"
+		if s.telegramMiniAppEnabled() {
+			frameAncestors = "'self' https://web.telegram.org https://*.telegram.org"
+		} else {
+			h.Set("X-Frame-Options", "DENY")
+		}
+		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'self' "+inlineHash("style")+"; script-src 'self' "+inlineHash("script")+"; connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-ancestors "+frameAncestors+"; form-action 'self'; base-uri 'none'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -290,7 +321,7 @@ func (s *Server) sign(code string) string {
 // an old HTTPS ct_session cookie cannot prevent login after the HTTP migration.
 func panelCookieName(r *http.Request, basePath string) string {
 	scheme := "http"
-	if r.TLS != nil {
+	if isHTTPS(r) {
 		scheme = "https"
 	}
 	sum := sha256.Sum256([]byte(scheme + "|" + strings.ToLower(r.Host) + "|" + basePath))
@@ -421,25 +452,84 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.limiter.reset(ip)
 	http.SetCookie(w, &http.Cookie{
 		Name: panelCookieName(r, cfg.BasePath), Value: s.newSession(st.PanelCode), Path: cfg.BasePath + "/",
-		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(cfg.sessionDuration().Seconds()),
+		HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: int(cfg.sessionDuration().Seconds()),
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleTelegramAuth verifies Telegram Mini App (WebApp) signed initData using
+// HMAC-SHA256 with the configured bot token, confirms auth_date freshness and
+// admin membership, and issues a normal authenticated panel session cookie.
+func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
+	ip := limiterKey(clientIP(r))
+	if wait := s.limiter.blocked(ip); wait > 0 {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": fmt.Sprintf("too many attempts, try again in %d s", int(wait.Seconds())+1)})
+		return
+	}
+	var req struct {
+		InitData string `json:"init_data"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.InitData) == "" {
+		s.limiter.fail(ip)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid Telegram Mini App payload"})
+		return
+	}
+	tgCfg, err := notify.LoadConfig()
+	if err != nil || !tgCfg.Configured() {
+		s.limiter.fail(ip)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Telegram bot is not configured"})
+		return
+	}
+	user, err := notify.VerifyInitData(req.InitData, tgCfg.Token, tgCfg.AdminIDs(), time.Now(), notify.DefaultInitDataMaxAge)
+	if err != nil {
+		s.limiter.fail(ip)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized Telegram Mini App session"})
+		return
+	}
+	st, err := s.store()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.limiter.reset(ip)
+	cfg := s.config()
+	https := isHTTPS(r)
+	sameSite := http.SameSiteStrictMode
+	if https {
+		// Telegram Web / Desktop embeds Mini Apps in a cross-site iframe,
+		// where Secure + SameSite=None is required for session cookies.
+		// All mutating API routes remain protected by X-CSRF-Token + Origin.
+		sameSite = http.SameSiteNoneMode
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: panelCookieName(r, cfg.BasePath), Value: s.newSession(st.PanelCode), Path: cfg.BasePath + "/",
+		HttpOnly: true, Secure: https, SameSite: sameSite, MaxAge: int(cfg.sessionDuration().Seconds()),
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"auth":       "telegram",
+		"user_id":    user.ID,
+		"username":   user.Username,
+		"first_name": user.FirstName,
+	})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.stopAllTests()
 	s.authGeneration.Add(1)
-	http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, s.config().BasePath), Path: s.config().BasePath + "/", HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: -1})
+	http.SetCookie(w, &http.Cookie{Name: panelCookieName(r, s.config().BasePath), Path: s.config().BasePath + "/", HttpOnly: true, Secure: isHTTPS(r), SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 type tunnelView struct {
 	catalog.TunnelConfig
-	Family    string        `json:"family"`
-	Status    tunnel.Status `json:"status"`
-	State     string        `json:"state"`
-	SetupLink string        `json:"setup_link"`
-	MikroTik  string        `json:"mikrotik"`
+	Family    string           `json:"family"`
+	Status    tunnel.Status    `json:"status"`
+	Quota     tunnel.QuotaInfo `json:"quota"`
+	State     string           `json:"state"`
+	SetupLink string           `json:"setup_link"`
+	MikroTik  string           `json:"mikrotik"`
 }
 
 func state(s tunnel.Status) string {
@@ -466,10 +556,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		m, _ := catalog.LookupMethod(t.Method)
 		status := statuses[i]
 		views = append(views, tunnelView{
-			TunnelConfig: t, Family: string(m.Family), Status: status, State: state(status),
+			TunnelConfig: t, Family: string(m.Family), Status: status, Quota: tunnel.QuotaStatus(t), State: state(status),
 			SetupLink: link, MikroTik: tunnel.MikroTik(t),
 		})
 	}
+	totalRx, totalTx := tunnel.TotalTrafficAll(st)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":     version.Version,
 		"system":      s.sampler.Sample(),
@@ -477,8 +568,14 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"methods":     catalog.Methods,
 		"new_methods": conntest.NewMethods,
 		"tunnels":     views,
-		"panel":       s.config().SafeView(),
-		"telemetry":   s.currentTelemetry(views, time.Now()),
+		"total_traffic": map[string]uint64{
+			"rx_bytes":    totalRx,
+			"tx_bytes":    totalTx,
+			"archived_rx": st.ArchivedRx,
+			"archived_tx": st.ArchivedTx,
+		},
+		"panel":     s.config().SafeView(),
+		"telemetry": s.currentTelemetry(views, time.Now()),
 	})
 }
 

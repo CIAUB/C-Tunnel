@@ -38,7 +38,9 @@ func TestSponsorFridayWindowTehran(t *testing.T) {
 func TestSponsorWeeklyDedupAndFileIDReuse(t *testing.T) {
 	var uploads, sends atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasSuffix(r.URL.Path, "/sendPhoto") {
+		isPhoto := strings.HasSuffix(r.URL.Path, "/sendPhoto")
+		isVideo := strings.HasSuffix(r.URL.Path, "/sendVideo")
+		if !isPhoto && !isVideo {
 			http.NotFound(w, r)
 			return
 		}
@@ -47,8 +49,19 @@ func TestSponsorWeeklyDedupAndFileIDReuse(t *testing.T) {
 			return
 		}
 		sends.Add(1)
-		if _, _, err := r.FormFile("photo"); err == nil {
+		field := "photo"
+		if isVideo {
+			field = "video"
+		}
+		if _, _, err := r.FormFile(field); err == nil {
 			uploads.Add(1)
+		}
+		if isVideo {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": map[string]any{"video": map[string]string{"file_id": "vid-123"}},
+			})
+			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok": true,

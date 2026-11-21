@@ -1,11 +1,13 @@
 // Package sponsor manages C-Tunnel's square Overview Sponsor Space card:
-// background manifest & image fetching with atomic disk cache, ETag/Last-Modified
-// revalidation, strict magic-byte image validation, same-origin serving, and an
-// embedded native fallback banner so the panel never makes external image calls.
+// multi-format (PNG/JPG/WebP/GIF/MP4/WebM/MOV) discovery of sponsor*/sponser*
+// assets, atomic disk cache, ETag/Last-Modified revalidation, strict magic-byte
+// validation, random non-repeating rotation, tunnel relay fallback, and embedded
+// native banner + promo video defaults so the panel never makes external calls.
 package sponsor
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -13,11 +15,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -30,16 +34,24 @@ import (
 //go:embed default.png
 var defaultImage []byte
 
+//go:embed default_promo.mp4
+var defaultPromoVideo []byte
+
 //go:embed default_spontext.txt
 var defaultSpontext string
 
 //go:embed default_sponlink.txt
 var defaultSponlink string
 
-var defaultHash = func() string {
-	sum := sha256.Sum256(defaultImage)
+var (
+	defaultHash      = shortHash(defaultImage)
+	defaultVideoHash = shortHash(defaultPromoVideo)
+)
+
+func shortHash(b []byte) string {
+	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:8])
-}()
+}
 
 const (
 	DefaultLink  = "https://t.me/CiAsAgent"
@@ -48,17 +60,28 @@ const (
 	defaultTextFile  = "spontext.txt"
 	defaultLinkFile  = "sponlink.txt"
 	maxManifestBytes = 16 << 10
+	maxAPIBytes      = 256 << 10
 	maxTextBytes     = 8 << 10
 	maxLinkBytes     = 2 << 10
 	maxCaptionRunes  = 1024
 	maxImageBytes    = 15 << 20
+	maxMediaItems    = 12
 	maxAge           = 30 * time.Minute
 	fetchTimeout     = 2 * time.Minute
 )
 
-// ManifestURL points to the published JSON manifest {"image","link","title"}.
+// ManifestURL points to the published JSON manifest {"image","media","link","title"}.
 // Empty disables remote network refreshes while keeping any local fallback/cache.
 var ManifestURL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/assets/sponsor.json"
+
+// AssetsAPIURL points to the GitHub Contents API directory listing for assets/
+// so any sponsor* or sponser* media file uploaded to assets/ is discovered
+// automatically without editing sponsor.json. Empty disables API discovery.
+var AssetsAPIURL = "https://api.github.com/repos/CIAUB/C-Tunnel/contents/assets"
+
+// LocalAssetsDir is an optional local assets directory scanned for sponsor*/sponser*
+// media files when non-empty (primarily for local deployments and tests).
+var LocalAssetsDir = ""
 
 // HTTPClient is optional; when nil, Refresh tries direct HTTPS first and falls
 // back to relaying through any active Iran->Kharej tunnels when direct fails.
@@ -71,53 +94,123 @@ var RelayRoutes = tgrelay.IranRoutes
 var RelayDialTarget = tgrelay.DialTarget
 
 // RelayClientFor builds an HTTP client that tunnels sponsor fetches through routes.
-// Overridable in tests when the test server runs plain HTTP/self-signed TLS.
 var RelayClientFor = newRelayClient
+
+// MediaItem is one validated, cached image, GIF, or video in the sponsor rotation pool.
+type MediaItem struct {
+	Name     string `json:"name,omitempty"`
+	Hash     string `json:"hash"`
+	Type     string `json:"type"`
+	Kind     string `json:"kind"` // "image" or "video"
+	URL      string `json:"url,omitempty"`
+	ETag     string `json:"etag,omitempty"`
+	Modified string `json:"modified,omitempty"`
+}
 
 // State is the cached sponsor metadata persisted under <storeDir>/sponsor/sponsor.json.
 type State struct {
-	Link       string    `json:"link,omitempty"`
-	ButtonText string    `json:"button_text,omitempty"`
-	Title      string    `json:"title,omitempty"`
-	Caption    string    `json:"caption,omitempty"`
-	Type       string    `json:"type,omitempty"`
-	Hash       string    `json:"hash,omitempty"`
-	Image      string    `json:"image,omitempty"`
-	ETag       string    `json:"etag,omitempty"`
-	Modified   string    `json:"modified,omitempty"`
-	Withdrawn  bool      `json:"withdrawn,omitempty"`
-	Checked    time.Time `json:"checked"`
+	Link       string      `json:"link,omitempty"`
+	ButtonText string      `json:"button_text,omitempty"`
+	Title      string      `json:"title,omitempty"`
+	Caption    string      `json:"caption,omitempty"`
+	Type       string      `json:"type,omitempty"`
+	Kind       string      `json:"kind,omitempty"`
+	Hash       string      `json:"hash,omitempty"`
+	Image      string      `json:"image,omitempty"`
+	ETag       string      `json:"etag,omitempty"`
+	Modified   string      `json:"modified,omitempty"`
+	Items      []MediaItem `json:"items,omitempty"`
+	Withdrawn  bool        `json:"withdrawn,omitempty"`
+	Checked    time.Time   `json:"checked"`
 }
 
-// Present reports whether there is a displayable sponsor image.
-func (s State) Present() bool { return !s.Withdrawn && s.Hash != "" && s.Type != "" }
+// Present reports whether there is at least one displayable sponsor asset.
+func (s State) Present() bool {
+	if s.Withdrawn {
+		return false
+	}
+	if len(s.Items) > 0 {
+		return true
+	}
+	return s.Hash != "" && s.Type != ""
+}
+
+// DefaultItems returns the embedded native C-Tunnel media pool (banner PNG + lightweight promo MP4).
+func DefaultItems() []MediaItem {
+	var items []MediaItem
+	if len(defaultImage) > 0 {
+		items = append(items, MediaItem{
+			Name: "sponsor.png",
+			Hash: defaultHash,
+			Type: "image/png",
+			Kind: KindImage,
+		})
+	}
+	if len(defaultPromoVideo) > 0 {
+		items = append(items, MediaItem{
+			Name: "sponsor_promo.mp4",
+			Hash: defaultVideoHash,
+			Type: "video/mp4",
+			Kind: KindVideo,
+		})
+	}
+	return items
+}
 
 // DefaultState returns the embedded native C-Tunnel Sponsor Space metadata
-// (banner, formatted Telegram caption from default_spontext.txt, and link/button
-// from default_sponlink.txt) so pre-release/offline binaries work out of the box.
+// (banner + promo video pool, formatted caption, and link/button) so
+// pre-release and offline binaries work out of the box.
 func DefaultState() State {
 	link, btn := parseLinkFile(defaultSponlink, DefaultLink)
 	if link == "" {
 		link = DefaultLink
 	}
-	return State{
+	items := DefaultItems()
+	st := State{
 		Link:       link,
 		ButtonText: btn,
 		Title:      DefaultTitle,
 		Caption:    cleanTextFile(defaultSpontext),
-		Type:       "image/png",
-		Hash:       defaultHash,
+		Items:      items,
 	}
+	if len(items) > 0 {
+		st.Type = items[0].Type
+		st.Kind = items[0].Kind
+		st.Hash = items[0].Hash
+	}
+	return st
 }
 
 var (
-	mu       sync.Mutex
-	running  = map[string]bool{}
-	kickedAt = map[string]time.Time{}
+	mu           sync.Mutex
+	running      = map[string]bool{}
+	kickedAt     = map[string]time.Time{}
+	lastPickMu   sync.Mutex
+	lastPickedBy = map[string]string{}
 )
 
 func statePath(storeDir string) string { return filepath.Join(storeDir, "sponsor", "sponsor.json") }
 func imagePath(storeDir string) string { return filepath.Join(storeDir, "sponsor", "image") }
+func mediaDir(storeDir string) string  { return filepath.Join(storeDir, "sponsor", "media") }
+func isSafeMediaHash(hash string) bool {
+	if len(hash) < 8 || len(hash) > 64 {
+		return false
+	}
+	for i := 0; i < len(hash); i++ {
+		c := hash[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func mediaFilePath(storeDir, hash string) string {
+	if !isSafeMediaHash(hash) {
+		return ""
+	}
+	return filepath.Join(mediaDir(storeDir), hash)
+}
 
 func loadDisk(storeDir string) (State, bool) {
 	b, err := os.ReadFile(statePath(storeDir))
@@ -131,43 +224,219 @@ func loadDisk(storeDir string) (State, bool) {
 	return s, true
 }
 
+func validDiskItems(storeDir string, s State) []MediaItem {
+	var out []MediaItem
+	seen := map[string]bool{}
+	for _, it := range s.Items {
+		if !isSafeMediaHash(it.Hash) || it.Type == "" || seen[it.Hash] {
+			continue
+		}
+		p := mediaFilePath(storeDir, it.Hash)
+		if p != "" {
+			if _, err := os.Stat(p); err == nil {
+				if it.Kind == "" {
+					it.Kind = MediaKindForMIME(it.Type)
+				}
+				seen[it.Hash] = true
+				out = append(out, it)
+			}
+		}
+	}
+	if len(out) == 0 && s.Hash != "" && s.Type != "" {
+		if _, err := os.Stat(imagePath(storeDir)); err == nil {
+			kind := s.Kind
+			if kind == "" {
+				kind = MediaKindForMIME(s.Type)
+			}
+			out = append(out, MediaItem{
+				Name:     "sponsor",
+				Hash:     s.Hash,
+				Type:     s.Type,
+				Kind:     kind,
+				URL:      s.Image,
+				ETag:     s.ETag,
+				Modified: s.Modified,
+			})
+		}
+	}
+	return out
+}
+
+func loadLocalDirItems(dir string) ([]MediaItem, map[string][]byte) {
+	if dir == "" {
+		return nil, nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, nil
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	var items []MediaItem
+	blobs := map[string][]byte{}
+	for _, e := range entries {
+		if e.IsDir() || !IsSponsorMediaName(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.Size() <= 0 || info.Size() > maxImageBytes {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		mime, kind, ok := DetectMediaMIME(b)
+		if !ok {
+			continue
+		}
+		h := shortHash(b)
+		if _, dup := blobs[h]; dup {
+			continue
+		}
+		blobs[h] = b
+		items = append(items, MediaItem{Name: e.Name(), Hash: h, Type: mime, Kind: kind})
+		if len(items) >= maxMediaItems {
+			break
+		}
+	}
+	return items, blobs
+}
+
 // Load returns the active Sponsor Space state without touching the network.
-// If the remote publisher explicitly withdrew the sponsor (404/410/empty image),
-// an empty State is returned. Otherwise the disk-cached remote sponsor or the
-// embedded native banner is returned.
 func Load(storeDir string) State {
 	s, ok := loadDisk(storeDir)
 	if ok {
 		if s.Withdrawn {
 			return State{Withdrawn: true, Checked: s.Checked}
 		}
-		if s.Present() {
-			if _, err := os.Stat(imagePath(storeDir)); err == nil {
-				return s
-			}
+		if items := validDiskItems(storeDir, s); len(items) > 0 {
+			s.Items = items
+			s.Hash, s.Type, s.Kind = items[0].Hash, items[0].Type, items[0].Kind
+			return s
 		}
+	}
+	if localItems, _ := loadLocalDirItems(LocalAssetsDir); len(localItems) > 0 {
+		def := DefaultState()
+		def.Items = localItems
+		def.Hash, def.Type, def.Kind = localItems[0].Hash, localItems[0].Type, localItems[0].Kind
+		return def
 	}
 	return DefaultState()
 }
 
-// Image returns the image bytes, sniffed MIME type, and content hash to serve
-// from the panel's own origin.
-func Image(storeDir string) ([]byte, string, string, error) {
-	s, ok := loadDisk(storeDir)
-	if ok {
-		if s.Withdrawn {
-			return nil, "", "", os.ErrNotExist
+// Pick selects one sponsor media item randomly from the active pool, avoiding
+// immediate back-to-back repeats (excludeHash, or the last served hash) when
+// two or more media items are available.
+func Pick(storeDir, excludeHash string) (State, MediaItem, bool) {
+	st := Load(storeDir)
+	if !st.Present() || len(st.Items) == 0 {
+		return st, MediaItem{}, false
+	}
+	items := st.Items
+	if len(items) == 1 {
+		st.Hash, st.Type, st.Kind = items[0].Hash, items[0].Type, items[0].Kind
+		return st, items[0], true
+	}
+	avoid := strings.TrimSpace(excludeHash)
+	if avoid == "" {
+		lastPickMu.Lock()
+		avoid = lastPickedBy[storeDir]
+		lastPickMu.Unlock()
+	}
+	pool := make([]MediaItem, 0, len(items))
+	for _, it := range items {
+		if it.Hash != avoid {
+			pool = append(pool, it)
 		}
-		if s.Present() {
-			if b, err := os.ReadFile(imagePath(storeDir)); err == nil && len(b) > 0 {
-				return b, s.Type, s.Hash, nil
+	}
+	if len(pool) == 0 {
+		pool = items
+	}
+	chosen := pool[randInt(len(pool))]
+	lastPickMu.Lock()
+	lastPickedBy[storeDir] = chosen.Hash
+	lastPickMu.Unlock()
+	st.Hash, st.Type, st.Kind = chosen.Hash, chosen.Type, chosen.Kind
+	return st, chosen, true
+}
+
+func randInt(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return int(time.Now().UnixNano() % int64(n))
+	}
+	return int(v.Int64())
+}
+
+// MediaByHash returns raw bytes and metadata for the requested sponsor media hash.
+// When hash is empty, it returns the primary item (matching legacy Image()).
+func MediaByHash(storeDir, hash string) ([]byte, MediaItem, error) {
+	hash = strings.TrimSpace(hash)
+	st := Load(storeDir)
+	if !st.Present() {
+		return nil, MediaItem{}, os.ErrNotExist
+	}
+	// Resolve target item by hash (or default to first available item).
+	var target MediaItem
+	found := false
+	if hash == "" && len(st.Items) > 0 {
+		target, found = st.Items[0], true
+	} else {
+		for _, it := range st.Items {
+			if it.Hash == hash {
+				target, found = it, true
+				break
 			}
 		}
 	}
-	if len(defaultImage) == 0 {
-		return nil, "", "", os.ErrNotExist
+	if !found && len(st.Items) > 0 {
+		// Graceful fallback if cache rotated between /api/sponsor and /api/sponsor/image.
+		target, found = st.Items[0], true
 	}
-	return defaultImage, "image/png", defaultHash, nil
+	if !found {
+		return nil, MediaItem{}, os.ErrNotExist
+	}
+
+	// 1. Cached multi-item store on disk.
+	if p := mediaFilePath(storeDir, target.Hash); p != "" {
+		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
+			return b, target, nil
+		}
+	}
+	// 2. Legacy single-file disk cache.
+	if s, ok := loadDisk(storeDir); ok && !s.Withdrawn && s.Hash == target.Hash {
+		if b, err := os.ReadFile(imagePath(storeDir)); err == nil && len(b) > 0 {
+			return b, target, nil
+		}
+	}
+	// 3. Optional local assets directory.
+	if LocalAssetsDir != "" {
+		if _, blobs := loadLocalDirItems(LocalAssetsDir); len(blobs) > 0 {
+			if b, ok := blobs[target.Hash]; ok {
+				return b, target, nil
+			}
+		}
+	}
+	// 4. Embedded native defaults.
+	if target.Hash == defaultVideoHash && len(defaultPromoVideo) > 0 {
+		return defaultPromoVideo, target, nil
+	}
+	if target.Hash == defaultHash && len(defaultImage) > 0 {
+		return defaultImage, target, nil
+	}
+	return nil, MediaItem{}, os.ErrNotExist
+}
+
+// Image returns the primary sponsor media bytes, MIME type, and hash.
+func Image(storeDir string) ([]byte, string, string, error) {
+	b, item, err := MediaByHash(storeDir, "")
+	if err != nil {
+		return nil, "", "", err
+	}
+	return b, item.Type, item.Hash, nil
 }
 
 // Kick triggers a non-blocking background refresh when the cached state is
@@ -176,28 +445,28 @@ func Kick(storeDir string) {
 	if ManifestURL == "" || storeDir == "" {
 		return
 	}
-	mu.Lock()
-	if running[storeDir] || time.Since(kickedAt[storeDir]) < time.Minute {
-		mu.Unlock()
+	if s, ok := loadDisk(storeDir); ok && time.Since(s.Checked) < maxAge {
 		return
 	}
-	if s, ok := loadDisk(storeDir); ok && time.Since(s.Checked) < maxAge {
+	mu.Lock()
+	if running[storeDir] || time.Since(kickedAt[storeDir]) < time.Minute {
 		mu.Unlock()
 		return
 	}
 	running[storeDir] = true
 	kickedAt[storeDir] = time.Now()
 	mu.Unlock()
-
 	go func() {
+		defer func() {
+			mu.Lock()
+			delete(running, storeDir)
+			mu.Unlock()
+		}()
 		_ = Refresh(storeDir)
-		mu.Lock()
-		running[storeDir] = false
-		mu.Unlock()
 	}()
 }
 
-// RefreshIfStale refreshes synchronously when cache is older than 30 minutes.
+// RefreshIfStale refreshes synchronously only when the disk cache is missing or older than maxAge.
 func RefreshIfStale(storeDir string) error {
 	if ManifestURL == "" || storeDir == "" {
 		return nil
@@ -210,12 +479,11 @@ func RefreshIfStale(storeDir string) error {
 
 var errWithdrawn = errors.New("sponsor withdrawn")
 
-// Refresh fetches the remote manifest and, when changed, downloads and validates
-// the referenced image. Network errors preserve any existing cache; 404/410 or
-// Refresh fetches the remote manifest, image, spontext.txt and sponlink.txt and
-// updates the local cache. When direct access fails (e.g. on an Iran server
-// blocked from GitHub), it automatically retries through active Iran->Kharej
-// tunnels via tgrelay. A 404/410 or empty image field withdraws the sponsor cleanly.
+// Refresh fetches remote sponsor metadata, discovers all sponsor*/sponser* media
+// files (via GitHub Contents API + sponsor.json), validates every asset by magic
+// bytes, fetches spontext.txt and sponlink.txt, and caches them atomically.
+// When direct access fails (e.g. on an Iran server), it retries through active
+// Iran->Kharej tunnels via tgrelay.
 func Refresh(storeDir string) error {
 	if ManifestURL == "" || storeDir == "" {
 		return nil
@@ -225,11 +493,11 @@ func Refresh(storeDir string) error {
 	if client == nil {
 		client = newDirectClient()
 	}
-	next, img, partialNetErr, err := fetch(client, ManifestURL, prev)
+	next, blobs, partialNetErr, err := fetch(client, ManifestURL, AssetsAPIURL, prev)
 	if (err != nil || partialNetErr) && !errors.Is(err, errWithdrawn) && HTTPClient == nil {
 		if routes := RelayRoutes(storeDir); len(routes) > 0 {
-			if rNext, rImg, _, rErr := fetch(RelayClientFor(routes), ManifestURL, prev); rErr == nil || errors.Is(rErr, errWithdrawn) {
-				next, img, err = rNext, rImg, rErr
+			if rNext, rBlobs, _, rErr := fetch(RelayClientFor(routes), ManifestURL, AssetsAPIURL, prev); rErr == nil || errors.Is(rErr, errWithdrawn) {
+				next, blobs, err = rNext, rBlobs, rErr
 			}
 		}
 	}
@@ -239,7 +507,7 @@ func Refresh(storeDir string) error {
 	if err != nil {
 		return err
 	}
-	return save(storeDir, next, img)
+	return save(storeDir, next, blobs)
 }
 
 func redirectGuard(req *http.Request, via []*http.Request) error {
@@ -311,7 +579,47 @@ func newRelayClient(routes []tgrelay.Route) *http.Client {
 	}
 }
 
-func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, bool, error) {
+type remoteCandidate struct {
+	name string
+	url  string
+}
+
+func discoverAPIMedia(c *http.Client, apiURL string) ([]remoteCandidate, bool) {
+	if strings.TrimSpace(apiURL) == "" {
+		return nil, false
+	}
+	hdr := http.Header{"Accept": []string{"application/vnd.github+json"}}
+	body, status, _, err := httpGet(c, apiURL, hdr, maxAPIBytes)
+	if err != nil {
+		return nil, true
+	}
+	if status != http.StatusOK {
+		return nil, false
+	}
+	var entries []struct {
+		Name        string `json:"name"`
+		Type        string `json:"type"`
+		DownloadURL string `json:"download_url"`
+	}
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, false
+	}
+	var out []remoteCandidate
+	for _, e := range entries {
+		if e.Type != "file" || !IsSponsorMediaName(e.Name) {
+			continue
+		}
+		u := sanitizeLink(e.DownloadURL)
+		if u == "" {
+			continue
+		}
+		out = append(out, remoteCandidate{name: e.Name, url: u})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
+	return out, false
+}
+
+func fetch(c *http.Client, manifestURL, apiURL string, prev State) (State, map[string][]byte, bool, error) {
 	body, status, _, err := httpGet(c, manifestURL, nil, maxManifestBytes)
 	if err != nil {
 		return State{}, nil, false, err
@@ -320,9 +628,7 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, bool,
 	case status == http.StatusGone:
 		return State{}, nil, false, errWithdrawn
 	case status == http.StatusNotFound:
-		// Withdraw only when a previously published remote manifest is removed;
-		// before the remote manifest exists on GitHub, keep the embedded defaults.
-		if prev.Image != "" {
+		if prev.Image != "" || len(prev.Items) > 0 {
 			return State{}, nil, false, errWithdrawn
 		}
 		return State{}, nil, false, fmt.Errorf("manifest HTTP %d (keeping embedded defaults)", status)
@@ -331,21 +637,59 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, bool,
 	}
 
 	var m struct {
-		Image    string `json:"image"`
-		Link     string `json:"link"`
-		Title    string `json:"title"`
-		Text     string `json:"text"`
-		LinkFile string `json:"link_file"`
+		Image    string   `json:"image"`
+		Media    []string `json:"media"`
+		Link     string   `json:"link"`
+		Title    string   `json:"title"`
+		Text     string   `json:"text"`
+		LinkFile string   `json:"link_file"`
 	}
 	if err := json.Unmarshal(body, &m); err != nil {
 		return State{}, nil, false, fmt.Errorf("manifest JSON: %w", err)
 	}
-	if strings.TrimSpace(m.Image) == "" {
+	explicitEmpty := strings.TrimSpace(m.Image) == "" && len(m.Media) == 0
+	if explicitEmpty {
 		return State{}, nil, false, errWithdrawn
 	}
-	imgURL, err := resolveHTTPURL(manifestURL, m.Image)
-	if err != nil {
-		return State{}, nil, false, fmt.Errorf("manifest image URL: %w", err)
+
+	seenURL := map[string]bool{}
+	var candidates []remoteCandidate
+	addRef := func(ref string) error {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			return nil
+		}
+		u, err := resolveHTTPURL(manifestURL, ref)
+		if err != nil {
+			return err
+		}
+		if seenURL[u] {
+			return nil
+		}
+		seenURL[u] = true
+		candidates = append(candidates, remoteCandidate{name: filepath.Base(u), url: u})
+		return nil
+	}
+	if strings.TrimSpace(m.Image) != "" {
+		if err := addRef(m.Image); err != nil {
+			return State{}, nil, false, fmt.Errorf("manifest image URL: %w", err)
+		}
+	}
+	for _, ref := range m.Media {
+		_ = addRef(ref)
+	}
+
+	// Merge auto-discovered sponsor*/sponser* media files from GitHub Contents API
+	// when manifest points to the same repo/host (or apiURL is explicitly set).
+	apiList, apiNetErr := discoverAPIMedia(c, apiURL)
+	for _, rc := range apiList {
+		if !seenURL[rc.url] {
+			seenURL[rc.url] = true
+			candidates = append(candidates, rc)
+		}
+	}
+	if len(candidates) > maxMediaItems {
+		candidates = candidates[:maxMediaItems]
 	}
 
 	link := sanitizeLink(m.Link)
@@ -359,53 +703,125 @@ func fetch(c *http.Client, manifestURL string, prev State) (State, []byte, bool,
 	}
 	caption, textNetErr := fetchTextFile(c, manifestURL, textRef, prev.Caption)
 	link, btnText, linkNetErr := fetchLinkFile(c, manifestURL, linkRef, link, prev.ButtonText)
-	partialNetErr := textNetErr || linkNetErr
+	partialNetErr := textNetErr || linkNetErr || apiNetErr
+
+	prevByURL := map[string]MediaItem{}
+	for _, it := range prev.Items {
+		if it.URL != "" {
+			prevByURL[it.URL] = it
+		}
+	}
+	if prev.Image != "" && prev.Hash != "" && prev.Type != "" {
+		if _, ok := prevByURL[prev.Image]; !ok {
+			prevByURL[prev.Image] = MediaItem{
+				Name:     filepath.Base(prev.Image),
+				Hash:     prev.Hash,
+				Type:     prev.Type,
+				Kind:     MediaKindForMIME(prev.Type),
+				URL:      prev.Image,
+				ETag:     prev.ETag,
+				Modified: prev.Modified,
+			}
+		}
+	}
+
+	var items []MediaItem
+	blobs := map[string][]byte{}
+	seenHash := map[string]bool{}
+	var firstErr error
+	allGone := len(candidates) > 0
+
+	for _, cand := range candidates {
+		hdr := http.Header{}
+		old, hasOld := prevByURL[cand.url]
+		if hasOld {
+			if old.ETag != "" {
+				hdr.Set("If-None-Match", old.ETag)
+			}
+			if old.Modified != "" {
+				hdr.Set("If-Modified-Since", old.Modified)
+			}
+		}
+		raw, stCode, rh, err := httpGet(c, cand.url, hdr, maxImageBytes)
+		if err != nil {
+			allGone = false
+			partialNetErr = true
+			if firstErr == nil {
+				firstErr = fmt.Errorf("media fetch %s: %w", cand.name, err)
+			}
+			continue
+		}
+		switch {
+		case stCode == http.StatusNotModified && hasOld:
+			allGone = false
+			if !seenHash[old.Hash] {
+				seenHash[old.Hash] = true
+				items = append(items, old)
+			}
+			continue
+		case stCode == http.StatusNotFound || stCode == http.StatusGone:
+			if firstErr == nil {
+				firstErr = fmt.Errorf("media %s HTTP %d", cand.name, stCode)
+			}
+			continue
+		case stCode != http.StatusOK:
+			allGone = false
+			partialNetErr = true
+			if firstErr == nil {
+				firstErr = fmt.Errorf("media %s HTTP %d", cand.name, stCode)
+			}
+			continue
+		}
+		allGone = false
+		mime, kind, ok := DetectMediaMIME(raw)
+		if !ok {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unsupported media type for %s", cand.name)
+			}
+			continue
+		}
+		h := shortHash(raw)
+		if seenHash[h] {
+			continue
+		}
+		seenHash[h] = true
+		blobs[h] = raw
+		items = append(items, MediaItem{
+			Name:     cand.name,
+			Hash:     h,
+			Type:     mime,
+			Kind:     kind,
+			URL:      cand.url,
+			ETag:     rh.Get("ETag"),
+			Modified: rh.Get("Last-Modified"),
+		})
+	}
+
+	if len(items) == 0 {
+		if allGone {
+			return State{}, nil, partialNetErr, errWithdrawn
+		}
+		if firstErr == nil {
+			firstErr = errors.New("no valid sponsor media available")
+		}
+		return State{}, nil, partialNetErr, firstErr
+	}
 
 	next := State{
 		Link:       link,
 		ButtonText: btnText,
 		Title:      truncateRunes(strings.TrimSpace(m.Title), 120),
 		Caption:    caption,
-		Image:      imgURL,
+		Type:       items[0].Type,
+		Kind:       items[0].Kind,
+		Hash:       items[0].Hash,
+		Image:      items[0].URL,
+		ETag:       items[0].ETag,
+		Modified:   items[0].Modified,
+		Items:      items,
 		Checked:    time.Now(),
 	}
-
-	hdr := http.Header{}
-	if prev.Present() && prev.Image == imgURL {
-		if prev.ETag != "" {
-			hdr.Set("If-None-Match", prev.ETag)
-		}
-		if prev.Modified != "" {
-			hdr.Set("If-Modified-Since", prev.Modified)
-		}
-	}
-
-	img, status, rh, err := httpGet(c, imgURL, hdr, maxImageBytes)
-	if err != nil {
-		return State{}, nil, partialNetErr, fmt.Errorf("image fetch: %w", err)
-	}
-	switch {
-	case status == http.StatusNotModified && prev.Present():
-		next.Type, next.Hash, next.ETag, next.Modified = prev.Type, prev.Hash, prev.ETag, prev.Modified
-		return next, nil, partialNetErr, nil
-	case status == http.StatusNotFound || status == http.StatusGone:
-		return State{}, nil, partialNetErr, errWithdrawn
-	case status != http.StatusOK:
-		return State{}, nil, partialNetErr, fmt.Errorf("image HTTP %d", status)
-	}
-
-	typ := http.DetectContentType(img)
-	switch typ {
-	case "image/gif", "image/png", "image/jpeg", "image/webp":
-	default:
-		return State{}, nil, partialNetErr, fmt.Errorf("unsupported image type %q", typ)
-	}
-	sum := sha256.Sum256(img)
-	next.Type = typ
-	next.Hash = hex.EncodeToString(sum[:8])
-	next.ETag = rh.Get("ETag")
-	next.Modified = rh.Get("Last-Modified")
-	return next, img, partialNetErr, nil
+	return next, blobs, partialNetErr, nil
 }
 
 func httpGet(c *http.Client, rawURL string, hdr http.Header, limit int64) ([]byte, int, http.Header, error) {
@@ -491,9 +907,6 @@ func parseLinkFile(raw, fallbackLink string) (string, string) {
 	return link, btn
 }
 
-// fetchTextFile fetches optional Telegram caption text (spontext.txt) resolved
-// relative to manifestURL. 404/410 returns ("", false); transient/network errors
-// return (prev, true) so Refresh can retry via tunnel relay.
 func fetchTextFile(c *http.Client, manifestURL, ref, prev string) (string, bool) {
 	target, err := resolveHTTPURL(manifestURL, ref)
 	if err != nil {
@@ -512,9 +925,6 @@ func fetchTextFile(c *http.Client, manifestURL, ref, prev string) (string, bool)
 	return cleanTextFile(string(b)), false
 }
 
-// fetchLinkFile fetches optional sponsor link file (sponlink.txt) resolved
-// relative to manifestURL. Line 1 is the http(s) URL (used by both the panel
-// banner and Telegram button); optional line 2 is the Telegram button label.
 func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn string) (string, string, bool) {
 	target, err := resolveHTTPURL(manifestURL, ref)
 	if err != nil {
@@ -534,15 +944,34 @@ func fetchLinkFile(c *http.Client, manifestURL, ref, fallbackLink, prevBtn strin
 	return link, btn, false
 }
 
-func save(storeDir string, s State, img []byte) error {
+func save(storeDir string, s State, blobs map[string][]byte) error {
 	dir := filepath.Join(storeDir, "sponsor")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	mdir := mediaDir(storeDir)
+	if err := os.MkdirAll(mdir, 0o755); err != nil {
 		return err
 	}
-	if img != nil {
-		if err := writeAtomic(imagePath(storeDir), img, 0o644); err != nil {
-			return err
+	keep := map[string]bool{}
+	for _, it := range s.Items {
+		keep[it.Hash] = true
+		if raw, ok := blobs[it.Hash]; ok {
+			if err := writeAtomic(mediaFilePath(storeDir, it.Hash), raw, 0o644); err != nil {
+				return err
+			}
 		}
+	}
+	// Clean stale media files no longer in rotation pool.
+	if entries, err := os.ReadDir(mdir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && !keep[e.Name()] && !strings.HasSuffix(e.Name(), ".tmp") {
+				_ = os.Remove(filepath.Join(mdir, e.Name()))
+			}
+		}
+	}
+	if raw, ok := blobs[s.Hash]; ok {
+		_ = writeAtomic(imagePath(storeDir), raw, 0o644)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -557,6 +986,7 @@ func withdraw(storeDir string) error {
 		return err
 	}
 	_ = os.Remove(imagePath(storeDir))
+	_ = os.RemoveAll(mediaDir(storeDir))
 	data, _ := json.MarshalIndent(State{Withdrawn: true, Checked: time.Now()}, "", "  ")
 	return writeAtomic(statePath(storeDir), data, 0o644)
 }

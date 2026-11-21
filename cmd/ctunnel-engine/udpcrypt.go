@@ -28,6 +28,9 @@ type udpTunnel struct {
 	framer framer
 	peer   atomic.Pointer[net.UDPAddr]
 	fec    bool
+	gaming bool
+	dup    bool
+	dedup  dupFilter
 	// offload is true when the TUN device does TSO/GRO with virtio_net_hdr
 	// (offload.go); only the batched path uses it.
 	offload bool
@@ -43,7 +46,12 @@ type udpTunnel struct {
 func stealth(kind string) bool { return kind == "faketcp" || kind == "icmp" }
 
 func runUDPCrypt(cfg config) error {
-	t := &udpTunnel{cfg: cfg, fec: cfg.kind == string(dpi.ProfileRUDPFEC)}
+	t := &udpTunnel{
+		cfg:    cfg,
+		fec:    cfg.kind == string(dpi.ProfileRUDPFEC) || cfg.kind == string(dpi.ProfileGameFEC),
+		gaming: cfg.kind == string(dpi.ProfileGameUDP) || cfg.kind == string(dpi.ProfileGameFEC) || cfg.kind == string(dpi.ProfileGameDUP),
+		dup:    cfg.kind == string(dpi.ProfileGameDUP),
+	}
 	peerRole := catalog.PeerRole(cfg.role)
 	var err error
 	// Each direction has its own key, so the two peers never share a nonce space.
@@ -84,7 +92,7 @@ func runUDPCrypt(cfg config) error {
 	defer closeCarrier()
 
 	workers := workerCount(cfg.kind)
-	batched := batching && !t.fec
+	batched := batching && !t.fec && !t.gaming
 	devs, closeDevs, err := openDevices(cfg, workers, batched)
 	if err == nil && batched {
 		if oerr := enableOffload(devs[0]); oerr == nil {
@@ -145,6 +153,9 @@ func (t *udpTunnel) openCarriers(dialer bool) (func(), error) {
 		return nil, fmt.Errorf("listen udp :%d: %w", cfg.port, err)
 	}
 	forceBuffers(t.conn, socketBuffer)
+	if t.gaming {
+		applyGamingQoS(t.conn)
+	}
 	conn := t.conn
 	t.openSend = func() (carrier, error) { return newUDPBatch(conn) }
 	t.readers = []func() (carrier, error){t.openSend}
@@ -171,7 +182,13 @@ func (t *udpTunnel) deviceToNet(dev *os.File) error {
 		}
 		if !t.fec {
 			t.framer.PutHeader(out[:hlen], len(ct))
-			_, _ = t.conn.WriteToUDP(out[:hlen+len(ct)], peer)
+			pktOut := out[:hlen+len(ct)]
+			_, _ = t.conn.WriteToUDP(pktOut, peer)
+			if t.dup && len(ct) <= gameDupMaxPayload {
+				// Duplicate small gaming frames immediately with the same sequence;
+				// receiver deduplicates in O(1) so the first arriving copy wins.
+				_, _ = t.conn.WriteToUDP(pktOut, peer)
+			}
 			continue
 		}
 		group, shard := enc.Next()
@@ -337,6 +354,9 @@ func (t *udpTunnel) keepalive() {
 	interval := keepaliveInterval
 	if t.cfg.reverse && t.cfg.role == "kharej" {
 		interval = 5 * time.Second
+		if t.gaming {
+			interval = 3 * time.Second
+		}
 	}
 	for {
 		if peer := t.peer.Load(); peer != nil {
@@ -368,6 +388,15 @@ func (t *udpTunnel) netToDevice(dev *os.File) error {
 		}
 		wire := buf[:n]
 		if !t.fec {
+			if t.dup {
+				if df, ok := t.framer.(*dpi.Framer); ok {
+					seq, ct, err := df.ParseGameDupHeader(wire)
+					if err == nil && t.dedup.Accept(seq) {
+						t.deliver(ct, src, plainBuf, dev)
+					}
+					continue
+				}
+			}
 			ct, err := t.framer.Unwrap(wire)
 			if err == nil {
 				t.deliver(ct, src, plainBuf, dev)

@@ -30,9 +30,10 @@ func TestInitialManifest404KeepsEmbeddedDefaults(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
 
-	oldURL, oldClient := ManifestURL, HTTPClient
-	t.Cleanup(func() { ManifestURL, HTTPClient = oldURL, oldClient })
+	oldURL, oldAPI, oldClient := ManifestURL, AssetsAPIURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, AssetsAPIURL, HTTPClient = oldURL, oldAPI, oldClient })
 	ManifestURL = srv.URL + "/assets/sponsor.json"
+	AssetsAPIURL = ""
 	HTTPClient = srv.Client()
 
 	dir := t.TempDir()
@@ -73,9 +74,10 @@ func TestRefreshCachesRevalidatesAndValidates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	oldURL, oldClient := ManifestURL, HTTPClient
-	t.Cleanup(func() { ManifestURL, HTTPClient = oldURL, oldClient })
+	oldURL, oldAPI, oldClient := ManifestURL, AssetsAPIURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, AssetsAPIURL, HTTPClient = oldURL, oldAPI, oldClient })
 	ManifestURL = srv.URL + "/manifest.json"
+	AssetsAPIURL = ""
 	HTTPClient = srv.Client()
 
 	dir := t.TempDir()
@@ -157,9 +159,10 @@ func TestRefreshSpontextAndSponlink(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	oldURL, oldClient := ManifestURL, HTTPClient
-	t.Cleanup(func() { ManifestURL, HTTPClient = oldURL, oldClient })
+	oldURL, oldAPI, oldClient := ManifestURL, AssetsAPIURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, AssetsAPIURL, HTTPClient = oldURL, oldAPI, oldClient })
 	ManifestURL = srv.URL + "/assets/sponsor.json"
+	AssetsAPIURL = ""
 	HTTPClient = srv.Client()
 
 	dir := t.TempDir()
@@ -222,11 +225,12 @@ func TestRefreshFallsBackToTunnelRelayWhenDirectBlocked(t *testing.T) {
 	_ = deadLn.Close()
 
 	var relayHits atomic.Int32
-	oldURL, oldClient, oldRoutes, oldDial, oldRelayClient := ManifestURL, HTTPClient, RelayRoutes, RelayDialTarget, RelayClientFor
+	oldURL, oldAPI, oldClient, oldRoutes, oldDial, oldRelayClient := ManifestURL, AssetsAPIURL, HTTPClient, RelayRoutes, RelayDialTarget, RelayClientFor
 	t.Cleanup(func() {
-		ManifestURL, HTTPClient, RelayRoutes, RelayDialTarget, RelayClientFor = oldURL, oldClient, oldRoutes, oldDial, oldRelayClient
+		ManifestURL, AssetsAPIURL, HTTPClient, RelayRoutes, RelayDialTarget, RelayClientFor = oldURL, oldAPI, oldClient, oldRoutes, oldDial, oldRelayClient
 	})
 	ManifestURL = "http://" + deadAddr + "/assets/sponsor.json"
+	AssetsAPIURL = ""
 	HTTPClient = nil // exercise real direct-then-relay fallback
 	RelayRoutes = func(string) []tgrelay.Route {
 		return []tgrelay.Route{{Name: "ir-l4", Network: "tcp", Addr: srv.Listener.Addr().String()}}
@@ -251,5 +255,94 @@ func TestRefreshFallsBackToTunnelRelayWhenDirectBlocked(t *testing.T) {
 	img, typ, _, err := Image(dir)
 	if err != nil || typ != "image/png" || !bytes.Equal(img, defaultImage) {
 		t.Fatalf("unexpected relayed image: typ=%q err=%v", typ, err)
+	}
+}
+
+func TestMultiFormatDetectionMatchingAndRotation(t *testing.T) {
+	for _, good := range []string{"sponsor.png", "sponser1.gif", "SPONSER2.MP4", "sponsor_promo.webm", "sponser-ad.mov", "sponsorA.jpg", "sponserB.webp"} {
+		if !IsSponsorMediaName(good) {
+			t.Errorf("IsSponsorMediaName(%q) = false, want true", good)
+		}
+	}
+	for _, bad := range []string{"readme.png", "sponsor.svg", "sponser.html", "sponsor.exe", "spontext.txt", "sponsor.json"} {
+		if IsSponsorMediaName(bad) {
+			t.Errorf("IsSponsorMediaName(%q) = true, want false", bad)
+		}
+	}
+
+	// Verify embedded defaults contain both PNG and lightweight MP4 (<400 KB) and rotate without back-to-back repeats.
+	if len(defaultPromoVideo) == 0 || len(defaultPromoVideo) > 400<<10 {
+		t.Fatalf("embedded promo video size=%d bytes, want 1..409600", len(defaultPromoVideo))
+	}
+	if mime, kind, ok := DetectMediaMIME(defaultPromoVideo); !ok || mime != "video/mp4" || kind != KindVideo {
+		t.Fatalf("DetectMediaMIME(defaultPromoVideo) = (%q, %q, %v)", mime, kind, ok)
+	}
+	if mime, kind, ok := DetectMediaMIME([]byte{0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84, 'w', 'e', 'b', 'm', 0, 0}); !ok || mime != "video/webm" || kind != KindVideo {
+		t.Fatalf("DetectMediaMIME(webm) = (%q, %q, %v)", mime, kind, ok)
+	}
+	if mime, kind, ok := DetectMediaMIME([]byte{0, 0, 0, 20, 'f', 't', 'y', 'p', 'q', 't', ' ', ' ', 0, 0, 0, 0}); !ok || mime != "video/quicktime" || kind != KindVideo {
+		t.Fatalf("DetectMediaMIME(mov) = (%q, %q, %v)", mime, kind, ok)
+	}
+	if _, _, ok := DetectMediaMIME([]byte("<svg onload=alert(1)></svg>")); ok {
+		t.Fatal("SVG must be rejected")
+	}
+
+	dir := t.TempDir()
+	_, first, ok := Pick(dir, "")
+	if !ok {
+		t.Fatal("Pick returned no item")
+	}
+	_, second, ok := Pick(dir, first.Hash)
+	if !ok || second.Hash == first.Hash {
+		t.Fatalf("expected non-repeating pick from 2-item embedded pool: first=%s second=%s", first.Hash, second.Hash)
+	}
+	b, meta, err := MediaByHash(dir, defaultVideoHash)
+	if err != nil || meta.Kind != KindVideo || len(b) != len(defaultPromoVideo) {
+		t.Fatalf("MediaByHash(video): meta=%+v len=%d err=%v", meta, len(b), err)
+	}
+}
+
+func TestRemoteAPIDiscoveryFindsSponserPrefixMedia(t *testing.T) {
+	gifBytes := []byte("GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;")
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/assets/sponsor.json":
+			_, _ = w.Write([]byte(`{"image":"sponsor.png","title":"Promo"}`))
+		case "/assets/sponsor.png":
+			_, _ = w.Write(defaultImage)
+		case "/assets/sponser1.gif":
+			_, _ = w.Write(gifBytes)
+		case "/assets/sponser2.mp4":
+			_, _ = w.Write(defaultPromoVideo)
+		case "/api/assets":
+			_ = json.NewEncoder(w).Encode([]map[string]string{
+				{"name": "sponser1.gif", "type": "file", "download_url": srvURL + "/assets/sponser1.gif"},
+				{"name": "sponser2.mp4", "type": "file", "download_url": srvURL + "/assets/sponser2.mp4"},
+				{"name": "unrelated.png", "type": "file", "download_url": srvURL + "/assets/unrelated.png"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	oldURL, oldAPI, oldClient := ManifestURL, AssetsAPIURL, HTTPClient
+	t.Cleanup(func() { ManifestURL, AssetsAPIURL, HTTPClient = oldURL, oldAPI, oldClient })
+	ManifestURL = srv.URL + "/assets/sponsor.json"
+	AssetsAPIURL = srv.URL + "/api/assets"
+	HTTPClient = srv.Client()
+
+	dir := t.TempDir()
+	if err := Refresh(dir); err != nil {
+		t.Fatalf("Refresh with API discovery: %v", err)
+	}
+	st := Load(dir)
+	if len(st.Items) != 3 {
+		t.Fatalf("expected 3 discovered media items (png+gif+mp4), got %d: %+v", len(st.Items), st.Items)
+	}
+	if isSafeMediaHash("..") || isSafeMediaHash("../etc/passwd") || mediaFilePath(dir, "..") != "" {
+		t.Fatal("unsafe media hash accepted by path builder")
 	}
 }

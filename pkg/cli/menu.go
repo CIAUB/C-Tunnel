@@ -136,10 +136,31 @@ var methodMenu = []methodFamily{
 			{"WS", "ws, wsmux, wss, wssmux: WebSocket, with TLS in wss", []string{"ws", "wsmux", "wss", "wssmux"}},
 			{"UDP", "udp, udpmux: KCP over UDP, AES; good on lossy links", []string{"udp", "udpmux"}},
 		}},
+	{catalog.FamilyGaming, "Gaming",
+		"dedicated low-ping Direct gaming tunnels: game-udp (lowest ping), game-fec (XOR-FEC), game-dup (dual-send), game-kcp (L4)",
+		"dedicated low-ping Reverse gaming tunnels (Kharej dials Iran): game-udp, game-fec, game-dup, game-kcp",
+		[]methodGroup{
+			{"Ultra-Low Ping", "game-udp: lowest ping & jitter, 4B header, DSCP EF QoS, no batching", []string{"game-udp"}},
+			{"Loss-Resilient", "game-fec (0-RTT 2+1 XOR-FEC) · game-dup (dual-send small game packets + dedup)", []string{"game-fec", "game-dup"}},
+			{"Gaming L4 Port-Forward", "game-kcp: 5ms NoDelay KCP + fast UDP forwarding without TUN", []string{"game-kcp"}},
+		}},
 }
 
 // methodOpt is how a method is listed in the given mode.
 func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
+	if m.Gaming() {
+		prefix := ""
+		if m.L4() && !reverse {
+			prefix = "direct+"
+		} else if !m.L4() && reverse {
+			prefix = "rev+"
+		}
+		desc := m.Summary
+		if desc == "" {
+			desc = m.Title
+		}
+		return MenuOpt{Title: prefix + m.Name, Desc: desc}
+	}
 	if m.L4() && !reverse {
 		return MenuOpt{Title: "direct+" + m.Name, Desc: "Fast Direct L4 " + m.Title + " (Iran dials Kharej, zero-copy splice)"}
 	}
@@ -362,7 +383,7 @@ func setupWizard(role string) {
 		tc.Port = askInt("Tunnel port (the same as on the Iran server)", probe.Port)
 	case m.L4():
 		proto := "TCP"
-		if m.Name == "udp" || m.Name == "udpmux" {
+		if m.Name == "udp" || m.Name == "udpmux" || m.Name == "game-kcp" {
 			proto = "UDP"
 		}
 		if tc.DirectL4 {
@@ -400,8 +421,8 @@ func setupWizard(role string) {
 	if !m.L4() {
 		probe.Port, probe.Padding = tc.Port, tc.Padding
 		tc.MTU = askInt("Tunnel MTU", tunnel.DefaultMTU(m, tc.Port, probe.Padding))
-		tc.RateMbps = askInt("Rate limit Mbit/s (0 = none)", 0)
 	}
+	askTunnelLimits(&tc)
 
 	if err := tunnel.Create(st, &tc); err != nil {
 		Err(err.Error())
@@ -415,6 +436,45 @@ func setupWizard(role string) {
 		showLink(tc)
 	}
 	Pause()
+}
+
+func askFloat(prompt string, def float64) float64 {
+	defStr := "0"
+	if def > 0 {
+		defStr = strconv.FormatFloat(def, 'f', -1, 64)
+	}
+	for {
+		raw := strings.TrimSpace(Ask(prompt, defStr))
+		if raw == "" {
+			return def
+		}
+		v, err := strconv.ParseFloat(raw, 64)
+		if err == nil && v >= 0 {
+			return v
+		}
+		Warn("Enter a non-negative number (e.g. 50 or 12.5).")
+	}
+}
+
+func askTunnelLimits(tc *catalog.TunnelConfig) {
+	switch ChooseOpt("Traffic Quota & Bandwidth Limits (optional)", []MenuOpt{
+		{"None (Unlimited)", "no traffic volume cap and no speed limit"},
+		{"Traffic Quota (GB)", "auto-stop tunnel when volume limit is reached"},
+		{"Bandwidth Limit (Mbit/s)", "cap maximum transfer speed"},
+		{"Both", "traffic volume quota + bandwidth speed limit"},
+	}) {
+	case 2:
+		tc.QuotaGB = askFloat("Traffic quota in GB (e.g. 100)", 0)
+		tc.RateMbps = 0
+	case 3:
+		tc.QuotaGB = 0
+		tc.RateMbps = askInt("Bandwidth limit Mbit/s (e.g. 100)", 0)
+	case 4:
+		tc.QuotaGB = askFloat("Traffic quota in GB (e.g. 100)", 0)
+		tc.RateMbps = askInt("Bandwidth limit Mbit/s (e.g. 100)", 0)
+	default:
+		tc.QuotaGB, tc.RateMbps = 0, 0
+	}
 }
 
 func setupKharej() {
@@ -941,19 +1001,20 @@ const backupFile = "/root/ctunnel-backup.json"
 func backupRestoreMenu() {
 	Header()
 	switch ChooseOpt("Backup & Restore", []MenuOpt{
-		{"Create backup", backupFile},
-		{"Restore backup", "re-creates and starts every tunnel in the file"},
+		{"Create backup", backupFile + " (tunnels, secrets, quotas & traffic)"},
+		{"Restore backup", "restore tunnels and cumulative traffic from JSON"},
 	}) {
 	case 1:
-		st, ok := loadStore()
-		if !ok {
-			return
+		raw, bk, err := tunnel.CreateBackup(StoreDir)
+		if err != nil {
+			Err(err.Error())
+			break
 		}
-		b, _ := json.MarshalIndent(st, "", "  ")
-		if err := os.WriteFile(backupFile, b, 0o600); err != nil {
+		if err := os.WriteFile(backupFile, raw, 0o600); err != nil {
 			Err(err.Error())
 		} else {
-			Ok(fmt.Sprintf("Saved %d tunnels to %s", len(st.Tunnels), backupFile))
+			Ok(fmt.Sprintf("Saved %d tunnel(s) + %s total traffic to %s",
+				len(bk.Tunnels), humanBytes(bk.Total.RxBytes+bk.Total.TxBytes), backupFile))
 		}
 	case 2:
 		path := Ask("Backup file", backupFile)
@@ -962,6 +1023,23 @@ func backupRestoreMenu() {
 			Err(err.Error())
 			break
 		}
+		if _, err := tunnel.ParseBackup(b); err == nil {
+			overwrite := Confirm("Overwrite existing tunnels with the same name", false)
+			res, err := tunnel.RestoreBackup(StoreDir, b, overwrite)
+			if err != nil {
+				Err("Restore failed: " + err.Error())
+				break
+			}
+			Ok(fmt.Sprintf("Created: %d · Overwritten: %d · Skipped: %d · Failed: %d",
+				len(res.Created), len(res.Overwritten), len(res.Skipped), len(res.Failed)))
+			Info(fmt.Sprintf("Restored Traffic: %s · Server Cumulative Total: %s",
+				humanBytes(res.RestoredRx+res.RestoredTx), humanBytes(res.TotalCumRx+res.TotalCumTx)))
+			for _, f := range res.Failed {
+				Err("  " + f)
+			}
+			break
+		}
+		// Legacy fallback for old raw state.json backups.
 		var saved catalog.Store
 		if err := json.Unmarshal(b, &saved); err != nil {
 			Err("Not a C-Tunnel backup: " + err.Error())

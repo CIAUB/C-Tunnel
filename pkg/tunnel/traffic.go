@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"ctunnel/pkg/catalog"
 )
 
 // Interface counters start from zero whenever the interface is created again:
@@ -172,6 +174,50 @@ func forgetTraffic(name string) {
 	if validName(name) {
 		_ = os.Remove(filepath.Join(TrafficDir, name))
 	}
+}
+
+// SeedTraffic sets the persistent traffic base for name (used when restoring a
+// backup onto a new or existing server). Any live interface bytes already
+// counted are anchored so future traffic adds smoothly on top of rx/tx.
+func SeedTraffic(name string, rx, tx uint64) error {
+	if !validName(name) {
+		return fmt.Errorf("invalid tunnel name %q", name)
+	}
+	unlock, err := lockTunnel(name)
+	if err != nil && err != errBusy {
+		return err
+	}
+	if err == nil {
+		defer unlock()
+	}
+	c := readInterface(Dev(name))
+	rec := trafficRecord{baseRx: rx, baseTx: tx, key: "restored"}
+	if c.ok {
+		rec.key, rec.seenRx, rec.seenTx = c.key, c.rx, c.tx
+	}
+	return writeTrafficRecord(name, rec)
+}
+
+// ResetTraffic resets a tunnel's cumulative traffic counter back to zero while
+// anchoring the live interface counters so the reset takes effect immediately
+// without restarting the tunnel.
+func ResetTraffic(name string) error {
+	return SeedTraffic(name, 0, 0)
+}
+
+// TotalTrafficAll returns the cumulative server-wide RX/TX across all active
+// tunnels plus archived traffic (from deleted or migrated tunnels).
+func TotalTrafficAll(st *catalog.Store) (rx, tx uint64) {
+	if st == nil {
+		return 0, 0
+	}
+	rx, tx = st.ArchivedRx, st.ArchivedTx
+	for _, tc := range st.Tunnels {
+		tr, tt := TrafficTotal(tc.Name)
+		rx += tr
+		tx += tt
+	}
+	return rx, tx
 }
 
 func validName(name string) bool {

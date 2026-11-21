@@ -315,7 +315,7 @@ func manageTunnels() {
 		}
 
 		Rule()
-		Subtle("Filter: a=all · u=up · d=down · r=reverse · f=direct · l4/l3/udp/stealth/l2")
+		Subtle("Filter: a=all · u=up · d=down · r=reverse · f=direct · game · l4/l3/udp/stealth/l2")
 		raw := strings.TrimSpace(Ask("Select [1-"+strconv.Itoa(len(flat))+"], filter, or 0=back", "0"))
 		if raw == "" || raw == "0" || strings.EqualFold(raw, "q") {
 			return
@@ -348,17 +348,40 @@ func manageOne(name string) {
 		}
 		Header()
 		Title("Tunnel: " + t.Name)
-		fmt.Printf("  %s%s %s%s  %s\n\n", Gray, t.Role, methodLabel(t), Reset, stateWord(t))
+		fmt.Printf("  %s%s %s%s  %s\n", Gray, t.Role, methodLabel(t), Reset, stateWord(t))
+		q := tunnel.QuotaStatus(t)
+		if q.Active || t.RateMbps > 0 {
+			var parts []string
+			if q.Active {
+				stTxt := fmt.Sprintf("Quota: %s / %.2f GB (%.0f%%)", humanBytes(q.UsedBytes), q.QuotaGB, q.Percent)
+				if q.Stopped {
+					stTxt += " [STOPPED BY QUOTA]"
+				} else if q.Overridden {
+					stTxt += " [OVERRIDE ACTIVE]"
+				}
+				parts = append(parts, stTxt)
+			}
+			if t.RateMbps > 0 {
+				parts = append(parts, fmt.Sprintf("Bandwidth Cap: %d Mbit/s", t.RateMbps))
+			}
+			Info("  " + strings.Join(parts, "  ·  "))
+		}
+		fmt.Println()
 
 		peerTitle := "Change " + tunnel.PeerRoleLabel(t.Role)
 		peerHint := t.RemoteIP
 		if peerHint == "" || peerHint == "0.0.0.0" || peerHint == "::" {
 			peerHint = "any (dials in)"
 		}
+		startDesc := ""
+		if q.Stopped || (q.Exhausted && !q.Overridden) {
+			startDesc = "manual override — bypasses exhausted traffic quota"
+		}
 		idx := ChooseOpt("Action", []MenuOpt{
 			{peerTitle, peerHint + " — switch without recreating tunnel"},
-			{"Edit", "peer, ports, MTU, rate, secret"},
-			{"Start", ""},
+			{"Edit", "peer, ports, MTU, quota, bandwidth, secret"},
+			{"Quota & Limits", "reset usage, add extra GB, or change caps"},
+			{"Start", startDesc},
 			{"Stop", ""},
 			{"Restart", ""},
 			{"Live Log", "Ctrl+C to return"},
@@ -371,18 +394,28 @@ func manageOne(name string) {
 		case 2:
 			editMenu(st, t)
 		case 3:
-			report(tunnel.Apply(t), "Started")
+			quotaMenu(st, t)
 		case 4:
-			report(tunnel.Stop(t), "Stopped")
+			_, overrode, err := tunnel.StartManual(st, t.Name)
+			if err != nil {
+				Err(fmt.Sprintf("Failed: %v", err))
+			} else if overrode {
+				Ok("Tunnel Started (Quota Override Enabled — will not auto-stop).")
+			} else {
+				Ok("Tunnel Started.")
+			}
+			Pause()
 		case 5:
-			report(tunnel.Apply(t), "Restarted")
+			report(tunnel.Stop(t), "Stopped")
 		case 6:
+			report(tunnel.Apply(t), "Restarted")
+		case 7:
 			Info("Live Log — Ctrl+C To Return.\n")
 			followLog(t)
-		case 7:
+		case 8:
 			showLink(t)
 			Pause()
-		case 8:
+		case 9:
 			if Confirm(fmt.Sprintf("Delete %q Permanently", t.Name), false) {
 				if err := tunnel.Remove(st, t.Name); err != nil {
 					Err("Delete failed: " + err.Error())
@@ -392,6 +425,94 @@ func manageOne(name string) {
 				Pause()
 				return
 			}
+		default:
+			return
+		}
+	}
+}
+
+func quotaMenu(st *catalog.Store, t catalog.TunnelConfig) {
+	for {
+		t, ok := st.Find(t.Name)
+		if !ok {
+			return
+		}
+		q := tunnel.QuotaStatus(t)
+		Header()
+		Title("Quota & Limits: " + t.Name)
+		if q.Active {
+			KV("Traffic Quota", fmt.Sprintf("%s / %.2f GB (%.0f%%)", humanBytes(q.UsedBytes), q.QuotaGB, q.Percent))
+			if q.Stopped {
+				KV("Quota State", "STOPPED (exhausted)")
+			} else if q.Overridden {
+				KV("Quota State", "OVERRIDE (bypassed)")
+			} else {
+				KV("Quota State", "active")
+			}
+		} else {
+			KV("Traffic Quota", "unlimited")
+		}
+		KV("Bandwidth Cap", rateText(t.RateMbps))
+		fmt.Println()
+		switch ChooseOpt("Quota Action", []MenuOpt{
+			{"Manual Start (Override)", "start and bypass exhausted quota"},
+			{"Reset Usage", "zero traffic counter and restore normal tracking"},
+			{"Add Extra Quota (+GB)", "increase volume cap and auto-resume if stopped"},
+			{"Set Traffic Quota (GB)", "set absolute quota (0 = unlimited)"},
+			{"Set Bandwidth Limit (Mbit/s)", "set speed cap (0 = unlimited)"},
+		}) {
+		case 1:
+			_, overrode, err := tunnel.StartManual(st, t.Name)
+			if err != nil {
+				Err(err.Error())
+			} else if overrode {
+				Ok("Started with Quota Override active.")
+			} else {
+				Ok("Tunnel started.")
+			}
+			Pause()
+		case 2:
+			if Confirm("Reset traffic usage counter to zero", true) {
+				if _, err := tunnel.ResetQuotaUsage(st, t.Name); err != nil {
+					Err(err.Error())
+				} else {
+					Ok("Traffic usage reset to 0.")
+				}
+				Pause()
+			}
+		case 3:
+			extra := askFloat("Extra quota to add (GB)", 50)
+			if extra <= 0 {
+				continue
+			}
+			updated, resumed, err := tunnel.AddQuotaGB(st, t.Name, extra)
+			if err != nil {
+				Err(err.Error())
+			} else if resumed {
+				Ok(fmt.Sprintf("Quota raised to %.2f GB and tunnel resumed.", updated.QuotaGB))
+			} else {
+				Ok(fmt.Sprintf("Quota raised to %.2f GB.", updated.QuotaGB))
+			}
+			Pause()
+		case 4:
+			t.QuotaGB = askFloat("Traffic quota GB (0 = unlimited)", t.QuotaGB)
+			if t.QuotaGB == 0 {
+				t.QuotaStopped, t.QuotaOverride = false, false
+			}
+			if err := tunnel.Save(st, &t); err != nil {
+				Err(err.Error())
+			} else {
+				Ok("Traffic quota saved.")
+			}
+			Pause()
+		case 5:
+			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = unlimited)", t.RateMbps)
+			if err := tunnel.Save(st, &t); err != nil {
+				Err(err.Error())
+			} else {
+				applyAndReport(t)
+			}
+			Pause()
 		default:
 			return
 		}
@@ -478,7 +599,8 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			{peerLabel, peerVal},
 			{"Tunnel Port", portText(t.Port)},
 			{"MTU", strconv.Itoa(t.MTU)},
-			{"Rate Limit", rateText(t.RateMbps)},
+			{"Bandwidth Limit", rateText(t.RateMbps)},
+			{"Traffic Quota", quotaText(t.QuotaGB)},
 			{"Forwarded Ports", strings.Join(t.Ports, ", ")},
 			{"Secret Token", "make a new one — the other end must be set up again"},
 		}
@@ -505,8 +627,13 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		case 3:
 			t.MTU = askInt("MTU", t.MTU)
 		case 4:
-			t.RateMbps = askInt("Rate limit Mbit/s (0 = none)", t.RateMbps)
+			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = none)", t.RateMbps)
 		case 5:
+			t.QuotaGB = askFloat("Traffic quota GB (0 = unlimited)", t.QuotaGB)
+			if t.QuotaGB == 0 {
+				t.QuotaStopped, t.QuotaOverride = false, false
+			}
+		case 6:
 			if t.Role != "iran" {
 				Warn("Forwarded Ports Live On The Iran Server.")
 				changed = false
@@ -514,7 +641,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			} else {
 				t.Ports = tunnel.ParsePorts(Ask("Forward ports (e.g. 443, 2053=8443)", strings.Join(t.Ports, ", ")))
 			}
-		case 6:
+		case 7:
 			if !Confirm("Make A New Secret Token", false) {
 				changed = false
 				break
@@ -535,12 +662,19 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			continue
 		}
 		applyAndReport(t)
-		if idx == 2 || idx == 3 || idx == 6 {
+		if idx == 2 || idx == 3 || idx == 7 {
 			Warn("Apply The Same Change On The Other Server (Setup Link Below).")
 			showLink(t)
 		}
 		Pause()
 	}
+}
+
+func quotaText(gb float64) string {
+	if gb <= 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%.2f GB", gb)
 }
 
 func portText(p int) string {
@@ -729,6 +863,10 @@ func tunnelMetrics() {
 			fmt.Println()
 		}
 	}
+	totRx, totTx := tunnel.TotalTrafficAll(st)
+	Rule()
+	Ok(fmt.Sprintf("Cumulative Server Total (incl. archived/restored): %s In, %s Out (%s total)",
+		humanBytes(totRx), humanBytes(totTx), humanBytes(totRx+totTx)))
 	Pause()
 }
 

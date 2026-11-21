@@ -92,20 +92,47 @@ var messages = map[string][2]string{
 	"fo.still":     {"%s هنوز ترافیک رد نمی‌کند", "%s still does not carry traffic"},
 	"fo.noans":     {"پاسخی از %s نیامد به مدت %s", "no answer from %s for %s"},
 	"fo.nocon":     {"اتصالی به سرور مقابل نبود به مدت %s", "no connection to the other server for %s"},
+
+	// Multi-admin, Mini App, Backup/Restore, Quotas & Gaming
+	"b.openPanel":     {"🚀 ورود مستقیم به وب‌پنل (Mini App)", "🚀 Open Web Panel (Mini App)"},
+	"b.panelGuide":    {"🌐 راهنمای Mini App وب‌پنل", "🌐 Mini App HTTPS Setup"},
+	"b.backup":        {"📦 بکاپ و ریستور", "📦 Backup & Restore"},
+	"b.admins":        {"👥 ادمین‌ها", "👥 Admins"},
+	"b.gaming":        {"🎮 پروتکل‌های گیمینگ", "🎮 Gaming Protocols"},
+	"b.backupNow":     {"📤 ارسال بکاپ همین الان", "📤 Send Backup Now"},
+	"b.restoreSafe":   {"📥 ریستور امن (حفظ فعلی‌ها)", "📥 Restore (Keep Existing)"},
+	"b.restoreOver":   {"♻️ ریستور با بازنویسی", "♻️ Restore (Overwrite)"},
+	"b.overrideStart": {"⚡ شروع دستی (رد سهمیه)", "⚡ Start (Override Quota)"},
+	"b.resetQuota":    {"🧹 صفر کردن مصرف", "🧹 Reset Usage"},
+	"b.openTunnel":    {"🔎 مدیریت این تانل", "🔎 Manage Tunnel"},
+	"quota.hit":       {"⛔ <b>سهمیه ترافیک تانل %s تمام شد!</b>\n🖥 سرور: <code>%s</code>\n📊 مصرف: <code>%s / %s</code>\n\nتانل به‌صورت خودکار متوقف شد. برای ادامه یکی از گزینه‌های زیر را بزن:", "⛔ <b>Tunnel %s reached its traffic quota!</b>\n🖥 Server: <code>%s</code>\n📊 Usage: <code>%s / %s</code>\n\nThe tunnel was stopped automatically. Choose a recovery action below:"},
+	"quota.override":  {"⚡ تانل <b>%s</b> به‌صورت دستی (بدون توقف خودکار مجدد) روشن شد.", "⚡ <b>%s</b> started manually (quota override active)."},
+	"quota.reset":     {"🧹 مصرف تانل <b>%s</b> صفر شد و شمارش سهمیه دوباره فعال شد.", "🧹 Usage for <b>%s</b> reset to 0 and quota tracking resumed."},
+	"quota.added":     {"➕ سهمیه تانل <b>%s</b> به <code>%.1f GB</code> افزایش یافت%s.", "➕ Quota for <b>%s</b> increased to <code>%.1f GB</code>%s."},
+	"quota.resumed":   {" و تانل دوباره روشن شد", " and tunnel resumed"},
+	"panel.httpsHint": {"🌐 <b>اتصال مستقیم Mini App وب‌پنل</b>\n%s\nتلگرام دکمه Mini App را فقط روی آدرس <code>https://</code> باز می‌کند.\n\nبرای فعال‌سازی:\n۱. در وب‌پنل (Manage ← Panel Settings) دامنه و گواهی SSL را تنظیم کن، یا\n۲. اگر پشت Nginx/Cloudflare هستی، آدرس HTTPS عمومی پنل را در فیلد <b>Mini App URL</b> تنظیمات تلگرام وارد کن.", "🌐 <b>Direct Web Panel Mini App</b>\n%s\nTelegram Mini Apps require an <code>https://</code> panel URL.\n\nEnable it by:\n1. Configuring Domain + TLS in Panel Settings, or\n2. Setting your public reverse-proxy URL in Telegram Settings → <b>Mini App URL</b>."},
 }
 
 var botCommands = map[string][]BotCommand{
 	"fa": {
-		{Command: "start", Description: "پنل مدیریت"},
-		{Command: "status", Description: "وضعیت و مدیریت تانل‌ها"},
-		{Command: "report", Description: "گزارش ترافیک"},
+		{Command: "start", Description: "پنل مدیریت و Mini App"},
+		{Command: "status", Description: "جدول تانل‌ها و سهمیه‌ها"},
+		{Command: "report", Description: "گزارش ترافیک تجمعی"},
+		{Command: "backup", Description: "بکاپ، ریستور و بکاپ خودکار"},
+		{Command: "admins", Description: "مدیریت ادمین‌های ربات"},
+		{Command: "gaming", Description: "پروتکل‌های اختصاصی گیمینگ"},
 		{Command: "settings", Description: "تنظیمات هشدارها"},
+		{Command: "server", Description: "منابع سرور"},
 	},
 	"en": {
-		{Command: "start", Description: "Admin panel"},
-		{Command: "status", Description: "Tunnels and controls"},
-		{Command: "report", Description: "Traffic report"},
+		{Command: "start", Description: "Admin panel & Mini App"},
+		{Command: "status", Description: "Tunnels & quotas table"},
+		{Command: "report", Description: "Cumulative traffic report"},
+		{Command: "backup", Description: "Backup, restore & auto-backup"},
+		{Command: "admins", Description: "Manage bot admins"},
+		{Command: "gaming", Description: "Dedicated gaming protocols"},
 		{Command: "settings", Description: "Alert switches"},
+		{Command: "server", Description: "Server resources"},
 	},
 }
 

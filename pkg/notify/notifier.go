@@ -43,17 +43,18 @@ type Notifier struct {
 	Host          string
 	BootID        func() string
 
-	mu        sync.Mutex
-	stateMu   sync.Mutex
-	cfg       Config
-	cfgTime   time.Time
-	bot       *Bot
-	cmdKey    string
-	status    Status
-	watch     map[string]*tunnelWatch
-	started   bool
-	lastDaily string
-	out       chan outMsg
+	mu          sync.Mutex
+	stateMu     sync.Mutex
+	cfg         Config
+	cfgTime     time.Time
+	bot         *Bot
+	cmdKey      string
+	status      Status
+	watch       map[string]*tunnelWatch
+	restoreWait map[int64]restorePrompt
+	started     bool
+	lastDaily   string
+	out         chan outMsg
 }
 
 type tunnelWatch struct {
@@ -68,10 +69,11 @@ type outMsg struct {
 }
 
 type state struct {
-	Version   string               `json:"version"`
-	BootID    string               `json:"boot_id"`
-	LastDaily string               `json:"last_daily"`
-	Traffic   map[string][2]uint64 `json:"traffic"`
+	Version        string               `json:"version"`
+	BootID         string               `json:"boot_id"`
+	LastDaily      string               `json:"last_daily"`
+	LastAutoBackup time.Time            `json:"last_auto_backup,omitempty"`
+	Traffic        map[string][2]uint64 `json:"traffic"`
 }
 
 func New(storeDir string, alive func(catalog.TunnelConfig) bool, enabled func(catalog.TunnelConfig) bool) *Notifier {
@@ -94,8 +96,9 @@ func New(storeDir string, alive func(catalog.TunnelConfig) bool, enabled func(ca
 			b, _ := os.ReadFile("/proc/sys/kernel/random/boot_id")
 			return strings.TrimSpace(string(b))
 		},
-		watch: map[string]*tunnelWatch{},
-		out:   make(chan outMsg, 64),
+		watch:       map[string]*tunnelWatch{},
+		restoreWait: map[int64]restorePrompt{},
+		out:         make(chan outMsg, 64),
 	}
 }
 
@@ -104,6 +107,7 @@ func (n *Notifier) Run(ctx context.Context) {
 	go n.sender(ctx)
 	go n.poller(ctx)
 	go n.runSponsor(ctx)
+	go n.runAutoBackup(ctx)
 	t := time.NewTicker(tick)
 	defer t.Stop()
 	for {
@@ -213,37 +217,63 @@ func (n *Notifier) sender(ctx context.Context) {
 			return
 		case m = <-n.out:
 		}
-		var err error
-		for try := 0; try < 4; try++ {
-			n.mu.Lock()
-			bot, chat := n.bot, n.cfg.ChatID
-			n.mu.Unlock()
-			if bot == nil || chat == "" {
-				err = fmt.Errorf("telegram is not set up")
-				break
+		n.mu.Lock()
+		bot, targets := n.bot, n.cfg.AlertTargets()
+		n.mu.Unlock()
+		if bot == nil || len(targets) == 0 {
+			continue
+		}
+		var lastErr error
+		sentAny := false
+		for _, chat := range targets {
+			var err error
+			for try := 0; try < 4; try++ {
+				sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+				_, err = bot.Send(sctx, chat, m.text, m.rows)
+				cancel()
+				if err == nil {
+					sentAny = true
+					break
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(try+1) * 5 * time.Second):
+				}
 			}
-			sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-			_, err = bot.Send(sctx, chat, m.text, m.rows)
-			cancel()
-			if err == nil {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Duration(try+1) * 5 * time.Second):
+			if err != nil {
+				lastErr = err
 			}
 		}
 		n.mu.Lock()
-		if err != nil {
-			n.status.LastError = err.Error()
-			log.Printf("telegram: %v", err)
+		if lastErr != nil && !sentAny {
+			n.status.LastError = lastErr.Error()
+			log.Printf("telegram: %v", lastErr)
 		} else {
 			n.status.LastSent, n.status.LastError = n.Now(), ""
 		}
 		n.mu.Unlock()
 		n.writeStatus()
 	}
+}
+
+// QuotaAlert notifies all configured admins when a tunnel reaches its traffic
+// quota and is automatically stopped, attaching one-tap recovery buttons.
+func (n *Notifier) QuotaAlert(tc catalog.TunnelConfig, usedBytes, limitBytes uint64) {
+	n.mu.Lock()
+	cfg := n.cfg
+	n.mu.Unlock()
+	if !cfg.Configured() {
+		return
+	}
+	lang := n.lang()
+	text := tr(lang, "quota.hit", esc(tc.Name), esc(n.Host), bytesStr(usedBytes), bytesStr(limitBytes))
+	rows := [][]Button{
+		{{Text: tr(lang, "b.overrideStart"), Data: "go:" + tc.Name}, {Text: tr(lang, "b.resetQuota"), Data: "qr:" + tc.Name}},
+		{{Text: "➕ +10 GB", Data: "qa10:" + tc.Name}, {Text: "➕ +50 GB", Data: "qa50:" + tc.Name}},
+		{{Text: tr(lang, "b.openTunnel"), Data: "tn:" + tc.Name}},
+	}
+	n.send(text, rows)
 }
 
 func (n *Notifier) announceStart(cfg Config) {
@@ -357,11 +387,13 @@ func (n *Notifier) report(st *catalog.Store, s *state) string {
 	b.WriteString(tr(lang, "report.head", esc(n.Host), n.Now().Format("2006-01-02 15:04")) + "\n")
 	b.WriteString(tr(lang, "rule") + "\n")
 	tcs := sorted(st.Tunnels)
-	if len(tcs) == 0 {
+	if len(tcs) == 0 && st.ArchivedRx == 0 && st.ArchivedTx == 0 {
 		b.WriteString(tr(lang, "noTunnels"))
 		return b.String()
 	}
 	b.WriteString("<pre>")
+	b.WriteString(pad("TUNNEL", 10) + pad("DOWN", 8) + pad("UP", 8) + "QUOTA\n")
+	b.WriteString(strings.Repeat("─", 34) + "\n")
 	next := map[string][2]uint64{}
 	var allRx, allTx uint64
 	for _, tc := range tcs {
@@ -369,18 +401,46 @@ func (n *Notifier) report(st *catalog.Store, s *state) string {
 		next[tc.Name] = [2]uint64{rx, tx}
 		allRx += rx
 		allTx += tx
-		icon, _ := n.state("en", tc)
-		fmt.Fprintf(&b, "%s %s · %s\n", icon, esc(tc.Name), esc(n.method(tc)))
-		if old, ok := s.Traffic[tc.Name]; ok && rx >= old[0] && tx >= old[1] {
-			fmt.Fprintf(&b, "   Δ ↓ %-11s ↑ %s\n", bytesStr(rx-old[0]), bytesStr(tx-old[1]))
+		capStr := "∞"
+		if tc.QuotaGB > 0 {
+			pct := 0
+			if lim := tunnel.QuotaLimitBytes(tc.QuotaGB); lim > 0 {
+				pct = int(min((rx+tx)*100/lim, 100))
+			}
+			capStr = fmt.Sprintf("%d%%/%.0fG", pct, tc.QuotaGB)
+			if tc.QuotaStopped {
+				capStr += "!"
+			} else if tc.QuotaOverride {
+				capStr += "*"
+			}
 		}
-		fmt.Fprintf(&b, "   Σ ↓ %-11s ↑ %s\n", bytesStr(rx), bytesStr(tx))
+		b.WriteString(esc(pad(tc.Name, 10)) + esc(pad(shortBytes(rx), 8)) + esc(pad(shortBytes(tx), 8)) + esc(capStr) + "\n")
+		if old, ok := s.Traffic[tc.Name]; ok && rx >= old[0] && tx >= old[1] {
+			fmt.Fprintf(&b, "  Δ ↓%-8s ↑%s\n", shortBytes(rx-old[0]), shortBytes(tx-old[1]))
+		}
 	}
-	if len(tcs) > 1 {
-		fmt.Fprintf(&b, "%s\nALL Σ ↓ %-11s ↑ %s\n", strings.Repeat("─", 28), bytesStr(allRx), bytesStr(allTx))
+	if st.ArchivedRx > 0 || st.ArchivedTx > 0 {
+		b.WriteString(pad("archived", 10) + pad(shortBytes(st.ArchivedRx), 8) + pad(shortBytes(st.ArchivedTx), 8) + "—\n")
+		allRx += st.ArchivedRx
+		allTx += st.ArchivedTx
 	}
+	b.WriteString(strings.Repeat("─", 34) + "\n")
+	fmt.Fprintf(&b, "%s%s%s%s\n", pad("TOTAL Σ", 10), pad(shortBytes(allRx), 8), pad(shortBytes(allTx), 8), shortBytes(allRx+allTx))
 	s.Traffic = next
 	return strings.TrimRight(b.String(), "\n") + "</pre>\n" + tr(lang, "report.lgd")
+}
+
+func shortBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%dB", n)
+	}
+	div, exp := uint64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func (n *Notifier) method(tc catalog.TunnelConfig) string {

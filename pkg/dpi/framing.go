@@ -26,12 +26,16 @@ const (
 	ProfileSTUNTURN   Profile = "stun-turn"    // TURN ChannelData message (RFC 8656 §12.4), as WebRTC calls relay
 	ProfileGTPU       Profile = "gtp-u"        // GTPv1-U G-PDU header (3GPP TS 29.281), the mobile core's user plane
 	ProfileESPUDP     Profile = "esp-udp"      // ESP in UDP (RFC 3948), as IPsec VPNs behind NAT send it
+	ProfileGameUDP    Profile = "game-udp"     // Ultra-low-overhead 4B gaming UDP header (DSCP EF, zero-batch)
+	ProfileGameFEC    Profile = "game-fec"     // Gaming UDP with 2+1 XOR-FEC parity (0-RTT packet-loss recovery)
+	ProfileGameDUP    Profile = "game-dup"     // Gaming redundant dual-send UDP with 32-bit dedup sequence
 )
 
 var AllProfiles = []Profile{
 	ProfileDTLS13, ProfileQUICv1, ProfileSRTPDirect, ProfileWGStealth,
 	ProfileRUDPFEC, ProfileDNSCrypt, ProfileNTPDirect, ProfileOpenVPNDCO,
 	ProfileSTUNTURN, ProfileGTPU, ProfileESPUDP,
+	ProfileGameUDP, ProfileGameFEC, ProfileGameDUP,
 }
 
 var ErrInvalidFrame = errors.New("ctunnel/dpi: invalid or unrecognized protocol frame")
@@ -93,8 +97,10 @@ func (f *Framer) HeaderLen() int {
 		return 11
 	case ProfileSRTPDirect, ProfileDNSCrypt:
 		return 12
-	case ProfileSTUNTURN:
+	case ProfileSTUNTURN, ProfileGameUDP:
 		return 4
+	case ProfileGameDUP:
+		return 6
 	default:
 		return 8
 	}
@@ -125,7 +131,7 @@ func (f *Framer) PutHeader(hdr []byte, payloadLen int) {
 		mask := byte(s)
 		hdr[0], hdr[1], hdr[2], hdr[3] = f.magic[0]^mask, f.magic[1]^mask, f.magic[2]^mask, f.magic[3]
 		binary.BigEndian.PutUint32(hdr[4:8], s)
-	case ProfileRUDPFEC:
+	case ProfileRUDPFEC, ProfileGameFEC:
 		PutRUDPHeader(hdr, s, ShardData0, payloadLen)
 	case ProfileDNSCrypt:
 		binary.BigEndian.PutUint16(hdr[0:2], uint16(s))
@@ -154,6 +160,14 @@ func (f *Framer) PutHeader(hdr []byte, payloadLen int) {
 		// SPI, then the sequence number, which starts at 1.
 		binary.BigEndian.PutUint32(hdr[0:4], f.id)
 		binary.BigEndian.PutUint32(hdr[4:8], s)
+	case ProfileGameUDP:
+		// Ultra-compact 4B framing: 2B per-secret magic + 2B sequence.
+		hdr[0], hdr[1] = f.magic[0], f.magic[1]
+		binary.BigEndian.PutUint16(hdr[2:4], uint16(s))
+	case ProfileGameDUP:
+		// 6B framing: 2B per-secret magic + 4B monotonic sequence for receiver dedup.
+		hdr[0], hdr[1] = f.magic[0], f.magic[1]
+		binary.BigEndian.PutUint32(hdr[2:6], s)
 	}
 }
 
@@ -183,7 +197,7 @@ func (f *Framer) Unwrap(wire []byte) ([]byte, error) {
 	case ProfileWGStealth:
 		mask := wire[7]
 		ok = wire[0] == f.magic[0]^mask && wire[1] == f.magic[1]^mask && wire[2] == f.magic[2]^mask && wire[3] == f.magic[3]
-	case ProfileRUDPFEC:
+	case ProfileRUDPFEC, ProfileGameFEC:
 		_, _, payload, err := ParseRUDPHeader(wire)
 		return payload, err
 	case ProfileDNSCrypt:
@@ -199,11 +213,24 @@ func (f *Framer) Unwrap(wire []byte) ([]byte, error) {
 			int(binary.BigEndian.Uint16(wire[2:4])) == len(wire)-h
 	case ProfileESPUDP:
 		ok = binary.BigEndian.Uint32(wire[0:4]) == f.id
+	case ProfileGameUDP:
+		ok = wire[0] == f.magic[0] && wire[1] == f.magic[1]
+	case ProfileGameDUP:
+		ok = wire[0] == f.magic[0] && wire[1] == f.magic[1]
 	}
 	if !ok {
 		return nil, ErrInvalidFrame
 	}
 	return wire[h:], nil
+}
+
+// ParseGameDupHeader validates a game-dup frame and returns its 32-bit sequence
+// number and encrypted payload.
+func (f *Framer) ParseGameDupHeader(wire []byte) (uint32, []byte, error) {
+	if len(wire) < 6 || wire[0] != f.magic[0] || wire[1] != f.magic[1] {
+		return 0, nil, ErrInvalidFrame
+	}
+	return binary.BigEndian.Uint32(wire[2:6]), wire[6:], nil
 }
 
 // PutRUDPHeader writes the 8-byte rudp-fec header: [4B group][1B shard][1B rsv][2B len].

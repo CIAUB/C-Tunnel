@@ -9,11 +9,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/notify"
 	"ctunnel/pkg/tunnel"
 )
 
@@ -63,6 +65,15 @@ func setup(t *testing.T) (*client, *catalog.Store, *[]string) {
 	}
 	t.Cleanup(func() { tunnel.Run = orig })
 	dir := t.TempDir()
+	origTraffic, origLock := tunnel.TrafficDir, tunnel.LockDir
+	origTG := notify.ConfigPath
+	tunnel.TrafficDir = filepath.Join(dir, "traffic")
+	tunnel.LockDir = dir
+	notify.ConfigPath = filepath.Join(dir, "telegram.json")
+	t.Cleanup(func() {
+		tunnel.TrafficDir, tunnel.LockDir = origTraffic, origLock
+		notify.ConfigPath = origTG
+	})
 	st, err := catalog.LoadStore(dir)
 	if err != nil {
 		t.Fatal(err)

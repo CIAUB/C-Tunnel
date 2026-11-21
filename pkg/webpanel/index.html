@@ -31,7 +31,7 @@ code{font-size:.92em;padding:1px 5px;border-radius:5px;background:var(--sunk)}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 15px;border-radius:12px;border:1px solid var(--ln2);background:var(--s2);font-size:13px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap;transition:background-color .15s,border-color .15s,opacity .15s}
 .btn:hover{background:var(--s3);border-color:var(--ln3)}
-.btn:active{transform:translateY(1px)}
+.btn:active{transform:scale(.975)}
 .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .btn svg{width:16px;height:16px;flex:none}
 .btn.primary{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
@@ -42,9 +42,27 @@ code{font-size:.92em;padding:1px 5px;border-radius:5px;background:var(--sunk)}
 .btn.icon{width:40px;padding:0}
 .btn.sm{min-height:34px;padding:0 11px;font-size:12px;border-radius:10px}
 .btn.sm.icon{width:34px}
-.btn[aria-busy=true]{cursor:progress;position:relative;color:transparent}
-.btn[aria-busy=true]::after{content:"";position:absolute;width:14px;height:14px;border:2px solid var(--mu);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite}
+.btn.xs{min-height:28px;padding:0 9px;font-size:11px;border-radius:8px;gap:5px}
+.btn[aria-busy=true]{cursor:progress;position:relative;color:transparent!important}
+.btn[aria-busy=true] svg{opacity:0}
+.btn[aria-busy=true]::after{content:"";position:absolute;width:14px;height:14px;border:2px solid color-mix(in srgb,var(--tx) 25%,transparent);border-top-color:var(--tx);border-radius:50%;animation:spin .65s linear infinite}
+.btn.primary[aria-busy=true]::after{border-color:color-mix(in srgb,var(--ac-tx) 30%,transparent);border-top-color:var(--ac-tx)}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse-ring{0%{transform:scale(.88);opacity:.6}70%{transform:scale(1.38);opacity:0}100%{transform:scale(1.38);opacity:0}}
+@keyframes skel-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@keyframes fade-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.skel{border-radius:10px;background:linear-gradient(90deg,var(--s2) 25%,var(--s3) 50%,var(--s2) 75%);background-size:200% 100%;animation:skel-shimmer 1.35s ease-in-out infinite}
+.skel-sq{width:100%;aspect-ratio:1;border-radius:0}
+.skel-sm{display:inline-block;height:12px;width:82px;border-radius:6px}
+.skel-card{min-height:210px;border-radius:var(--r-lg);border:1px solid var(--ln);padding:18px;display:grid;gap:12px;background:var(--s1)}
+.skel-line{height:14px;border-radius:7px}.skel-line.w40{width:40%}.skel-line.w65{width:65%}.skel-line.w85{width:85%}.skel-line.h32{height:32px;border-radius:10px}
+.boot-screen{min-height:100dvh;display:grid;place-content:center;justify-items:center;gap:10px;padding:32px;text-align:center;animation:fade-in .2s ease-out}
+.boot-mark{position:relative;width:54px;height:54px;display:grid;place-items:center;margin-bottom:4px}
+.boot-ring{position:absolute;inset:-4px;border-radius:16px;border:2px solid var(--ac);animation:pulse-ring 1.5s cubic-bezier(.22,1,.36,1) infinite}
+.boot-mark .logo{width:46px;height:46px;border-radius:13px}
+.boot-screen b{font-size:16px;letter-spacing:-.01em}
+.boot-screen span{font-size:12px;color:var(--mu)}
+.view-in{animation:fade-in .18s var(--spring)}
 
 label{display:block;margin-bottom:6px;font-size:12px;font-weight:600;color:var(--tx2)}
 input,select,textarea{width:100%;min-height:42px;padding:9px 12px;background:var(--field);border:1px solid var(--ln2);border-radius:11px}
@@ -67,7 +85,7 @@ input[type=file]{padding:8px}
 .chip.ok .dot,.dot.ok{background:var(--ok)}
 button.chip{cursor:pointer}
 
-#boot{padding:48px;color:var(--mu)}
+.mt6{margin-top:6px}.mt8{margin-top:8px}
 .gate{min-height:100dvh;display:grid;place-items:center;padding:24px}
 .gate form{width:100%;max-width:380px;padding:30px;display:grid;gap:20px;box-shadow:var(--lift)}
 .gate h1{font-size:20px;letter-spacing:-.02em}
@@ -278,9 +296,33 @@ details[open] summary{margin-bottom:12px}
 @media(hover:hover) and (pointer:fine){a.sc-card:hover{border-color:var(--ln3)}}
 a.sc-card:active{transform:scale(.985)}
 a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
-.sc-card img{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:cover;background:var(--s2)}
+.sc-card img,.sc-card video{display:block;width:100%;height:auto;aspect-ratio:1;object-fit:cover;background:var(--s2)}
+.sc-media{position:relative;width:100%;aspect-ratio:1;background:var(--s2);overflow:hidden}
 .sc-tag{padding:8px 12px;font-size:11px;font-weight:600;color:var(--mu);border-top:1px solid var(--ln);display:flex;align-items:center;justify-content:space-between;gap:8px}
 .sc-tag svg{width:12px;height:12px;opacity:.75;flex:none}
+.q-box{display:grid;gap:7px;padding:10px 12px;border-radius:12px;background:var(--s2);border:1px solid var(--ln);font-size:12px}
+.q-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.q-head b{font-variant-numeric:tabular-nums;font-size:12px}
+.q-prog{appearance:none;-webkit-appearance:none;width:100%;height:6px;border:0;border-radius:999px;overflow:hidden;background:var(--s3)}
+.q-prog::-webkit-progress-bar{background:var(--s3);border-radius:999px}
+.q-prog::-webkit-progress-value{background:var(--ok);border-radius:999px;transition:width .25s var(--spring)}
+.q-prog.warn::-webkit-progress-value{background:var(--wr)}
+.q-prog.bad::-webkit-progress-value{background:var(--er)}
+.q-prog::-moz-progress-bar{background:var(--ok);border-radius:999px}
+.q-prog.warn::-moz-progress-bar{background:var(--wr)}
+.q-prog.bad::-moz-progress-bar{background:var(--er)}
+.q-acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.q-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;background:var(--s3);color:var(--tx2)}
+.q-pill.bad{background:color-mix(in srgb,var(--er) 16%,transparent);color:var(--er)}
+.q-pill.warn{background:color-mix(in srgb,var(--wr) 18%,transparent);color:var(--wr)}
+.q-pill.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.proto-tag.game{background:color-mix(in srgb,#10b981 18%,transparent);color:#34d399;border-color:color-mix(in srgb,#10b981 40%,transparent)}
+:root[data-theme=light] .proto-tag.game{color:#047857}
+.lim-box{display:grid;gap:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--ln);background:var(--s2)}
+.lim-seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.lim-seg button{min-height:34px;padding:0 8px;border-radius:10px;border:1px solid var(--ln2);background:var(--s1);font-size:12px;font-weight:600;color:var(--tx2);cursor:pointer;transition:background-color .15s,border-color .15s,color .15s}
+.lim-seg button[aria-pressed=true]{background:var(--ac);color:var(--ac-tx);border-color:var(--ac)}
+@media(max-width:640px){.lim-seg{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #t-pick-count{margin-left:auto}
 #t-row-search{max-width:240px;min-height:34px;margin-left:auto;border-radius:999px}
 .totp-sec{border-top:1px dashed var(--ln2);padding-top:10px;display:grid;gap:10px}
@@ -512,7 +554,14 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
   <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 10l-4-4 4-4M3 6h14M17 14l4 4-4 4M21 18H7"/></symbol>
 </svg>
 
-<div id="boot" role="status">Connecting to C-Tunnel…</div>
+<div id="boot" class="boot-screen" role="status" aria-live="polite">
+  <div class="boot-mark">
+    <div class="boot-ring" aria-hidden="true"></div>
+    <div class="logo"><svg aria-hidden="true"><use href="#i-logo"/></svg></div>
+  </div>
+  <b id="boot-title">C-Tunnel</b>
+  <span id="boot-sub">Connecting to control plane…</span>
+</div>
 
 <main id="gate" class="gate" hidden>
   <form id="login-form" class="card">
@@ -559,7 +608,7 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
     <div id="ov-grid" class="ov-grid">
       <article class="card hero">
         <div class="hero-top">
-          <div><b id="agg-total" class="num">0 B</b><p>carried by the tunnels since they were created — kept across restarts and reboots</p></div>
+          <div><b id="agg-total" class="num">0 B</b><p>cumulative traffic across all tunnels (preserved across restarts, reboots, and backups)</p></div>
           <div class="chips">
             <span class="chip"><span class="dot"></span><span id="agg-rx">0 b/s</span>&nbsp;down</span>
             <span class="chip"><span class="dot"></span><span id="agg-tx">0 b/s</span>&nbsp;up</span>
@@ -798,6 +847,8 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
         <button type="button" data-filter="kharej" aria-pressed="false">Kharej</button>
         <button type="button" data-filter="direct" aria-pressed="false">Direct</button>
         <button type="button" data-filter="reverse" aria-pressed="false">Reverse</button>
+        <button type="button" data-filter="gaming" aria-pressed="false">Gaming</button>
+        <button type="button" data-filter="quota" aria-pressed="false">Quota</button>
         <button type="button" data-filter="up" aria-pressed="false">Up</button>
         <button type="button" data-filter="down" aria-pressed="false">Down</button>
       </div>
@@ -855,13 +906,14 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
         <div class="acts"><button class="btn" type="button" data-go="#/telegram">Set up alerts</button></div>
       </article>
       <article class="card mcard">
-        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-box"/></svg></div><div><b>Backup &amp; restore</b><span>Every tunnel's settings and secret token in one JSON file. Keep it private.</span></div></div>
+        <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-box"/></svg></div><div><b>Backup &amp; restore</b><span>All tunnels, secrets, quotas, and cumulative traffic usage in one JSON file. Keep it private.</span></div></div>
         <div class="acts">
           <a id="btn-backup" class="btn" download><svg aria-hidden="true"><use href="#i-down"/></svg>Download backup</a>
           <button id="btn-restore" class="btn" type="button"><svg aria-hidden="true"><use href="#i-up"/></svg>Restore from file</button>
           <input id="restore-file" type="file" accept=".json,application/json" hidden>
         </div>
-        <p class="hint">Restore adds the tunnels this server does not have and starts them. Tunnels with the same name are left as they are.</p>
+        <label class="switch mt6"><input id="restore-overwrite" type="checkbox"><span>Overwrite existing tunnels with the same name</span></label>
+        <p class="hint">Restores configurations and cumulative traffic usage accurately into the server total. Leave overwrite unchecked to keep existing tunnels untouched.</p>
       </article>
       <article class="card mcard">
         <div class="mcard-head"><div class="ic"><svg aria-hidden="true"><use href="#i-gear"/></svg></div><div><b>Panel settings</b><span>Base path, custom domain and HTTPS certificate</span></div></div>
@@ -891,8 +943,8 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
         <label id="f-reverse-l">Tunnel mode</label>
         <select id="f-reverse" class="sr" aria-labelledby="f-reverse-l"><option value="1" selected>1 · REVERSE — kharej dials in</option><option value="0">2 · DIRECT — iran dials kharej</option></select>
         <div class="mode-switch" role="group" aria-labelledby="f-reverse-l">
-          <button type="button" class="mode-card" data-tmode="1" aria-pressed="true"><b>1 · REVERSE <span class="proto-tag v2">Anti-DPI</span></b><span>Kharej dials into Iran (frp+ / rev+ / L4)</span></button>
-          <button type="button" class="mode-card" data-tmode="0" aria-pressed="false"><b>2 · DIRECT <span class="proto-tag fast">Fast Turbo &amp; L4</span></b><span>Iran dials Kharej (Direct L4, 8x BBR Turbo, xGRE, Raw)</span></button>
+          <button type="button" class="mode-card" data-tmode="1" aria-pressed="true"><b>1 · REVERSE <span class="proto-tag v2">Anti-DPI</span></b><span>Kharej dials into Iran (frp+ / rev+ / L4 / Gaming)</span></button>
+          <button type="button" class="mode-card" data-tmode="0" aria-pressed="false"><b>2 · DIRECT <span class="proto-tag fast">Fast Direct</span></b><span>Iran dials Kharej (Direct L4, 8x BBR, xGRE, Gaming)</span></button>
         </div>
       </div>
     </div>
@@ -923,6 +975,22 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
       <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
       <p class="hint" id="fwd-hint">listen=target. Leave empty to forward nothing.</p></div>
+    <div class="lim-box" role="group" aria-label="Traffic quota and bandwidth limits">
+      <div>
+        <label id="f-lim-l">Traffic quota &amp; bandwidth limit (optional)</label>
+        <div class="lim-seg" role="group" aria-labelledby="f-lim-l">
+          <button type="button" data-lim="none" aria-pressed="true">Unlimited</button>
+          <button type="button" data-lim="quota" aria-pressed="false">Traffic Quota</button>
+          <button type="button" data-lim="rate" aria-pressed="false">Bandwidth</button>
+          <button type="button" data-lim="both" aria-pressed="false">Both</button>
+        </div>
+      </div>
+      <div id="lim-inputs" class="grid2" hidden>
+        <div id="quota-wrap" hidden><label for="f-quota">Traffic quota (GB)</label><input id="f-quota" type="number" min="0" step="0.5" placeholder="e.g. 500"></div>
+        <div id="rate-wrap" hidden><label for="f-rate">Bandwidth limit (Mbit/s)</label><input id="f-rate" type="number" min="0" placeholder="e.g. 100"></div>
+      </div>
+      <p class="hint">When a tunnel reaches its traffic quota it automatically stops and alerts admins until manually overridden, reset, or topped up.</p>
+    </div>
     <details>
       <summary>Advanced — empty fields are set automatically</summary>
       <div class="stack" id="adv-stack">
@@ -941,9 +1009,8 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
           <div><label for="f-tun-iran">Iran local tunnel IPv4</label><input id="f-tun-iran" class="num" placeholder="10.77.N.1"></div>
           <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
         </div>
-        <div class="grid3" id="mtu-wrap">
+        <div class="grid2" id="mtu-wrap">
           <div><label for="f-mtu">MTU</label><input id="f-mtu" type="number" min="576" max="9000"></div>
-          <div><label for="f-rate">Rate limit (Mbit/s)</label><input id="f-rate" type="number" min="0"></div>
           <div id="pad-wrap"><label for="f-padding">Random padding (bytes)</label><input id="f-padding" type="number" min="0" max="64" placeholder="default"></div>
         </div>
         <div class="grid2">
@@ -1092,7 +1159,12 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
     <div class="dhead"><div><h3 id="tg-title">Telegram alerts</h3><p>Sent by this server's agent. Create a bot with @BotFather, then send it /start to see your chat ID.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <p id="tg-iran" class="hint" role="note" hidden>This is an Iran server, where Telegram is filtered: its alerts go out through one of its tunnels and the Kharej server at the other end, which needs C-Tunnel 2.0.0 or later.</p>
     <div id="tg-error" class="form-error" role="alert" tabindex="-1" hidden></div>
-    <div class="grid2"><div><label for="tg-token">Bot token</label><input id="tg-token" class="mono" type="password" autocomplete="off" placeholder="123456789:AA…"></div><div><label for="tg-chat">Chat ID</label><input id="tg-chat" class="mono" autocomplete="off" placeholder="the number /start shows, or @channel"></div></div>
+    <div class="grid2"><div><label for="tg-token">Bot token</label><input id="tg-token" class="mono" type="password" autocomplete="off" placeholder="123456789:AA…"></div><div><label for="tg-chat">Primary Chat ID</label><input id="tg-chat" class="mono" autocomplete="off" placeholder="the number /start shows, or @channel"></div></div>
+    <div class="grid2">
+      <div><label for="tg-admins">Admin User IDs (multi-admin)</label><input id="tg-admins" class="mono" autocomplete="off" placeholder="123456789, 987654321"></div>
+      <div><label for="tg-autobk">Auto-Backup schedule</label><select id="tg-autobk"><option value="0">Disabled</option><option value="6">Every 6 hours</option><option value="12">Every 12 hours</option><option value="24">Every 24 hours</option><option value="48">Every 48 hours</option><option value="72">Every 72 hours</option><option value="168">Every 7 days</option></select></div>
+    </div>
+    <div><label for="tg-miniapp">Mini App HTTPS URL (optional override)</label><input id="tg-miniapp" class="mono" type="url" autocomplete="off" placeholder="https://panel.example.com/panel-xxx/"><p id="tg-miniapp-hint" class="hint"></p></div>
     <div><label for="tg-lang">Bot language</label><select id="tg-lang"><option value="fa">فارسی</option><option value="en">English</option></select></div>
     <div><label id="tg-ev-l">Send an alert when</label>
       <div class="tg-events" role="group" aria-labelledby="tg-ev-l">
@@ -1101,9 +1173,27 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
         <label class="switch"><input id="tg-restart" type="checkbox">the server restarts or is updated</label>
         <div class="tg-row"><label class="switch"><input id="tg-daily" type="checkbox">a daily report, at</label><input id="tg-daily-at" type="time" class="mono tg-time" value="09:00" aria-label="Daily report time"></div>
       </div></div>
-    <p class="hint">The bot is a full admin panel: send it /start for its menu, with each tunnel's state, traffic and log, restart and stop, the traffic report, server resources and these switches. Each server needs a bot of its own for the buttons; alerts work with a shared bot too.</p>
+    <p class="hint">All configured admins can control tunnels, manage backups/quotas, and open this Web Panel directly via the Telegram Mini App button without entering a password.</p>
     <p id="tg-status" class="note" aria-live="polite"></p>
     <div class="dfoot"><button id="tg-remove" type="button" class="btn ghost">Remove</button><button id="tg-test" type="button" class="btn">Send test</button><button type="submit" class="btn primary">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-quota-add" aria-labelledby="qa-title">
+  <form id="qa-form" class="dbody" novalidate>
+    <div class="dhead"><div><h3 id="qa-title">Add extra traffic quota</h3><p id="qa-sub">Increase the tunnel's volume cap and automatically resume if stopped.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="qa-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+    <div>
+      <label for="qa-gb">Extra quota to add (GB)</label>
+      <input id="qa-gb" type="number" min="0.5" step="0.5" value="50" required>
+      <div class="presets mt8">
+        <button type="button" class="btn xs" data-qadd="10">+10 GB</button>
+        <button type="button" class="btn xs" data-qadd="50">+50 GB</button>
+        <button type="button" class="btn xs" data-qadd="100">+100 GB</button>
+        <button type="button" class="btn xs" data-qadd="500">+500 GB</button>
+      </div>
+    </div>
+    <div class="dfoot"><button type="button" class="btn ghost" data-close>Cancel</button><button type="submit" class="btn primary">Add quota</button></div>
   </form>
 </dialog>
 
@@ -1134,7 +1224,7 @@ a.sc-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
 const $ = id => document.getElementById(id);
 const BASE_PATH = window.location.pathname.replace(/\/+$/, "");
 const HISTORY = 24;
-let csrf = "", methods = [], newMethods = [], timer = 0, refreshTask = null, panel = {}, telemetry = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false, loaded = false;
+let csrf = "", methods = [], newMethods = [], timer = 0, refreshTask = null, panel = {}, telemetry = null, totalTraffic = null, allTunnels = [], tunnelFilter = "all", tunnelQuery = "", currentView = "overview", versionInfo = null, versionRequested = false, loaded = false;
 let testPoll = 0, testMode = "iran", testJobID = "", testDeploy = { direct: "", reverse: "" }, testScope = "all", selectedTestMethods = new Set(), testRowFilter = "all", testRowQuery = "", lastKharejJob = null, lastIranView = null, activePortsTunnel = null;
 const meterHistory = {};
 
@@ -1353,7 +1443,10 @@ function renderTelemetry(t, tunnels) {
   const a = t && t.aggregate;
   $("agg-rx").textContent = rate(a && a.rx_mbps);
   $("agg-tx").textContent = rate(a && a.tx_mbps);
-  $("agg-total").textContent = bytes(a ? (a.rx_total || 0) + (a.tx_total || 0) : 0);
+  const cumTotal = totalTraffic
+    ? (totalTraffic.rx_bytes || 0) + (totalTraffic.tx_bytes || 0)
+    : (a ? (a.rx_total || 0) + (a.tx_total || 0) : 0);
+  $("agg-total").textContent = bytes(cumTotal);
   const { rx, tx, max } = series(a);
   $("master-rx-line").setAttribute("d", chartPath(rx, max, 600, 120));
   $("master-tx-line").setAttribute("d", chartPath(tx, max, 600, 120));
@@ -1371,9 +1464,11 @@ function renderAlerts(tunnels) {
     c.append(el("span", "dot"), document.createTextNode(text));
     box.appendChild(c);
   };
+  const qStopped = tunnels.filter(t => t.quota && t.quota.stopped).length;
   const failed = tunnels.filter(t => tunnelState(t).cls === "bad").length;
   const noLink = tunnels.filter(t => t.state === "no link").length;
-  const stopped = tunnels.filter(t => tunnelState(t).cls === "off").length;
+  const stopped = tunnels.filter(t => tunnelState(t).cls === "off" && !(t.quota && t.quota.stopped)).length;
+  if (qStopped) add("bad", qStopped + (qStopped === 1 ? " tunnel stopped by traffic quota" : " tunnels stopped by traffic quota"), "#/tunnels");
   if (failed) add("bad", failed + (failed === 1 ? " tunnel has failed" : " tunnels have failed"), "#/tunnels");
   if (noLink) add("warn", noLink + (noLink === 1 ? " tunnel runs without a link" : " tunnels run without a link"), "#/tunnels");
   if (stopped) add("", stopped + " stopped", "#/tunnels");
@@ -1394,9 +1489,9 @@ function tunnelState(t) {
   }
 }
 function methodLabel(t) {
-  if (t.family === "Reverse-L4") return (t.direct_l4 && !t.reverse ? "direct+" : "") + t.method;
+  if (t.family === "Reverse-L4" || t.method === "game-kcp") return (t.direct_l4 && !t.reverse ? "direct+" : t.family === "Gaming" ? "rev+" : "") + t.method;
   if (!t.reverse) return (t.carrier ? "turbo+" : "") + t.method;
-  return (t.family === "UDP-Crypt" || t.family === "Stealth" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
+  return (t.family === "UDP-Crypt" || t.family === "Stealth" || t.family === "Gaming" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
 }
 function openPortsModal(t) {
   activePortsTunnel = t;
@@ -1526,9 +1621,35 @@ function tunnelCard(t) {
   rxD.append(el("i"), rxB, rxS, el("small", "", "down")); txD.append(el("i"), txB, txS, el("small", "", "up"));
   rates.append(rxD, txD);
   const info = el("div", "kv");
+  const qBox = el("div", "q-box");
+  qBox.hidden = true;
+  const qHead = el("div", "q-head");
+  const qText = el("b");
+  const qPill = el("span", "q-pill");
+  qHead.append(qText, qPill);
+  const qBar = el("progress", "q-prog");
+  qBar.max = 100; qBar.value = 0;
+  const qActs = el("div", "q-acts");
+  const qOverride = el("button", "btn xs primary", "Override Start");
+  qOverride.type = "button";
+  const qReset = el("button", "btn xs", "Reset Usage");
+  qReset.type = "button";
+  const qAdd = el("button", "btn xs", "+ Add Quota");
+  qAdd.type = "button";
+  qActs.append(qOverride, qReset, qAdd);
+  qBox.append(qHead, qBar, qActs);
+
   const c = { card, name, meth, ping, state, line, upLine, rttLine, fill, rxB, rxS, txB, txS, t,
-    peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Total RX / TX") };
-  inner.append(top, rates, info, field);
+    peer: kv(info, "Peer"), tunnelIP: kv(info, "Tunnel IP"), forwards: kv(info, "Forwards"), io: kv(info, "Total RX / TX"),
+    qBox, qText, qPill, qBar, qActs, qOverride, qReset, qAdd };
+  qOverride.onclick = e => run(e.currentTarget, () => api(tunnelURL(c.t.name, "start"), { method: "POST", timeout: 120000 }), "Override started " + c.t.name);
+  qReset.onclick = async e => {
+    const btn = e.currentTarget;
+    if (!(await confirmAction("Reset traffic usage for " + c.t.name + "?", "Resets this tunnel's usage counter to zero and restores normal quota tracking.", "Reset usage"))) return;
+    run(btn, () => api(tunnelURL(c.t.name, "quota/reset"), { method: "POST", timeout: 60000 }), "Reset usage for " + c.t.name);
+  };
+  qAdd.onclick = () => openQuotaAdd(c.t);
+  inner.append(top, rates, info, qBox, field);
 
   const band = el("div", "band");
   c.toggle = smallButton("Stop", "i-stop", e => toggleTunnel(e.currentTarget, c.t));
@@ -1574,9 +1695,32 @@ function updateTunnel(c, t) {
     c.peerBtn.querySelector("span").textContent = lbl;
     c.peerBtn.title = "Change " + lbl;
   }
-  c.tunnelIP.textContent = t.family === "Reverse-L4" ? (t.direct_l4 && !t.reverse ? "none (direct L4)" : "none (layer 4)") : t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
+  c.tunnelIP.textContent = isL4(t.method) ? (t.direct_l4 && !t.reverse ? "none (direct L4)" : "none (layer 4)") : t.tun_local4 && t.tun_remote4 ? t.tun_local4 + " → " + t.tun_remote4 : "—";
   renderForwardsCompact(c.forwards, t);
   c.io.textContent = bytes(t.status && t.status.rx_bytes) + " / " + bytes(t.status && t.status.tx_bytes);
+  const q = t.quota || {};
+  const hasQuota = !!(q.active && q.quota_gb > 0), hasRate = !!(t.rate_mbps > 0);
+  c.qBox.hidden = !(hasQuota || hasRate);
+  if (hasQuota || hasRate) {
+    const parts = [];
+    if (hasQuota) parts.push("Quota: " + bytes(q.used_bytes || 0) + " / " + q.quota_gb + " GB (" + (q.percent || 0) + "%)");
+    if (hasRate) parts.push("Cap: " + t.rate_mbps + " Mbit/s");
+    c.qText.textContent = parts.join(" · ");
+    c.qBar.hidden = !hasQuota;
+    c.qActs.hidden = !hasQuota;
+    if (hasQuota) {
+      const pct = Math.min(100, Math.max(0, q.percent || 0));
+      c.qBar.value = pct;
+      c.qBar.className = "q-prog" + (q.stopped || pct >= 100 ? " bad" : pct >= 80 ? " warn" : "");
+      if (q.stopped) { c.qPill.textContent = "Quota stopped"; c.qPill.className = "q-pill bad"; }
+      else if (q.overridden) { c.qPill.textContent = "Override active"; c.qPill.className = "q-pill warn"; }
+      else { c.qPill.textContent = "Active"; c.qPill.className = "q-pill ok"; }
+      c.qOverride.hidden = !(q.stopped || (q.exhausted && !q.overridden));
+    } else {
+      c.qPill.textContent = "Rate limit";
+      c.qPill.className = "q-pill";
+    }
+  }
   const s = telemetry && telemetry.tunnels ? telemetry.tunnels[t.name] : null;
   updatePingBadge(c.ping, s, st.cls, t.family);
   const [rv, ru] = bitrate((s && s.rx_mbps || 0) * 125000), [tv, tu] = bitrate((s && s.tx_mbps || 0) * 125000);
@@ -1589,10 +1733,38 @@ function updateTunnel(c, t) {
   const rttMax = Math.max(50, ...rttH);
   c.rttLine.setAttribute("d", rttH.some(v => v > 0) ? chartPath(rttH, rttMax, 300, 80) : "");
   const off = st.cls === "off";
-  c.toggle.replaceChildren(icon(off ? "i-play" : "i-stop"), el("span", "lbl", off ? "Start" : "Stop"));
-  c.toggle.title = off ? "Start" : "Stop";
+  c.toggle.replaceChildren(icon(off ? "i-play" : "i-stop"), el("span", "lbl", off ? (q.stopped ? "Override" : "Start") : "Stop"));
+  c.toggle.title = off ? (q.stopped ? "Manual start (quota override)" : "Start") : "Stop";
   c.del.setAttribute("aria-label", "Delete " + t.name);
 }
+let quotaAddTunnel = null;
+function openQuotaAdd(t) {
+  quotaAddTunnel = t;
+  $("qa-error").hidden = true;
+  $("qa-title").textContent = "Add quota — " + t.name;
+  $("qa-sub").textContent = "Current cap: " + (t.quota_gb || 0) + " GB. Adding extra GB resumes the tunnel automatically if stopped by quota.";
+  $("qa-gb").value = "50";
+  $("dlg-quota-add").showModal();
+  $("qa-gb").focus();
+}
+document.querySelectorAll("[data-qadd]").forEach(b => {
+  b.onclick = () => { $("qa-gb").value = b.dataset.qadd; };
+});
+$("qa-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  if (!quotaAddTunnel) return;
+  const extra = parseFloat($("qa-gb").value);
+  if (!Number.isFinite(extra) || extra <= 0) { formError("qa-error", "Enter a positive amount in GB."); return; }
+  const btn = e.submitter || $("qa-form").querySelector('[type="submit"]');
+  $("qa-error").hidden = true; btn.disabled = true; btn.setAttribute("aria-busy", "true");
+  try {
+    await api(tunnelURL(quotaAddTunnel.name, "quota/add"), { method: "POST", body: JSON.stringify({ extra_gb: extra }) });
+    $("dlg-quota-add").close();
+    toast("Added +" + extra + " GB quota to " + quotaAddTunnel.name, true);
+    refresh({ force: true });
+  } catch (err) { formError("qa-error", err.message); }
+  finally { btn.disabled = false; btn.removeAttribute("aria-busy"); }
+});
 function filteredTunnels() {
   const q = tunnelQuery.trim().toLowerCase();
   return allTunnels.filter(t => {
@@ -1600,6 +1772,8 @@ function filteredTunnels() {
     if (tunnelFilter === "kharej" && t.role !== "kharej") return false;
     if (tunnelFilter === "direct" && t.reverse) return false;
     if (tunnelFilter === "reverse" && !t.reverse) return false;
+    if (tunnelFilter === "gaming" && t.family !== "Gaming") return false;
+    if (tunnelFilter === "quota" && !(t.quota_gb > 0 || t.rate_mbps > 0)) return false;
     if (tunnelFilter === "up" && t.state !== "up") return false;
     if (tunnelFilter === "down" && t.state === "up") return false;
     if (!q) return true;
@@ -1611,10 +1785,19 @@ function setTunnelFilter(filter) {
   document.querySelectorAll("[data-filter]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.filter === filter)));
   renderTunnels();
 }
+function renderTunnelSkeletons() {
+  const box = $("tunnels");
+  if (!box || loaded || box.children.length) return;
+  for (let i = 0; i < 2; i++) {
+    const sk = el("div", "skel-card");
+    sk.append(el("div", "skel skel-line w40"), el("div", "skel skel-line w65"), el("div", "skel skel-line h32"), el("div", "skel skel-line w85"));
+    box.appendChild(sk);
+  }
+}
 function renderTunnels() {
   const list = filteredTunnels(), box = $("tunnels");
   $("t-count").textContent = allTunnels.length;
-  box.querySelector(".empty")?.remove();
+  box.querySelectorAll(".empty,.skel-card").forEach(n => n.remove());
   const seen = new Set();
   for (const t of list) {
     seen.add(t.name);
@@ -1652,6 +1835,7 @@ async function refresh({ force = false, reportErrors = false } = {}) {
     csrf = data.csrf_token;
     panel = data.panel || {};
     telemetry = data.telemetry || null;
+    totalTraffic = data.total_traffic || null;
     allTunnels = data.tunnels || [];
     $("boot").hidden = true; $("gate").hidden = true; $("app").hidden = false;
     $("btn-backup").href = BASE_PATH + "/api/backup";
@@ -1775,7 +1959,7 @@ function validateForm(form, errorID) {
 function num(id) { const v = $(id).value.trim(); return v === "" ? 0 : Number(v); }
 
 let protoFamFilter = "all", protoSearchQuery = "";
-const V2_METHOD_SET = new Set(["tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip"]);
+const V2_METHOD_SET = new Set(["tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip", "game-udp", "game-fec", "game-dup", "game-kcp"]);
 
 function fillMethods(list) {
   methods = list;
@@ -1861,10 +2045,22 @@ document.querySelectorAll("[data-pick-fam]").forEach(b => {
   };
 });
 const familyLabel = {
+  "Gaming": "Gaming — game-udp (lowest ping), game-fec (lossy links), game-dup (anti-spike), game-kcp (no-TUN L4)",
   "Stealth": "Stealth — faketcp (TCP look), icmp (ping)",
   "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)",
 };
-function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && mm.Family === "Reverse-L4"); }
+function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && (mm.Family === "Reverse-L4" || mm.Name === "game-kcp")); }
+let limitMode = "none";
+function setLimitMode(mode) {
+  limitMode = mode || "none";
+  document.querySelectorAll("[data-lim]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lim === limitMode)));
+  const showQ = limitMode === "quota" || limitMode === "both";
+  const showR = limitMode === "rate" || limitMode === "both";
+  if ($("lim-inputs")) $("lim-inputs").hidden = !(showQ || showR);
+  if ($("quota-wrap")) $("quota-wrap").hidden = !showQ;
+  if ($("rate-wrap")) $("rate-wrap").hidden = !showR;
+}
+document.querySelectorAll("[data-lim]").forEach(b => { b.onclick = () => setLimitMode(b.dataset.lim); });
 
 function renderProtoPicker() {
   const tabsBox = $("proto-tabs"), grid = $("proto-grid");
@@ -1873,21 +2069,23 @@ function renderProtoPicker() {
   const curMethod = $("f-method").value || "gre";
   const curTurbo = !rev && $("f-carrier").checked;
   const curSpec = methods.find(x => x.Name === curMethod);
-  const curL4 = !!(curSpec && curSpec.Family === "Reverse-L4");
+  const curL4 = isL4(curMethod);
+  const curGame = !!(curSpec && curSpec.Family === "Gaming");
 
   const dispName = rev
-    ? (curL4 ? curMethod : (curSpec && (curSpec.Family === "UDP-Crypt" || curSpec.Family === "Stealth" || curMethod === "wireguard") ? "rev+" + curMethod : "frp+" + curMethod))
+    ? (curL4 ? (curGame ? "rev+" + curMethod : curMethod) : (curSpec && (curSpec.Family === "UDP-Crypt" || curSpec.Family === "Stealth" || curSpec.Family === "Gaming" || curMethod === "wireguard") ? "rev+" + curMethod : "frp+" + curMethod))
     : (curL4 ? "direct+" + curMethod : (curTurbo ? "turbo+" + curMethod : curMethod));
   if ($("proto-cur-name")) $("proto-cur-name").textContent = dispName;
-  if ($("proto-cur-desc")) $("proto-cur-desc").textContent = curSpec ? "— " + curSpec.Title : "";
+  if ($("proto-cur-desc")) $("proto-cur-desc").textContent = curSpec ? "— " + (curSpec.Summary || curSpec.Title) : "";
   if ($("proto-cur-badge")) {
-    $("proto-cur-badge").textContent = rev ? "1 · REVERSE" : (curTurbo || curL4 ? "2 · FAST DIRECT" : "2 · DIRECT");
-    $("proto-cur-badge").className = "proto-tag " + (rev ? "v2" : "fast");
+    $("proto-cur-badge").textContent = curGame ? (rev ? "GAMING · REVERSE" : "GAMING · DIRECT") : (rev ? "1 · REVERSE" : (curTurbo || curL4 ? "2 · FAST DIRECT" : "2 · DIRECT"));
+    $("proto-cur-badge").className = "proto-tag " + (curGame ? "game" : (rev ? "v2" : "fast"));
   }
 
   const tabDefs = rev
     ? [
         ["all", "All Reverse"],
+        ["Gaming", "🎮 Gaming (Reverse)"],
         ["Reverse-L4", "Layer 4 (Port Fwd)"],
         ["L3-Direct", "L3 Kernel (frp+)"],
         ["L2-Direct", "L2 Kernel (frp+)"],
@@ -1896,6 +2094,7 @@ function renderProtoPicker() {
       ]
     : [
         ["fast", "⚡ Fast Direct (Turbo & L4)"],
+        ["Gaming", "🎮 Gaming (Direct)"],
         ["L3-Direct", "L3 Kernel (xGRE / GRE / WG)"],
         ["L2-Direct", "L2 Kernel (EoIP / VXLAN)"],
         ["Reverse-L4", "Direct Layer 4"],
@@ -1916,12 +2115,18 @@ function renderProtoPicker() {
   }
 
   const q = protoSearchQuery.trim().toLowerCase();
+  const gameBadge = name => name === "game-udp" ? "LOWEST PING" : name === "game-fec" ? "FEC LOSS-PROOF" : name === "game-dup" ? "ANTI-SPIKE" : "L4 KCP GAME";
   const entries = [];
   for (const m of methods) {
     if (rev && m.IPv6Underlay) continue;
-    const mL4 = m.Family === "Reverse-L4";
+    const mL4 = isL4(m.Name);
+    const mGame = m.Family === "Gaming";
     const canTurbo = !rev && !mL4 && (m.Family === "L3-Direct" || m.Family === "L2-Direct") && !m.IPv6Underlay;
     if (!rev && protoFamFilter === "fast" && !q) {
+      if (mGame) {
+        entries.push({ m, turbo: false, code: mL4 ? "direct+" + m.Name : m.Name, badge: gameBadge(m.Name), badgeCls: "game", desc: m.Summary || m.Title });
+        continue;
+      }
       if (m.Name === "xgre" || m.Name === "xgre-ip") {
         entries.push({ m, turbo: false, code: m.Name, badge: "NEW 2.0", badgeCls: "v2", desc: m.Title });
       }
@@ -1934,11 +2139,11 @@ function renderProtoPicker() {
     }
     if (protoFamFilter !== "all" && protoFamFilter !== "fast" && m.Family !== protoFamFilter) continue;
     const code = rev
-      ? (mL4 ? m.Name : (m.Family === "UDP-Crypt" || m.Family === "Stealth" || m.Name === "wireguard" ? "rev+" + m.Name : "frp+" + m.Name))
+      ? (mGame ? "rev+" + m.Name : (mL4 ? m.Name : (m.Family === "UDP-Crypt" || m.Family === "Stealth" || m.Name === "wireguard" ? "rev+" + m.Name : "frp+" + m.Name)))
       : (mL4 ? "direct+" + m.Name : m.Name);
-    const badge = (m.Name === "xgre" || m.Name === "xgre-ip") ? "NEW xGRE" : mL4 && !rev ? "DIRECT L4" : V2_METHOD_SET.has(m.Name) ? "NEW 2.0" : m.MikroTik ? "MIKROTIK" : m.Family.replace("Reverse-", "").replace("-Direct", "");
-    const badgeCls = (m.Name === "xgre" || m.Name === "xgre-ip" || (mL4 && !rev)) ? "fast" : V2_METHOD_SET.has(m.Name) ? "v2" : "";
-    entries.push({ m, turbo: false, code, badge, badgeCls, desc: m.Title });
+    const badge = mGame ? gameBadge(m.Name) : (m.Name === "xgre" || m.Name === "xgre-ip") ? "NEW xGRE" : mL4 && !rev ? "DIRECT L4" : V2_METHOD_SET.has(m.Name) ? "NEW 2.0" : m.MikroTik ? "MIKROTIK" : m.Family.replace("Reverse-", "").replace("-Direct", "");
+    const badgeCls = mGame ? "game" : (m.Name === "xgre" || m.Name === "xgre-ip" || (mL4 && !rev)) ? "fast" : V2_METHOD_SET.has(m.Name) ? "v2" : "";
+    entries.push({ m, turbo: false, code, badge, badgeCls, desc: m.Summary || m.Title });
     if (!rev && canTurbo && (protoFamFilter === "all" || q)) {
       entries.push({ m, turbo: true, code: "turbo+" + m.Name, badge: "8x BBR", badgeCls: "fast", desc: "8-stream BBR TCP Turbo · " + m.Title });
     }
@@ -2015,12 +2220,12 @@ function syncForm() {
   const method = $("f-method").value;
   $("port-wrap").hidden = l4 || method === "icmp";
   $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : $("f-carrier").checked ? "Turbo Carrier TCP Port" : "Port (UDP or Reverse TCP)";
-  $("f-l4port-l").textContent = method === "udp" || method === "udpmux" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
+  $("f-l4port-l").textContent = method === "udp" || method === "udpmux" || method === "game-kcp" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;
   $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";
   $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes($("f-method").value);
-  $("pad-wrap").hidden = !(m && (m.Family === "UDP-Crypt" || m.Family === "Stealth"));
+  $("pad-wrap").hidden = !(m && (m.Family === "UDP-Crypt" || m.Family === "Stealth" || m.Family === "Gaming") && !l4);
   $("lanes-wrap").hidden = !(m && m.SupportsLanes);
   $("tid-wrap").hidden = !(m && ["eoip", "l2tpv3"].includes(m.Name));
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
@@ -2047,7 +2252,8 @@ function openCreate(t) {
     $("f-local").value = t.local_ip || ""; $("f-name").value = t.name;
     $("f-index").value = t.index || ""; $("f-port").value = t.port || ""; $("f-token").value = t.token || "";
     $("f-l4port").value = t.port || ""; $("f-sni").value = t.sni || "";
-    $("f-mtu").value = t.mtu || ""; $("f-rate").value = t.rate_mbps || ""; $("f-padding").value = t.padding || "";
+    $("f-mtu").value = t.mtu || ""; $("f-rate").value = t.rate_mbps || ""; $("f-quota").value = t.quota_gb || ""; $("f-padding").value = t.padding || "";
+    setLimitMode(t.quota_gb > 0 && t.rate_mbps > 0 ? "both" : t.quota_gb > 0 ? "quota" : t.rate_mbps > 0 ? "rate" : "none");
     $("f-lanes").value = t.lanes || ""; $("f-tid").value = t.tunnel_id || "";
     $("f-ports").value = (t.ports || []).join(", ");
     $("f-backup").value = t.backup_method || ""; $("f-bport").value = t.backup_port || "";
@@ -2055,6 +2261,7 @@ function openCreate(t) {
     $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
   } else {
     $("f-reverse").value = "1";
+    setLimitMode("none");
     protoFamFilter = "all";
     if ($("proto-search")) $("proto-search").value = "";
     protoSearchQuery = "";
@@ -2175,7 +2382,10 @@ $("create-form").addEventListener("submit", async e => {
     direct_l4: !rev && l4,
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
-    index: num("f-index"), port: isL4($("f-method").value) ? num("f-l4port") : num("f-port"), mtu: num("f-mtu"), rate_mbps: num("f-rate"), lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
+    index: num("f-index"), port: isL4($("f-method").value) ? num("f-l4port") : num("f-port"), mtu: num("f-mtu"),
+    rate_mbps: (limitMode === "rate" || limitMode === "both") ? num("f-rate") : 0,
+    quota_gb: (limitMode === "quota" || limitMode === "both") ? (parseFloat($("f-quota").value) || 0) : 0,
+    lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
     sni: isL4($("f-method").value) ? $("f-sni").value.trim() : "",
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : [],
     backup_method: $("f-backup").value, backup_port: $("f-backup").value ? num("f-bport") : 0
@@ -2294,14 +2504,21 @@ $("restore-file").onchange = async () => {
   try {
     if (file.size > 60000) throw new Error("This file is too large to be a C-Tunnel backup.");
     backup = JSON.parse(await file.text());
-    if (backup.format !== "ctunnel-backup/1" || !Array.isArray(backup.tunnels)) throw new Error("This is not a C-Tunnel backup file.");
+    if ((backup.format !== "ctunnel-backup/1" && backup.format !== "ctunnel-backup/2") || !Array.isArray(backup.tunnels)) throw new Error("This is not a C-Tunnel backup file.");
   } catch (err) { toast(err.message); return; }
-  if (!(await confirmAction("Restore " + backup.tunnels.length + " tunnels?", "Tunnels this server does not have are created and started. Tunnels with the same name are left as they are.", "Restore"))) return;
-  const r = await run($("btn-restore"), () => api("/api/backup/restore", { method: "POST", timeout: 300000, body: JSON.stringify(backup) }));
+  const overwrite = !!($("restore-overwrite") && $("restore-overwrite").checked);
+  const desc = overwrite
+    ? "Missing tunnels are created and existing tunnels with the same name are REPLACED along with their saved traffic counters."
+    : "Tunnels this server does not have are created and started with their saved traffic counters. Existing tunnels with the same name are left untouched.";
+  if (!(await confirmAction("Restore " + backup.tunnels.length + " tunnels?", desc, overwrite ? "Restore & Overwrite" : "Restore"))) return;
+  const r = await run($("btn-restore"), () => api("/api/backup/restore" + (overwrite ? "?overwrite=1" : ""), { method: "POST", timeout: 300000, body: JSON.stringify(backup) }));
   if (!r) return;
-  const parts = [r.created.length + " created", r.skipped.length + " skipped"];
-  if (r.failed.length) parts.push(r.failed.length + " failed: " + r.failed.join("; "));
-  toast("Restore: " + parts.join(", "), !r.failed.length);
+  const parts = [(r.created || []).length + " created"];
+  if ((r.overwritten || []).length) parts.push(r.overwritten.length + " overwritten");
+  if ((r.skipped || []).length) parts.push(r.skipped.length + " skipped");
+  if ((r.restored_rx || 0) + (r.restored_tx || 0) > 0) parts.push(bytes((r.restored_rx || 0) + (r.restored_tx || 0)) + " traffic restored");
+  if ((r.failed || []).length) parts.push(r.failed.length + " failed: " + r.failed.join("; "));
+  toast("Restore: " + parts.join(", "), !(r.failed && r.failed.length));
 };
 
 async function checkVersion(explicit) {
@@ -2406,6 +2623,20 @@ function renderTelegramCard(t) { $("tg-state").textContent = telegramState(t); }
 function fillTelegram(t) {
   $("tg-token").value = ""; $("tg-token").placeholder = t.token ? t.token + " (unchanged)" : "123456789:AA…";
   $("tg-chat").value = t.chat_id || "";
+  if ($("tg-admins")) $("tg-admins").value = Array.isArray(t.admins) ? t.admins.join(", ") : "";
+  if ($("tg-miniapp")) $("tg-miniapp").value = t.mini_app_url || "";
+  if ($("tg-miniapp-hint")) {
+    $("tg-miniapp-hint").textContent = t.resolved_mini_app_url
+      ? "Active Mini App URL: " + t.resolved_mini_app_url
+      : "Requires HTTPS (configure Domain + TLS in Panel settings, or paste an HTTPS reverse-proxy URL above).";
+  }
+  if ($("tg-autobk")) {
+    const h = String(t.auto_backup_hours || 0);
+    if (![...$("tg-autobk").options].some(o => o.value === h)) {
+      const o = el("option", "", "Every " + h + " hours"); o.value = h; $("tg-autobk").appendChild(o);
+    }
+    $("tg-autobk").value = h;
+  }
   for (const k of ["down", "failover", "restart", "daily"]) $("tg-" + k).checked = !!t[k];
   $("tg-daily-at").value = t.daily_at || "09:00";
   $("tg-lang").value = t.lang === "en" ? "en" : "fa";
@@ -2420,9 +2651,25 @@ async function openTelegram() {
   try { fillTelegram(await api("/api/telegram")); } catch (err) { toast(err.message); history.replaceState(null, "", "#/manage"); return; }
   openRouteDialog("dlg-telegram");
 }
+function parseAdminIDs(raw) {
+  const out = [];
+  for (const part of (raw || "").split(/[\s,;]+/)) {
+    const s = part.trim();
+    if (!s) continue;
+    if (/^\d+$/.test(s)) { const id = Number(s); if (Number.isSafeInteger(id) && id > 0 && !out.includes(id)) out.push(id); }
+  }
+  return out;
+}
 function telegramBody() {
-  return { token: $("tg-token").value.trim(), chat_id: $("tg-chat").value.trim(), down: $("tg-down").checked, failover: $("tg-failover").checked,
-    restart: $("tg-restart").checked, daily: $("tg-daily").checked, daily_at: $("tg-daily-at").value || "09:00", lang: $("tg-lang").value };
+  return {
+    token: $("tg-token").value.trim(), chat_id: $("tg-chat").value.trim(),
+    admins: parseAdminIDs($("tg-admins") ? $("tg-admins").value : ""),
+    mini_app_url: $("tg-miniapp") ? $("tg-miniapp").value.trim() : "",
+    auto_backup_hours: $("tg-autobk") ? Number($("tg-autobk").value) || 0 : 0,
+    down: $("tg-down").checked, failover: $("tg-failover").checked,
+    restart: $("tg-restart").checked, daily: $("tg-daily").checked,
+    daily_at: $("tg-daily-at").value || "09:00", lang: $("tg-lang").value
+  };
 }
 async function saveTelegram(btn, body, done) {
   const errBox = $("tg-error");
@@ -3311,7 +3558,8 @@ $("t-search").addEventListener("input", () => { tunnelQuery = $("t-search").valu
 
 /* ---------- sponsor space ---------- */
 // Served directly from this panel's own origin (/api/sponsor + /api/sponsor/image)
-// so strict same-origin CSP is preserved and blocked networks never hang page paint.
+// with multi-format support (PNG/JPG/WEBP/GIF + silent looping MP4/WEBM/MOV)
+// and non-repeating random selection across page loads while keeping strict CSP.
 let sponsorKey = "";
 function clearSponsor() {
   sponsorKey = "";
@@ -3319,13 +3567,30 @@ function clearSponsor() {
   if (slot) { slot.replaceChildren(); slot.hidden = true; }
   if (grid) grid.classList.remove("has-sponsor");
 }
+function showSponsorSkeleton() {
+  const slot = $("ov-sponsor"), grid = $("ov-grid");
+  if (!slot || !grid || sponsorKey) return;
+  const sk = el("div", "sc-card");
+  const sq = el("div", "skel skel-sq");
+  const tag = el("span", "sc-tag");
+  tag.append(el("span", "skel skel-sm"));
+  sk.append(sq, tag);
+  slot.replaceChildren(sk);
+  slot.hidden = false;
+  grid.classList.add("has-sponsor");
+}
 async function showSponsor() {
   const slot = $("ov-sponsor"), grid = $("ov-grid");
   if (!slot || !grid) return;
+  showSponsorSkeleton();
   try {
-    const sc = await api("/api/sponsor");
+    let prev = "";
+    try { prev = sessionStorage.getItem("ct_last_sponsor") || ""; } catch (_) {}
+    const qs = prev ? "?exclude=" + encodeURIComponent(prev) : "";
+    const sc = await api("/api/sponsor" + qs);
     if (!sc || !sc.v) { clearSponsor(); return; }
-    const key = sc.v + "|" + (sc.link || "") + "|" + (sc.title || "");
+    try { sessionStorage.setItem("ct_last_sponsor", sc.v); } catch (_) {}
+    const key = sc.v + "|" + (sc.kind || "") + "|" + (sc.link || "") + "|" + (sc.title || "");
     if (key === sponsorKey && !slot.hidden) return;
     sponsorKey = key;
     const safeLink = (typeof sc.link === "string" && /^https?:\/\//i.test(sc.link)) ? sc.link : "";
@@ -3338,13 +3603,33 @@ async function showSponsor() {
       card.setAttribute("aria-label", sc.title || "Sponsored");
     }
     card.title = sc.title || safeLink || "Sponsored";
-    const img = document.createElement("img");
-    img.src = BASE_PATH + "/api/sponsor/image?v=" + encodeURIComponent(sc.v);
-    img.alt = sc.title || "Sponsored";
-    img.width = 512;
-    img.height = 512;
-    img.decoding = "async";
-    img.onerror = () => clearSponsor();
+    const mediaURL = BASE_PATH + "/api/sponsor/image?v=" + encodeURIComponent(sc.v);
+    const isVideo = sc.kind === "video" || (typeof sc.mime === "string" && sc.mime.startsWith("video/"));
+    let mediaEl;
+    if (isVideo) {
+      const vid = document.createElement("video");
+      vid.src = mediaURL;
+      vid.autoplay = true;
+      vid.loop = true;
+      vid.muted = true;
+      vid.playsInline = true;
+      vid.preload = "metadata";
+      vid.setAttribute("muted", "");
+      vid.setAttribute("playsinline", "");
+      vid.setAttribute("aria-label", sc.title || "Sponsored");
+      vid.onloadedmetadata = () => { vid.play().catch(() => {}); };
+      vid.onerror = () => clearSponsor();
+      mediaEl = vid;
+    } else {
+      const img = document.createElement("img");
+      img.src = mediaURL;
+      img.alt = sc.title || "Sponsored";
+      img.width = 512;
+      img.height = 512;
+      img.decoding = "async";
+      img.onerror = () => clearSponsor();
+      mediaEl = img;
+    }
     const tag = document.createElement("span");
     tag.className = "sc-tag";
     tag.append(document.createTextNode("Sponsored"));
@@ -3357,7 +3642,7 @@ async function showSponsor() {
       ico.appendChild(p1);
       tag.appendChild(ico);
     }
-    card.append(img, tag);
+    card.append(mediaEl, tag);
     slot.replaceChildren(card);
     slot.hidden = false;
     grid.classList.add("has-sponsor");
@@ -3396,7 +3681,29 @@ function renderHostIPs() {
     }
   }
 }
-function onLoggedIn() { showSponsor(); loadHostIPs(); }
+function onLoggedIn() { renderTunnelSkeletons(); showSponsor(); loadHostIPs(); }
+
+/* ---------- Telegram Mini App (WebApp) passwordless auth ---------- */
+function extractTelegramInitData() {
+  try {
+    if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.initData === "string" && window.Telegram.WebApp.initData) {
+      return window.Telegram.WebApp.initData;
+    }
+    const rawHash = (window.location.hash || "").replace(/^#/, "");
+    if (rawHash.includes("tgWebAppData=")) {
+      const params = new URLSearchParams(rawHash);
+      const d = params.get("tgWebAppData");
+      if (d) return d;
+    }
+    const rawSearch = (window.location.search || "").replace(/^\?/, "");
+    if (rawSearch.includes("tgWebAppData=")) {
+      const params = new URLSearchParams(rawSearch);
+      const d = params.get("tgWebAppData");
+      if (d) return d;
+    }
+  } catch (_) {}
+  return "";
+}
 
 /* ---------- login ---------- */
 $("login-form").addEventListener("submit", async e => {
@@ -3413,10 +3720,31 @@ $("login-form").addEventListener("submit", async e => {
 });
 
 (async () => {
+  const tgInit = extractTelegramInitData();
   try {
     const s = await api("/api/session");
     if (s.totp_enabled) { $("login-totp-wrap").hidden = false; $("login-totp").required = true; }
-    if (!s.authenticated) { showGate(); return; }
+    if (!s.authenticated) {
+      if (tgInit) {
+        if ($("boot-sub")) $("boot-sub").textContent = "Verifying Telegram Mini App admin session…";
+        try {
+          await api("/api/auth/telegram", { method: "POST", body: JSON.stringify({ init_data: tgInit }) });
+          if ((window.location.hash || "").includes("tgWebAppData=")) {
+            history.replaceState(null, "", window.location.pathname + "#/");
+          }
+          onLoggedIn();
+          await refresh({ force: true, reportErrors: true });
+          return;
+        } catch (err) {
+          toast("Telegram Mini App auth failed: " + err.message);
+        }
+      }
+      showGate();
+      return;
+    }
+    if (tgInit && (window.location.hash || "").includes("tgWebAppData=")) {
+      history.replaceState(null, "", window.location.pathname + "#/");
+    }
     onLoggedIn();
   } catch (_) { /* an older server without /api/session: ask the overview */ }
   refresh();

@@ -234,7 +234,7 @@ func TestDailyReportOnceADay(t *testing.T) {
 	}
 	r.run(time.Hour)
 	msgs := r.drain()
-	if len(msgs) != 1 || !strings.Contains(msgs[0], "kh443") || !strings.Contains(msgs[0], "Σ ↓ 3.0 GiB") {
+	if len(msgs) != 1 || !strings.Contains(msgs[0], "<pre>") || !strings.Contains(msgs[0], "kh443") || !strings.Contains(msgs[0], "3.0G") || !strings.Contains(msgs[0], "TOTAL Σ") {
 		t.Fatalf("one report: %q", msgs)
 	}
 	r.run(20 * time.Hour)
@@ -242,7 +242,7 @@ func TestDailyReportOnceADay(t *testing.T) {
 		t.Fatalf("a second report the same day: %q", msgs)
 	}
 	r.run(4 * time.Hour)
-	if msgs := r.drain(); len(msgs) != 1 || !strings.Contains(msgs[0], "Δ ↓ 0 B") {
+	if msgs := r.drain(); len(msgs) != 1 || !strings.Contains(msgs[0], "Δ ↓0B") {
 		t.Fatalf("next day: %q", msgs)
 	}
 }

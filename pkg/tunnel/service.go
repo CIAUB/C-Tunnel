@@ -176,6 +176,9 @@ func Remove(st *catalog.Store, name string) error {
 	if err := kernelDown(name); err != nil {
 		return err
 	}
+	rx, tx := TrafficTotal(name)
+	st.ArchivedRx += rx
+	st.ArchivedTx += tx
 	if err := st.Delete(name); err != nil {
 		return err
 	}

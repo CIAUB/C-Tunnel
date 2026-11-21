@@ -18,25 +18,39 @@ type TunnelCategory struct {
 }
 
 var (
-	CatL4Reverse = TunnelCategory{Code: "l4r", Title: "Layer 4 · Reverse", Short: "L4-Rev", Order: 1}
-	CatL4Direct  = TunnelCategory{Code: "l4d", Title: "Layer 4 · Direct", Short: "L4-Dir", Order: 2}
-	CatUDPCrypt  = TunnelCategory{Code: "udp", Title: "UDP-Crypt", Short: "UDP-Crypt", Order: 3}
-	CatStealth   = TunnelCategory{Code: "stealth", Title: "Stealth", Short: "Stealth", Order: 4}
-	CatL3Reverse = TunnelCategory{Code: "l3r", Title: "L3 Kernel · Reverse", Short: "L3-Rev", Order: 5}
-	CatL3Direct  = TunnelCategory{Code: "l3d", Title: "L3 Kernel · Direct / Turbo", Short: "L3-Dir", Order: 6}
-	CatL2Kernel  = TunnelCategory{Code: "l2", Title: "L2 Kernel", Short: "L2-Kernel", Order: 7}
-	CatOther     = TunnelCategory{Code: "other", Title: "Other", Short: "Other", Order: 8}
+	CatGamingReverse = TunnelCategory{Code: "gmr", Title: "Gaming · Reverse", Short: "Game-Rev", Order: 1}
+	CatGamingDirect  = TunnelCategory{Code: "gmd", Title: "Gaming · Direct", Short: "Game-Dir", Order: 2}
+	CatL4Reverse     = TunnelCategory{Code: "l4r", Title: "Layer 4 · Reverse", Short: "L4-Rev", Order: 3}
+	CatL4Direct      = TunnelCategory{Code: "l4d", Title: "Layer 4 · Direct", Short: "L4-Dir", Order: 4}
+	CatUDPCrypt      = TunnelCategory{Code: "udp", Title: "UDP-Crypt", Short: "UDP-Crypt", Order: 5}
+	CatStealth       = TunnelCategory{Code: "stealth", Title: "Stealth", Short: "Stealth", Order: 6}
+	CatL3Reverse     = TunnelCategory{Code: "l3r", Title: "L3 Kernel · Reverse", Short: "L3-Rev", Order: 7}
+	CatL3Direct      = TunnelCategory{Code: "l3d", Title: "L3 Kernel · Direct / Turbo", Short: "L3-Dir", Order: 8}
+	CatL2Kernel      = TunnelCategory{Code: "l2", Title: "L2 Kernel", Short: "L2-Kernel", Order: 9}
+	CatOther         = TunnelCategory{Code: "other", Title: "Other", Short: "Other", Order: 10}
 )
 
 // CategorizeTunnel classifies a configured tunnel by transport layer and direction.
 func CategorizeTunnel(t catalog.TunnelConfig) TunnelCategory {
+	m, ok := catalog.LookupMethod(t.Method)
+	if ok && m.Gaming() {
+		if m.L4() {
+			if t.DirectL4 {
+				return CatGamingDirect
+			}
+			return CatGamingReverse
+		}
+		if t.Reverse {
+			return CatGamingReverse
+		}
+		return CatGamingDirect
+	}
 	if catalog.IsL4(t.Method) {
 		if t.DirectL4 {
 			return CatL4Direct
 		}
 		return CatL4Reverse
 	}
-	m, ok := catalog.LookupMethod(t.Method)
 	if !ok {
 		return CatOther
 	}
@@ -177,6 +191,14 @@ func FilterTunnels(entries []TunnelEntry, raw string) ([]TunnelEntry, string, bo
 			}
 		}
 		return out, strings.ToUpper(f), true
+	case "game", "gaming":
+		var out []TunnelEntry
+		for _, e := range entries {
+			if e.Category.Code == CatGamingReverse.Code || e.Category.Code == CatGamingDirect.Code {
+				out = append(out, e)
+			}
+		}
+		return out, "Gaming", true
 	case "l4":
 		var out []TunnelEntry
 		for _, e := range entries {
@@ -193,7 +215,7 @@ func FilterTunnels(entries []TunnelEntry, raw string) ([]TunnelEntry, string, bo
 			}
 		}
 		return out, "L3 Kernel", true
-	case CatL4Reverse.Code, CatL4Direct.Code, CatUDPCrypt.Code, CatStealth.Code,
+	case CatGamingReverse.Code, CatGamingDirect.Code, CatL4Reverse.Code, CatL4Direct.Code, CatUDPCrypt.Code, CatStealth.Code,
 		CatL3Reverse.Code, CatL3Direct.Code, CatL2Kernel.Code, CatOther.Code:
 		var out []TunnelEntry
 		var title string

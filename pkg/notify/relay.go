@@ -68,7 +68,7 @@ func (b *Bot) Via(routes func() []tgrelay.Route) *Bot {
 		}
 		return nil, &url.Error{Op: "dial", URL: addr, Err: net.ErrClosed}
 	}
-	b.hc = &http.Client{Timeout: 40 * time.Second, Transport: base}
+	b.hc = &http.Client{Timeout: 40 * time.Second, Transport: base, CheckRedirect: refuseRedirect}
 	return b
 }
 

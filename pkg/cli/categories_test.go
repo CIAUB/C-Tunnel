@@ -117,3 +117,27 @@ func TestPeerMenuHelpers(t *testing.T) {
 		t.Fatalf("mixed title=%q want Change Peer IP", title)
 	}
 }
+
+func TestGamingCategoriesAndFilters(t *testing.T) {
+	tunnels := []catalog.TunnelConfig{
+		{Name: "gm-rev-udp", Role: "iran", Method: "game-udp", Reverse: true},
+		{Name: "gm-dir-fec", Role: "iran", Method: "game-fec", Reverse: false},
+		{Name: "gm-rev-kcp", Role: "iran", Method: "game-kcp", Reverse: true},
+		{Name: "gm-dir-kcp", Role: "iran", Method: "game-kcp", DirectL4: true},
+	}
+	statuses := make([]tunnel.Status, len(tunnels))
+	entries := BuildTunnelEntries(tunnels, statuses)
+	if entries[0].Category.Code != CatGamingReverse.Code || entries[1].Category.Code != CatGamingDirect.Code ||
+		entries[2].Category.Code != CatGamingReverse.Code || entries[3].Category.Code != CatGamingDirect.Code {
+		t.Fatalf("unexpected gaming categories: %+v", entries)
+	}
+	got, _, ok := FilterTunnels(entries, "gaming")
+	if !ok || len(got) != 4 {
+		t.Fatalf("FilterTunnels(gaming) = (%d, %v)", len(got), ok)
+	}
+	gotRev, _, _ := FilterTunnels(entries, "gmr")
+	gotDir, _, _ := FilterTunnels(entries, "gmd")
+	if len(gotRev) != 2 || len(gotDir) != 2 {
+		t.Fatalf("gmr=%d gmd=%d", len(gotRev), len(gotDir))
+	}
+}

@@ -13,10 +13,11 @@ import (
 // protectedRoutes is every route behind auth, with its method; a new route
 // added to Handler without auth fails TestEveryRouteNeedsASession.
 var protectedRoutes = [][2]string{
-	{"POST", "/api/logout"}, {"GET", "/api/overview"}, {"GET", "/api/sponsor"}, {"GET", "/api/sponsor/image"}, {"GET", "/api/version"},
+	{"POST", "/api/logout"}, {"GET", "/api/overview"}, {"GET", "/api/sponsor"}, {"GET", "/api/sponsor/image"}, {"GET", "/api/sponsor/media"}, {"GET", "/api/version"},
 	{"GET", "/api/self-update"}, {"POST", "/api/self-update"},
 	{"POST", "/api/tunnels"}, {"PUT", "/api/tunnels/x"}, {"POST", "/api/tunnels/x/peer"}, {"DELETE", "/api/tunnels/x"},
 	{"POST", "/api/tunnels/x/restart"}, {"POST", "/api/tunnels/x/start"}, {"POST", "/api/tunnels/x/stop"},
+	{"POST", "/api/tunnels/x/quota/reset"}, {"POST", "/api/tunnels/x/quota/add"},
 	{"GET", "/api/tunnels/x/logs"}, {"POST", "/api/restart-all"}, {"GET", "/api/health"},
 	{"GET", "/api/backup"}, {"POST", "/api/backup/restore"}, {"POST", "/api/import"},
 	{"GET", "/api/hostips"}, {"POST", "/api/linktest"}, {"POST", "/api/linktest/server/start"},
@@ -216,7 +217,7 @@ func TestRouteListMatchesHandler(t *testing.T) {
 		route := m[1] + " " + regexp.MustCompile(`\{\w+\}`).ReplaceAllString(m[2], "{}")
 		if m[3] == "" {
 			open++
-			if route != "GET /{$}" && route != "GET /api/session" && route != "POST /api/login" {
+			if route != "GET /{$}" && route != "GET /api/session" && route != "POST /api/login" && route != "POST /api/auth/telegram" {
 				t.Errorf("route without auth: %s", route)
 			}
 			continue
@@ -226,7 +227,7 @@ func TestRouteListMatchesHandler(t *testing.T) {
 		}
 		delete(want, route)
 	}
-	if open != 3 || len(want) != 0 {
+	if open != 4 || len(want) != 0 {
 		t.Fatalf("open routes %d, listed but not registered %v", open, want)
 	}
 }

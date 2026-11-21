@@ -1,12 +1,8 @@
-# C-Tunnel v2 Upgrade Checklist
+# C-Tunnel v2.1 Upgrade Checklist
 
-- [x] Task 1: Linux per-socket BBR (`TCP_CONGESTION`) in `pkg/tcpmss`
-- [x] Task 2: L4 `CT4\x03` sealed target auth, peer pinning, busy-port isolation, pool burst refill, UDP batching & quieter logs (`pkg/l4`)
-- [x] Task 3: Delay-based KCP path controller (`pkg/pathctl`) & PCK MTU clamp + `ENETDOWN`/`ENXIO` recovery (`pkg/pck`)
-- [x] Task 4: Speedtest 5 ms upload ACKs, BBR, Peak (`Max`) & staged streams (`pkg/speedtest`, `pkg/conntest`, `pkg/webpanel/linktest.go`) + raw ICMP buffers
-- [x] Task 5: PMTU outage guard (`pkg/conntest/pmtu_linux.go`) & sub-24h schedule divisor (`pkg/schedule`)
-- [x] Task 6: CLI tunnel categorization & grouped navigation/status (`pkg/cli`)
-- [x] Task 7: New square native C-Tunnel Sponsor Space image asset (`assets/sponsor.png`, `pkg/sponsor/default.png`)
-- [x] Task 8: Sponsor manifest/cache backend (`pkg/sponsor`) & Friday Tehran-noon Telegram delivery (`pkg/notify`)
-- [x] Task 9: Web Panel 1100px shell, asset minification+gzip+ETag, Overview square Sponsor Space UI, strict CSP & Peak UI (`pkg/webpanel`)
-- [x] Task 10: Full verification, visual screenshots, security check, zero-attribution diff check, multi-arch release build & repo sync
+- [x] Phase 1: Persistent traffic accounting, `ctunnel-backup/2` backup/restore, L4 bandwidth limiter, per-tunnel quota model & agent enforcement
+- [x] Phase 2: Dedicated Gaming protocols (`game-udp`, `game-fec`, `game-dup`, `game-kcp`) for Direct & Reverse
+- [x] Phase 3: Multi-format Sponsor Space (`sponser*`/`sponsor*`), random rotation, lightweight embedded promo video (`145.6 KiB`, `<400 KB`) & Telegram video/GIF/photo delivery
+- [x] Phase 4: Telegram Bot multi-admin, `<pre>` monospace tables, Mini App `initData` auth, bot Backup/Restore/Auto-Backup & quota controls
+- [x] Phase 5: Web Panel Mini App auth, quota/gaming/sponsor-video UI, polished CSS loading UX & CLI integration
+- [x] Phase 6: Targeted security audit, full race test suite, visual Chrome verification, multi-arch release build & final binary+source ZIPs

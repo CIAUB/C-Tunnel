@@ -27,11 +27,11 @@ import (
 )
 
 // Transports lists the transport names in the order the panel offers them.
-var Transports = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux"}
+var Transports = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "game-kcp"}
 
 // Mux reports whether transport multiplexes streams over a few connections.
 func Mux(transport string) bool {
-	return transport == "tcpmux" || transport == "wsmux" || transport == "wssmux" || transport == "pck" || transport == "udpmux"
+	return transport == "tcpmux" || transport == "wsmux" || transport == "wssmux" || transport == "pck" || transport == "udpmux" || transport == "game-kcp"
 }
 
 func validTransport(t string) bool {
@@ -88,6 +88,8 @@ type Config struct {
 	PeerPinPath string
 	// StrictAuth refuses legacy unsealed handshakes from the start.
 	StrictAuth bool
+	// RateMbps caps per-direction throughput on this L4 tunnel (0 = unlimited).
+	RateMbps    int
 	Pool, Conns int
 	Logf        func(format string, args ...any)
 }
@@ -137,9 +139,10 @@ func wsPath(token string) string {
 }
 
 // Handshake:
-//   client: "CT4\x01" | cnonce[16] (or "CT4\x02" | cnonce[16] | runID[8])
-//   server: snonce[16] | HMAC(token, "s" | cnonce | snonce)[:16]
-//   client: HMAC(token, "c" | cnonce | snonce)[:16]
+//
+//	client: "CT4\x01" | cnonce[16] (or "CT4\x02" | cnonce[16] | runID[8])
+//	server: snonce[16] | HMAC(token, "s" | cnonce | snonce)[:16]
+//	client: HMAC(token, "c" | cnonce | snonce)[:16]
 const (
 	magicV1          = "CT4\x01"
 	magicV2          = "CT4\x02"
@@ -248,10 +251,11 @@ func serverHandshake(c net.Conn, token string) ([runIDLen]byte, error) {
 }
 
 // Stream kinds:
-//   kindPing (0): keepalive on an idle pool connection
-//   kindTCP  (1): TCP stream to 127.0.0.1:port on Kharej
-//   kindUDP  (2): UDP flow to 127.0.0.1:port on Kharej
-//   kindEcho (3): 16-byte active tunnel echo probe (verifies data round-trip & RTT)
+//
+//	kindPing (0): keepalive on an idle pool connection
+//	kindTCP  (1): TCP stream to 127.0.0.1:port on Kharej
+//	kindUDP  (2): UDP flow to 127.0.0.1:port on Kharej
+//	kindEcho (3): 16-byte active tunnel echo probe (verifies data round-trip & RTT)
 const (
 	kindPing = 0
 	kindTCP  = 1
@@ -300,22 +304,22 @@ func readDatagram(r io.Reader, buf []byte) ([]byte, error) {
 }
 
 const (
-	streamIdle      = 10 * time.Minute
-	halfCloseIdle   = 30 * time.Second
-	copyChunk       = 1 << 20
+	streamIdle    = 10 * time.Minute
+	halfCloseIdle = 30 * time.Second
+	copyChunk     = 1 << 20
 )
 
 var copyBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
 
-func pipe(a, b net.Conn, ab, ba *atomic.Int64) {
+func pipe(a, b net.Conn, ab, ba *atomic.Int64, limAB, limBA *rateLimiter) {
 	done := make(chan struct{})
 	go func() {
-		copyCounted(b, a, ab)
+		copyCounted(b, a, ab, limAB)
 		closeWrite(b)
 		_ = a.SetReadDeadline(time.Now().Add(halfCloseIdle))
 		close(done)
 	}()
-	copyCounted(a, b, ba)
+	copyCounted(a, b, ba, limBA)
 	closeWrite(a)
 	_ = b.SetReadDeadline(time.Now().Add(halfCloseIdle))
 	<-done
@@ -323,18 +327,23 @@ func pipe(a, b net.Conn, ab, ba *atomic.Int64) {
 	_ = b.Close()
 }
 
-func copyCounted(dst net.Conn, src net.Conn, n *atomic.Int64) {
+func copyCounted(dst net.Conn, src net.Conn, n *atomic.Int64, lim *rateLimiter) {
 	bp := copyBufs.Get().(*[]byte)
 	defer copyBufs.Put(bp)
+	chunk := int64(copyChunk)
+	if lim != nil && chunk > 64<<10 {
+		chunk = 64 << 10
+	}
 	lr := &io.LimitedReader{R: src}
 	for {
 		_ = src.SetReadDeadline(time.Now().Add(streamIdle))
-		lr.N = copyChunk
+		lr.N = chunk
 		m, err := io.CopyBuffer(dst, lr, *bp)
 		if m > 0 {
 			n.Add(m)
+			lim.Wait(m)
 		}
-		if err != nil || m < copyChunk {
+		if err != nil || m < chunk {
 			return
 		}
 	}

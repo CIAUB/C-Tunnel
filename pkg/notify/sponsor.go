@@ -24,8 +24,9 @@ const (
 )
 
 type sponsorSent struct {
-	Friday string   `json:"friday"`
-	To     []string `json:"to"`
+	Friday   string   `json:"friday"`
+	To       []string `json:"to"`
+	LastHash string   `json:"last_hash,omitempty"`
 }
 
 func tehranLocation() *time.Location {
@@ -46,20 +47,30 @@ func sponsorFriday(now time.Time) string {
 }
 
 func sponsorMethod(mime string) (method, field string) {
-	if mime == "image/gif" {
+	switch strings.ToLower(mime) {
+	case "image/gif":
 		return "sendAnimation", "animation"
+	case "video/mp4", "video/webm", "video/quicktime":
+		return "sendVideo", "video"
+	default:
+		return "sendPhoto", "photo"
 	}
-	return "sendPhoto", "photo"
 }
 
 func sponsorExt(mime string) string {
-	switch mime {
+	switch strings.ToLower(mime) {
 	case "image/gif":
 		return ".gif"
 	case "image/png":
 		return ".png"
 	case "image/webp":
 		return ".webp"
+	case "video/mp4":
+		return ".mp4"
+	case "video/webm":
+		return ".webm"
+	case "video/quicktime":
+		return ".mov"
 	default:
 		return ".jpg"
 	}
@@ -109,21 +120,22 @@ func sendSponsorWeekly(ctx context.Context, bot *Bot, cfg Config, storeDir, frid
 		_ = json.Unmarshal(b, &sent)
 	}
 	if sent.Friday != friday {
-		sent = sponsorSent{Friday: friday}
+		sent = sponsorSent{Friday: friday, LastHash: sent.LastHash}
 	}
 	done := map[string]bool{}
 	for _, id := range sent.To {
 		done[id] = true
 	}
 
-	sc := sponsor.Load(storeDir)
-	if !sc.Present() {
+	sc, item, ok := sponsor.Pick(storeDir, sent.LastHash)
+	if !ok || !sc.Present() {
 		return nil
 	}
-	img, mime, _, err := sponsor.Image(storeDir)
+	img, _, err := sponsor.MediaByHash(storeDir, item.Hash)
 	if err != nil {
 		return nil
 	}
+	mime := item.Type
 
 	recipients := sponsorRecipients(cfg)
 	var fileID string
@@ -140,6 +152,7 @@ func sendSponsorWeekly(ctx context.Context, bot *Bot, cfg Config, storeDir, frid
 		if fileID == "" {
 			fileID = fid
 		}
+		sent.LastHash = item.Hash
 		sent.To = append(sent.To, chatID)
 		if data, err := json.MarshalIndent(sent, "", "  "); err == nil {
 			tmp := sentPath + ".tmp"
@@ -154,16 +167,7 @@ func sendSponsorWeekly(ctx context.Context, bot *Bot, cfg Config, storeDir, frid
 }
 
 func sponsorRecipients(cfg Config) []string {
-	var out []string
-	seen := map[string]bool{}
-	for _, part := range strings.Split(cfg.ChatID, ",") {
-		id := strings.TrimSpace(part)
-		if id != "" && !seen[id] {
-			seen[id] = true
-			out = append(out, id)
-		}
-	}
-	return out
+	return cfg.AlertTargets()
 }
 
 func (b *Bot) sendSponsorMedia(ctx context.Context, chatID string, sc sponsor.State, img []byte, mime, fileID string) (string, error) {
@@ -217,6 +221,9 @@ func (b *Bot) postSponsorMedia(ctx context.Context, chatID string, sc sponsor.St
 	if fileID != "" {
 		_ = w.WriteField(field, fileID)
 	} else {
+		if method == "sendVideo" {
+			_ = w.WriteField("supports_streaming", "true")
+		}
 		part, err := w.CreateFormFile(field, "sponsor"+sponsorExt(mime))
 		if err != nil {
 			return "", err
@@ -256,6 +263,9 @@ func (b *Bot) postSponsorMedia(ctx context.Context, chatID string, sc sponsor.St
 			Animation struct {
 				FileID string `json:"file_id"`
 			} `json:"animation"`
+			Video struct {
+				FileID string `json:"file_id"`
+			} `json:"video"`
 			Photo []struct {
 				FileID string `json:"file_id"`
 			} `json:"photo"`
@@ -270,6 +280,9 @@ func (b *Bot) postSponsorMedia(ctx context.Context, chatID string, sc sponsor.St
 			code = resp.StatusCode
 		}
 		return "", &APIError{Code: code, Description: out.Description}
+	}
+	if out.Result.Video.FileID != "" {
+		return out.Result.Video.FileID, nil
 	}
 	if out.Result.Animation.FileID != "" {
 		return out.Result.Animation.FileID, nil

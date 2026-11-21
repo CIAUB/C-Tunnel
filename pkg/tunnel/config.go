@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"net"
 	"regexp"
 	"strconv"
@@ -282,7 +283,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		if !strings.HasPrefix(tc.Method, "ws") {
 			tc.SNI = ""
 		}
-		tc.MTU, tc.RateMbps, tc.Lanes = 0, 0, 1
+		tc.MTU, tc.Lanes = 0, 1
 	} else {
 		tc.SNI = ""
 	}
@@ -299,6 +300,13 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	}
 	if tc.RateMbps < 0 {
 		return fmt.Errorf("rate limit cannot be negative")
+	}
+	if math.IsNaN(tc.QuotaGB) || math.IsInf(tc.QuotaGB, 0) || tc.QuotaGB < 0 {
+		return fmt.Errorf("traffic quota cannot be negative")
+	}
+	if tc.QuotaGB == 0 {
+		tc.QuotaOverride = false
+		tc.QuotaStopped = false
 	}
 
 	if tc.Role != "iran" {

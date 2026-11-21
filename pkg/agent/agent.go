@@ -39,14 +39,16 @@ type Monitor struct {
 	Probe    func(ip string) bool
 	// ActiveProbe sends a real test payload through the tunnel before
 	// declaring it down, so an idle tunnel is not mistaken for a broken one.
-	ActiveProbe func(tc catalog.TunnelConfig) bool
-	Links       func(name string) int
-	Enabled     func(tc catalog.TunnelConfig) bool
-	OnBackup    func(name string) bool
-	Switch      func(storeDir string, tc catalog.TunnelConfig, backup bool) error
-	Switched    func(tc catalog.TunnelConfig, backup bool, why string)
+	ActiveProbe  func(tc catalog.TunnelConfig) bool
+	Links        func(name string) int
+	Enabled      func(tc catalog.TunnelConfig) bool
+	OnBackup     func(name string) bool
+	Switch       func(storeDir string, tc catalog.TunnelConfig, backup bool) error
+	Switched     func(tc catalog.TunnelConfig, backup bool, why string)
+	QuotaReached func(tc catalog.TunnelConfig, usedBytes, limitBytes uint64)
 
-	state map[string]*watch
+	state          map[string]*watch
+	lastCheckpoint time.Time
 }
 
 type watch struct {
@@ -152,6 +154,39 @@ func (m *Monitor) Check() {
 			delete(m.state, name)
 		}
 	}
+	m.CheckQuotas()
+}
+
+// CheckQuotas checkpoints tunnel traffic periodically and automatically stops
+// any tunnel that reached its configured QuotaGB (unless manually overridden).
+func (m *Monitor) CheckQuotas() {
+	st, err := catalog.LoadStore(m.StoreDir)
+	if err != nil {
+		return
+	}
+	now := m.Now()
+	doCheckpoint := now.Sub(m.lastCheckpoint) >= 30*time.Second
+	if doCheckpoint {
+		m.lastCheckpoint = now
+	}
+	for _, tc := range st.Tunnels {
+		if doCheckpoint {
+			_ = tunnel.CheckpointTraffic(tc.Name)
+		}
+		if tc.QuotaGB <= 0 || tc.QuotaOverride || tc.QuotaStopped {
+			continue
+		}
+		tripped, used, limit, err := tunnel.EnforceQuota(st, tc.Name)
+		if err != nil {
+			log.Printf("%s: quota enforcement error: %v", tc.Name, err)
+		}
+		if tripped {
+			log.Printf("%s: traffic quota reached (%d / %d bytes); tunnel stopped", tc.Name, used, limit)
+			if m.QuotaReached != nil {
+				m.QuotaReached(tc, used, limit)
+			}
+		}
+	}
 }
 
 func layer4(method string) bool {
@@ -206,6 +241,7 @@ func Run(ctx context.Context, storeDir string) {
 		return eff.TunRemote4 == "" || ping(eff.TunRemote4)
 	}, enabled)
 	m.Switched = n.Failover
+	m.QuotaReached = n.QuotaAlert
 	go n.Run(ctx)
 	t := time.NewTicker(checkEvery)
 	defer t.Stop()

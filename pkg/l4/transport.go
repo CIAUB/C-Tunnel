@@ -41,7 +41,7 @@ func listen(cfg *Config) (listener, error) {
 		return listenWS(cfg, addr)
 	case "pck":
 		return listenPCK(cfg)
-	case "udp", "udpmux":
+	case "udp", "udpmux", "game-kcp":
 		return listenKCP(cfg, addr)
 	}
 	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
@@ -57,7 +57,7 @@ func dial(ctx context.Context, cfg *Config) (net.Conn, error) {
 		return dialWS(ctx, cfg, addr)
 	case "pck":
 		return dialPCK(cfg)
-	case "udp", "udpmux":
+	case "udp", "udpmux", "game-kcp":
 		return dialKCP(cfg, addr)
 	}
 	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
@@ -205,6 +205,17 @@ func tuneKCP(s *kcp.UDPSession, mtu, window int) {
 	s.SetACKNoDelay(false)
 }
 
+func tuneKCPGaming(s *kcp.UDPSession, mtu int) {
+	// Aggressive gaming profile: 5ms internal tick, fast resend on 2 dup ACKs,
+	// immediate ACK and immediate write flush for minimal jitter.
+	s.SetNoDelay(1, 5, 2, 1)
+	s.SetWindowSize(1024, 1024)
+	s.SetMtu(mtu)
+	s.SetStreamMode(true)
+	s.SetWriteDelay(false)
+	s.SetACKNoDelay(true)
+}
+
 type pckMetrics interface {
 	QueueDrops() uint64
 	QueueSent() uint64
@@ -271,6 +282,7 @@ type kcpListener struct {
 	mtu    int
 	window int
 	frame  bool
+	gaming bool
 	once   sync.Once
 }
 
@@ -296,6 +308,25 @@ func listenKCP(cfg *Config, addr string) (listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.Transport == "game-kcp" {
+		uaddr, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			return nil, err
+		}
+		uc, err := net.ListenUDP("udp", uaddr)
+		if err != nil {
+			return nil, err
+		}
+		_ = uc.SetReadBuffer(kcpSocketBuffer)
+		_ = uc.SetWriteBuffer(kcpSocketBuffer)
+		applyGamingUDPQoS(uc)
+		ln, err := kcp.ServeConn(block, 0, 0, uc)
+		if err != nil {
+			uc.Close()
+			return nil, err
+		}
+		return &kcpListener{ln: ln, conn: uc, mtu: kcpUDPMTU, window: 1024, gaming: true}, nil
+	}
 	ln, err := kcp.ListenWithOptions(addr, block, 0, 0)
 	if err != nil {
 		return nil, err
@@ -309,6 +340,10 @@ func (k *kcpListener) Accept() (net.Conn, error) {
 	s, err := k.ln.AcceptKCP()
 	if err != nil {
 		return nil, err
+	}
+	if k.gaming {
+		tuneKCPGaming(s, k.mtu)
+		return &managedKCPConn{Conn: s}, nil
 	}
 	tuneKCP(s, k.mtu, k.window)
 	stop := startSessionPathCtl(s, k.conn, k.window)
@@ -358,6 +393,31 @@ func dialKCP(cfg *Config, addr string) (net.Conn, error) {
 	block, err := kcpBlock(cfg.Token)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Transport == "game-kcp" {
+		raddr, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			return nil, err
+		}
+		uc, err := net.ListenUDP("udp", nil)
+		if err != nil {
+			return nil, err
+		}
+		_ = uc.SetReadBuffer(kcpSocketBuffer)
+		_ = uc.SetWriteBuffer(kcpSocketBuffer)
+		applyGamingUDPQoS(uc)
+		var conv [4]byte
+		if _, err := crand.Read(conv[:]); err != nil {
+			uc.Close()
+			return nil, err
+		}
+		s, err := kcp.NewConn4(binary.LittleEndian.Uint32(conv[:]), raddr, block, 0, 0, true, uc)
+		if err != nil {
+			uc.Close()
+			return nil, err
+		}
+		tuneKCPGaming(s, kcpUDPMTU)
+		return &managedKCPConn{Conn: s}, nil
 	}
 	s, err := kcp.DialWithOptions(addr, block, 0, 0)
 	if err != nil {

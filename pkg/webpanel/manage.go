@@ -3,7 +3,9 @@ package webpanel
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,13 +15,11 @@ import (
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/health"
 	"ctunnel/pkg/tunnel"
-	"ctunnel/pkg/version"
 )
 
 const (
 	defaultLogLines = 200
 	maxLogLines     = 1000
-	maxBackupTunnel = 100
 )
 
 var runHealth = health.Run
@@ -125,15 +125,71 @@ func (s *Server) findTunnel(w http.ResponseWriter, name string) (catalog.TunnelC
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	tc, ok := s.findTunnel(w, r.PathValue("name"))
-	if !ok {
-		return
-	}
-	if err := tunnel.Apply(tc); err != nil {
+	st, err := s.store()
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	name := r.PathValue("name")
+	if _, ok := st.Find(name); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
+		return
+	}
+	tc, overrode, err := tunnel.StartManual(st, name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "overrode": overrode, "quota": tunnel.QuotaStatus(tc)})
+}
+
+func (s *Server) handleQuotaReset(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.store()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	name := r.PathValue("name")
+	if _, ok := st.Find(name); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
+		return
+	}
+	tc, err := tunnel.ResetQuotaUsage(st, name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "quota": tunnel.QuotaStatus(tc)})
+}
+
+func (s *Server) handleQuotaAdd(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ExtraGB float64 `json:"extra_gb"`
+	}
+	if err := decodeJSON(r, &req); err != nil || math.IsNaN(req.ExtraGB) || math.IsInf(req.ExtraGB, 0) || req.ExtraGB <= 0 || req.ExtraGB > 1e6 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "extra_gb must be a positive number"})
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, err := s.store()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	name := r.PathValue("name")
+	if _, ok := st.Find(name); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
+		return
+	}
+	tc, resumed, err := tunnel.AddQuotaGB(st, name, req.ExtraGB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "resumed": resumed, "quota": tunnel.QuotaStatus(tc)})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
@@ -212,65 +268,63 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"checks": checks, "counts": counts})
 }
 
-type backupFile struct {
-	Format  string                 `json:"format"`
-	Version string                 `json:"version"`
-	Created time.Time              `json:"created"`
-	Tunnels []catalog.TunnelConfig `json:"tunnels"`
-}
+type backupFile = tunnel.BackupFile
 
-// handleBackup downloads every tunnel's configuration, secrets included, so
-// the tunnels can be rebuilt on a reinstalled server. The panel login code and
-// panel settings are not part of it.
+// handleBackup downloads every tunnel's configuration, secrets, and persistent
+// cumulative traffic counters so tunnels can be migrated or restored accurately.
+// The panel login code and panel settings are not part of it.
 func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
-	st, err := s.store()
+	raw, b, err := tunnel.CreateBackup(s.storeDir)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	now := time.Now().UTC()
-	tunnels := st.Tunnels
-	if tunnels == nil {
-		tunnels = []catalog.TunnelConfig{}
-	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="ctunnel-backup-%s.json"`, now.Format("20060102-150405")))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="ctunnel-backup-%s.json"`, b.Created.Format("20060102-150405")))
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, backupFile{Format: "ctunnel-backup/1", Version: version.Version, Created: now, Tunnels: tunnels})
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
 }
 
-// handleRestore adds the tunnels from a backup that this server does not have
-// yet and starts them. A tunnel whose name already exists is left untouched.
+// handleRestore imports tunnels and their persistent traffic accounting from a
+// ctunnel-backup/1 or ctunnel-backup/2 JSON payload. By default existing
+// same-name tunnels are left untouched; pass ?overwrite=1 to replace them.
 func (s *Server) handleRestore(w http.ResponseWriter, r *http.Request) {
-	var b backupFile
-	if err := decodeJSON(r, &b); err != nil || b.Format != "ctunnel-backup/1" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "not a C-Tunnel backup file"})
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid or oversized backup payload"})
 		return
 	}
-	if len(b.Tunnels) > maxBackupTunnel {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "the backup holds too many tunnels"})
+	if _, err := tunnel.ParseBackup(raw); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	ow := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("overwrite")))
+	overwrite := ow == "1" || ow == "true" || ow == "yes"
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st, err := s.store()
+	res, err := tunnel.RestoreBackup(s.storeDir, raw, overwrite)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	created, skipped, failed := []string{}, []string{}, []string{}
-	for _, tc := range b.Tunnels {
-		if _, exists := st.Find(tunnel.SanitizeName(tc.Name)); exists {
-			skipped = append(skipped, tc.Name)
-			continue
+	nonNil := func(xs []string) []string {
+		if xs == nil {
+			return []string{}
 		}
-		if err := tunnel.Create(st, &tc); err != nil {
-			failed = append(failed, tc.Name+": "+err.Error())
-			continue
-		}
-		created = append(created, tc.Name)
-		if err := tunnel.Apply(tc); err != nil {
-			failed = append(failed, tc.Name+": saved, but starting failed: "+err.Error())
-		}
+		return xs
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": len(failed) == 0, "created": created, "skipped": skipped, "failed": failed})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":              len(res.Failed) == 0,
+		"created":         nonNil(res.Created),
+		"overwritten":     nonNil(res.Overwritten),
+		"skipped":         nonNil(res.Skipped),
+		"failed":          nonNil(res.Failed),
+		"restored_rx":     res.RestoredRx,
+		"restored_tx":     res.RestoredTx,
+		"total_cum_rx":    res.TotalCumRx,
+		"total_cum_tx":    res.TotalCumTx,
+		"traffic_entries": res.TrafficEntries,
+	})
 }

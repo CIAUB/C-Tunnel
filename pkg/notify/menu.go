@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
 )
 
 var (
-	toggleKeys = []string{"down", "failover", "restart", "daily"}
-	reportHours = []string{"00:00", "06:00", "09:00", "12:00", "18:00", "21:00"}
+	toggleKeys        = []string{"down", "failover", "restart", "daily"}
+	reportHours       = []string{"00:00", "06:00", "09:00", "12:00", "18:00", "21:00"}
+	autoBackupPresets = []int{0, 6, 12, 24, 48, 168}
 )
 
 func toggleOf(c *Config, key string) *bool {
@@ -34,8 +36,8 @@ func toggleOf(c *Config, key string) *bool {
 	return nil
 }
 
-// Handle answers one update. Only the configured chat gets answers beyond its
-// own chat ID.
+// Handle answers one Telegram update. Only configured numeric admins (or the
+// configured chat in legacy tests without From) may execute admin actions.
 func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 	n.mu.Lock()
 	cfg := n.cfg
@@ -43,30 +45,104 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 	lang := n.lang()
 
 	if c := u.Callback; c != nil {
-		if c.Message == nil || fmt.Sprint(c.Message.Chat.ID) != cfg.ChatID {
+		var chatID, fromID int64
+		if c.Message != nil {
+			chatID = c.Message.Chat.ID
+		}
+		if c.From != nil {
+			fromID = c.From.ID
+		}
+		if c.Message == nil || !cfg.IsAuthorizedChat(chatID, fromID) {
 			_ = bot.Answer(ctx, c.ID, tr(lang, "notAllowed"))
 			return
 		}
-		text, rows, toast := n.press(c.Data)
+		targetChat := strconv.FormatInt(chatID, 10)
+		// Async document send for manual backup button.
+		if c.Data == "bk-now:" {
+			if err := n.sendManualBackup(ctx, bot, targetChat); err != nil {
+				_ = bot.Answer(ctx, c.ID, tr(lang, "fail", err.Error()))
+				return
+			}
+			_ = bot.Answer(ctx, c.ID, tr(lang, "saved"))
+			return
+		}
+		if strings.HasPrefix(c.Data, "bk-rs:") {
+			mode := strings.TrimPrefix(c.Data, "bk-rs:")
+			actor := fromID
+			if actor == 0 {
+				actor = chatID
+			}
+			n.mu.Lock()
+			if n.restoreWait == nil {
+				n.restoreWait = map[int64]restorePrompt{}
+			}
+			n.restoreWait[actor] = restorePrompt{overwrite: mode == "over", expires: n.Now().Add(5 * time.Minute)}
+			n.mu.Unlock()
+			msg := "📥 <b>Restore Ready (Keep Existing)</b>\nUpload your <code>ctunnel-backup-*.json</code> file in this chat within 5 minutes."
+			if mode == "over" {
+				msg = "♻️ <b>Restore Ready (Overwrite Existing)</b>\nUpload your <code>ctunnel-backup-*.json</code> file in this chat within 5 minutes."
+			}
+			if lang == "fa" {
+				if mode == "over" {
+					msg = "♻️ <b>آماده ریستور (بازنویسی تانل‌های هم‌نام)</b>\nفایل بکاپ <code>ctunnel-backup-*.json</code> را تا ۵ دقیقه آینده در همین چت ارسال کن."
+				} else {
+					msg = "📥 <b>آماده ریستور امن (حفظ تانل‌های فعلی)</b>\nفایل بکاپ <code>ctunnel-backup-*.json</code> را تا ۵ دقیقه آینده در همین چت ارسال کن."
+				}
+			}
+			_ = bot.Edit(ctx, targetChat, c.Message.MessageID, msg, [][]Button{{{Text: tr(lang, "b.back"), Data: "bk:"}}})
+			_ = bot.Answer(ctx, c.ID, "")
+			return
+		}
+		text, rows, toast := n.press(c.Data, fromID)
 		if text != "" {
-			_ = bot.Edit(ctx, cfg.ChatID, c.Message.MessageID, text, rows)
+			_ = bot.Edit(ctx, targetChat, c.Message.MessageID, text, rows)
 		}
 		_ = bot.Answer(ctx, c.ID, toast)
 		return
 	}
+
 	m := u.Message
 	if m == nil {
 		return
 	}
-	chat := fmt.Sprint(m.Chat.ID)
-	cmd, _, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
+	var fromID int64
+	if m.From != nil {
+		fromID = m.From.ID
+	}
+	chat := strconv.FormatInt(m.Chat.ID, 10)
+	cmd, arg, _ := strings.Cut(strings.TrimSpace(m.Text), " ")
 	cmd, _, _ = strings.Cut(cmd, "@")
-	if chat != cfg.ChatID {
+	arg = strings.TrimSpace(arg)
+
+	if !cfg.IsAuthorizedChat(m.Chat.ID, fromID) {
 		if cmd == "/start" || cmd == "/help" {
-			_, _ = bot.Send(ctx, chat, tr(lang, "stranger", esc(chat)), nil)
+			showID := chat
+			if fromID > 0 {
+				showID = strconv.FormatInt(fromID, 10)
+			}
+			_, _ = bot.Send(ctx, chat, tr(lang, "stranger", esc(showID)), nil)
 		}
 		return
 	}
+
+	// Uploaded backup JSON document when admin initiated Restore.
+	if m.Document != nil {
+		actor := fromID
+		if actor == 0 {
+			actor = m.Chat.ID
+		}
+		n.mu.Lock()
+		rp, waiting := n.restoreWait[actor]
+		if waiting {
+			delete(n.restoreWait, actor)
+		}
+		n.mu.Unlock()
+		if waiting && n.Now().Before(rp.expires) {
+			n.handleRestoreUpload(ctx, bot, chat, m.Document, rp.overwrite)
+			return
+		}
+	}
+
 	switch cmd {
 	case "/start", "/help", "/menu":
 		text, rows := n.mainView()
@@ -77,6 +153,49 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 	case "/report":
 		text, rows := n.reportView()
 		_, _ = bot.Send(ctx, chat, text, rows)
+	case "/backup":
+		text, rows := n.backupView()
+		_, _ = bot.Send(ctx, chat, text, rows)
+	case "/admins":
+		text, rows := n.adminsView()
+		_, _ = bot.Send(ctx, chat, text, rows)
+	case "/addadmin":
+		id, err := strconv.ParseInt(arg, 10, 64)
+		if err != nil || id <= 0 {
+			msg := "Usage: <code>/addadmin 123456789</code>"
+			if lang == "fa" {
+				msg = "فرمت صحیح: <code>/addadmin 123456789</code> (شناسه عددی تلگرام کاربر)"
+			}
+			_, _ = bot.Send(ctx, chat, msg, [][]Button{{{Text: tr(lang, "b.admins"), Data: "ad:"}}})
+			return
+		}
+		var addErr error
+		res := n.change(func(c *Config) { addErr = c.AddAdmin(id) })
+		if addErr != nil {
+			res = tr(lang, "fail", esc(addErr.Error()))
+		}
+		text, rows := n.adminsView()
+		_, _ = bot.Send(ctx, chat, res+"\n\n"+text, rows)
+	case "/deladmin":
+		id, err := strconv.ParseInt(arg, 10, 64)
+		if err != nil || id <= 0 {
+			msg := "Usage: <code>/deladmin 123456789</code>"
+			if lang == "fa" {
+				msg = "فرمت صحیح: <code>/deladmin 123456789</code>"
+			}
+			_, _ = bot.Send(ctx, chat, msg, [][]Button{{{Text: tr(lang, "b.admins"), Data: "ad:"}}})
+			return
+		}
+		var rmErr error
+		res := n.change(func(c *Config) { rmErr = c.RemoveAdmin(id) })
+		if rmErr != nil {
+			res = tr(lang, "fail", esc(rmErr.Error()))
+		}
+		text, rows := n.adminsView()
+		_, _ = bot.Send(ctx, chat, res+"\n\n"+text, rows)
+	case "/gaming":
+		text, rows := n.gamingView()
+		_, _ = bot.Send(ctx, chat, text, rows)
 	case "/settings", "/alerts":
 		text, rows := n.alertsView()
 		_, _ = bot.Send(ctx, chat, text, rows)
@@ -86,7 +205,40 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 	}
 }
 
-func (n *Notifier) press(data string) (text string, rows [][]Button, toast string) {
+func (n *Notifier) handleRestoreUpload(ctx context.Context, bot *Bot, chat string, doc *Document, overwrite bool) {
+	lang := n.lang()
+	dctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	raw, err := bot.DownloadFile(dctx, doc.FileID, tunnel.MaxBackupBytes)
+	cancel()
+	if err != nil {
+		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{{Text: tr(lang, "b.backup"), Data: "bk:"}}})
+		return
+	}
+	res, err := tunnel.RestoreBackup(n.StoreDir, raw, overwrite)
+	if err != nil {
+		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{{Text: tr(lang, "b.backup"), Data: "bk:"}}})
+		return
+	}
+	title := "✅ Restore Complete"
+	if lang == "fa" {
+		title = "✅ ریستور بکاپ انجام شد"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<b>%s</b>\n%s\n<pre>", title, tr(lang, "rule"))
+	fmt.Fprintf(&b, "%-13s %d\n", "CREATED:", len(res.Created))
+	fmt.Fprintf(&b, "%-13s %d\n", "OVERWRITTEN:", len(res.Overwritten))
+	fmt.Fprintf(&b, "%-13s %d\n", "SKIPPED:", len(res.Skipped))
+	fmt.Fprintf(&b, "%-13s %d\n", "FAILED:", len(res.Failed))
+	fmt.Fprintf(&b, "%-13s %s\n", "RESTORED Σ:", bytesStr(res.RestoredRx+res.RestoredTx))
+	fmt.Fprintf(&b, "%-13s %s", "SERVER Σ:", bytesStr(res.TotalCumRx+res.TotalCumTx))
+	b.WriteString("</pre>")
+	if len(res.Failed) > 0 {
+		b.WriteString("\n⚠️ " + esc(strings.Join(res.Failed, "; ")))
+	}
+	_, _ = bot.Send(ctx, chat, b.String(), [][]Button{{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}}})
+}
+
+func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Button, toast string) {
 	lang := n.lang()
 	op, arg, _ := strings.Cut(data, ":")
 	switch op {
@@ -96,6 +248,30 @@ func (n *Notifier) press(data string) (text string, rows [][]Button, toast strin
 		text, rows = n.statusView()
 	case "rp", "report":
 		text, rows = n.reportView()
+	case "bk":
+		text, rows = n.backupView()
+	case "ab":
+		h, err := strconv.Atoi(arg)
+		if err == nil && h >= 0 && h <= 720 {
+			toast = n.change(func(c *Config) { c.AutoBackupHours = h })
+		}
+		text, rows = n.backupView()
+	case "ad":
+		text, rows = n.adminsView()
+	case "ad-rm":
+		if id, err := strconv.ParseInt(arg, 10, 64); err == nil {
+			var rmErr error
+			toast = n.change(func(c *Config) { rmErr = c.RemoveAdmin(id) })
+			if rmErr != nil {
+				toast = rmErr.Error()
+			}
+		}
+		text, rows = n.adminsView()
+	case "gm":
+		text, rows = n.gamingView()
+	case "pg":
+		text = tr(lang, "panel.httpsHint", tr(lang, "rule"))
+		rows = [][]Button{{{Text: tr(lang, "b.home"), Data: "m:"}}}
 	case "al", "alerts", "settings":
 		text, rows = n.alertsView()
 	case "sv", "server":
@@ -127,6 +303,37 @@ func (n *Notifier) press(data string) (text string, rows [][]Button, toast strin
 		text, rows = n.tunnelView(arg)
 	case "lo":
 		text, rows = n.logsView(arg)
+	case "qr":
+		_, st, _ := n.current()
+		if _, err := tunnel.ResetQuotaUsage(st, arg); err != nil {
+			text, rows = n.tunnelView(arg)
+			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
+		} else {
+			text, rows = n.tunnelView(arg)
+			text = tr(lang, "quota.reset", esc(arg)) + "\n\n" + text
+			toast = tr(lang, "saved")
+		}
+	case "qa10", "qa50", "qa100":
+		extra := 10.0
+		if op == "qa50" {
+			extra = 50.0
+		} else if op == "qa100" {
+			extra = 100.0
+		}
+		_, st, _ := n.current()
+		tc, resumed, err := tunnel.AddQuotaGB(st, arg, extra)
+		if err != nil {
+			text, rows = n.tunnelView(arg)
+			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
+		} else {
+			resWord := ""
+			if resumed {
+				resWord = tr(lang, "quota.resumed")
+			}
+			text, rows = n.tunnelView(arg)
+			text = tr(lang, "quota.added", esc(tc.Name), tc.QuotaGB, resWord) + "\n\n" + text
+			toast = tr(lang, "saved")
+		}
 	case "rs":
 		tc, ok := n.tunnel(arg)
 		if !ok {
@@ -186,15 +393,27 @@ func (n *Notifier) press(data string) (text string, rows [][]Button, toast strin
 			text = tr(lang, "done.stop", esc(tc.Name)) + "\n\n" + text
 		}
 	case "go":
-		tc, ok := n.tunnel(arg)
+		_, st, _ := n.current()
+		tc, ok := st.Find(arg)
 		if !ok {
 			text, rows = n.statusView()
 			return
+		}
+		// Manual start overrides exhausted quota so agent won't auto-stop it again.
+		q := tunnel.QuotaStatus(tc)
+		overrode := false
+		if q.Active && (q.Exhausted || tc.QuotaStopped) {
+			tc.QuotaOverride = true
+			tc.QuotaStopped = false
+			overrode = true
+			_ = st.Upsert(tc)
 		}
 		err := n.StartTunnel(tc)
 		text, rows = n.tunnelView(tc.Name)
 		if err != nil {
 			text = tr(lang, "fail", esc(err.Error())) + "\n\n" + text
+		} else if overrode {
+			text = tr(lang, "quota.override", esc(tc.Name)) + "\n\n" + text
 		} else {
 			text = tr(lang, "done.start", esc(tc.Name)) + "\n\n" + text
 		}
@@ -225,6 +444,7 @@ func (n *Notifier) press(data string) (text string, rows [][]Button, toast strin
 		text, rows = n.mainView()
 		text = tr(lang, "done.all", okCount, failCount) + "\n\n" + text
 	}
+	_ = fromID
 	return text, rows, toast
 }
 
@@ -303,9 +523,16 @@ func uptime() time.Duration {
 
 func (n *Notifier) mainView() (string, [][]Button) {
 	lang := n.lang()
-	_, st, _ := n.current()
-	up, down, stopped := 0, 0, 0
+	cfg, st, _ := n.current()
+	up, down, stopped, quotaStop := 0, 0, 0, 0
+	var allRx, allTx uint64 = st.ArchivedRx, st.ArchivedTx
 	for _, tc := range st.Tunnels {
+		rx, tx := n.Traffic(tc.Name)
+		allRx += rx
+		allTx += tx
+		if tc.QuotaStopped {
+			quotaStop++
+		}
 		icon, _ := n.state(lang, tc)
 		switch icon {
 		case "🟢":
@@ -321,21 +548,37 @@ func (n *Notifier) mainView() (string, [][]Button) {
 	b.WriteString(tr(lang, "rule") + "\n")
 	b.WriteString(tr(lang, "menu.server", esc(n.Host), n.roleWord(lang, st), esc(version.Version), humanIn(lang, uptime())) + "\n")
 	b.WriteString(tr(lang, "rule") + "\n")
-	b.WriteString(tr(lang, "menu.tunnels", len(st.Tunnels), up, down, stopped))
+	b.WriteString("<pre>")
+	fmt.Fprintf(&b, "%-10s %d (🟢%d 🔴%d ⏸%d)\n", "TUNNELS", len(st.Tunnels), up, down, stopped)
+	fmt.Fprintf(&b, "%-10s %s (↓%s ↑%s)\n", "TRAFFIC", shortBytes(allRx+allTx), shortBytes(allRx), shortBytes(allTx))
+	fmt.Fprintf(&b, "%-10s %d", "ADMINS", len(cfg.AdminIDs()))
+	if cfg.AutoBackupHours > 0 {
+		fmt.Fprintf(&b, " · BACKUP %dh", cfg.AutoBackupHours)
+	}
+	if quotaStop > 0 {
+		fmt.Fprintf(&b, "\n%-10s %d STOPPED BY QUOTA", "QUOTA", quotaStop)
+	}
 	activeTotal := up + down
 	if activeTotal > 0 {
 		pct := (up * 100) / activeTotal
-		fmt.Fprintf(&b, "\n<pre>%s %3d%%  %s</pre>", bar(pct, 10), pct, tr(lang, "menu.health"))
+		fmt.Fprintf(&b, "\n%s %3d%%  %s", bar(pct, 10), pct, tr(lang, "menu.health"))
 	}
-	b.WriteString("\n" + tr(lang, "rule") + "\n")
+	b.WriteString("</pre>\n")
 	b.WriteString(tr(lang, "menu.updated", n.Now().Format("15:04:05")))
 
-	rows := [][]Button{
-		{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.report"), Data: "rp:"}},
-		{{Text: tr(lang, "b.alerts"), Data: "al:"}, {Text: tr(lang, "b.server"), Data: "sv:"}},
-		{{Text: tr(lang, "b.restartAll"), Data: "ral:"}},
-		{{Text: tr(lang, "b.lang"), Data: "lg:"}, {Text: tr(lang, "b.refresh"), Data: "m:"}},
+	var rows [][]Button
+	if miniURL := ResolveMiniAppURL(n.StoreDir, cfg); miniURL != "" {
+		rows = append(rows, []Button{{Text: tr(lang, "b.openPanel"), WebApp: &WebAppInfo{URL: miniURL}}})
+	} else {
+		rows = append(rows, []Button{{Text: tr(lang, "b.panelGuide"), Data: "pg:"}})
 	}
+	rows = append(rows,
+		[]Button{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.report"), Data: "rp:"}},
+		[]Button{{Text: tr(lang, "b.backup"), Data: "bk:"}, {Text: tr(lang, "b.admins"), Data: "ad:"}},
+		[]Button{{Text: tr(lang, "b.gaming"), Data: "gm:"}, {Text: tr(lang, "b.server"), Data: "sv:"}},
+		[]Button{{Text: tr(lang, "b.alerts"), Data: "al:"}, {Text: tr(lang, "b.restartAll"), Data: "ral:"}},
+		[]Button{{Text: tr(lang, "b.lang"), Data: "lg:"}, {Text: tr(lang, "b.refresh"), Data: "m:"}},
+	)
 	return b.String(), rows
 }
 
@@ -351,17 +594,32 @@ func (n *Notifier) statusView() (string, [][]Button) {
 		return b.String(), [][]Button{{{Text: tr(lang, "b.refresh"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}}}
 	}
 	b.WriteString("<pre>")
-	b.WriteString(pad("NAME", 11) + pad("METHOD", 11) + "STATE\n")
-	b.WriteString(strings.Repeat("─", 28) + "\n")
+	b.WriteString(pad("NAME", 10) + pad("PROTO", 9) + pad("ST", 3) + pad("QUOTA", 9) + "RATE\n")
+	b.WriteString(strings.Repeat("─", 37) + "\n")
 	var btnRows [][]Button
 	var pair []Button
 	for _, tc := range tcs {
-		icon, word := n.state(lang, tc)
+		icon, _ := n.state(lang, tc)
+		if tc.QuotaStopped {
+			icon = "⛔"
+		}
 		meth := tc.Method
 		if tc.BackupMethod != "" && n.OnBackup(tc.Name) {
 			meth = tc.BackupMethod + "*"
 		}
-		b.WriteString(esc(pad(tc.Name, 11)) + esc(pad(meth, 11)) + icon + " " + esc(word) + "\n")
+		rx, tx := n.Traffic(tc.Name)
+		qStr := shortBytes(rx + tx)
+		if tc.QuotaGB > 0 {
+			qStr = fmt.Sprintf("%s/%.0fG", shortBytes(rx+tx), tc.QuotaGB)
+			if tc.QuotaOverride {
+				qStr += "*"
+			}
+		}
+		rStr := "∞"
+		if tc.RateMbps > 0 {
+			rStr = fmt.Sprintf("%dM", tc.RateMbps)
+		}
+		b.WriteString(esc(pad(tc.Name, 10)) + esc(pad(meth, 9)) + icon + " " + esc(pad(qStr, 9)) + esc(rStr) + "\n")
 		pair = append(pair, Button{Text: icon + " " + tc.Name, Data: "tn:" + tc.Name})
 		if len(pair) == 2 {
 			btnRows = append(btnRows, pair)
@@ -384,6 +642,14 @@ func (n *Notifier) tunnelView(name string) (string, [][]Button) {
 		return tr(lang, "tunnel.gone") + "\n\n" + text, rows
 	}
 	icon, word := n.state(lang, tc)
+	if tc.QuotaStopped {
+		icon = "⛔"
+		if lang == "fa" {
+			word = "متوقف (اتمام سهمیه)"
+		} else {
+			word = "stopped (quota)"
+		}
+	}
 	roleW := tr(lang, "role.kharej")
 	if tc.Role == "iran" {
 		roleW = tr(lang, "role.iran")
@@ -400,22 +666,153 @@ func (n *Notifier) tunnelView(name string) (string, [][]Button) {
 		since = tr(lang, "tunnel.never")
 	}
 	rx, tx := n.Traffic(tc.Name)
+	used := rx + tx
+	rateTxt := "Unlimited"
+	if tc.RateMbps > 0 {
+		rateTxt = fmt.Sprintf("%d Mbps", tc.RateMbps)
+	}
+
 	var b strings.Builder
 	b.WriteString(tr(lang, "tunnel.title", icon, esc(tc.Name), esc(word)) + "\n")
 	b.WriteString(tr(lang, "rule") + "\n")
 	b.WriteString(tr(lang, "tunnel.body", roleW, esc(n.method(tc)), extra.String(), esc(since)) + "\n")
-	fmt.Fprintf(&b, "<pre>↓ %-10s ↑ %s</pre>\n%s", bytesStr(rx), bytesStr(tx), tr(lang, "traffic.lgd"))
+	b.WriteString("<pre>")
+	fmt.Fprintf(&b, "RX    %-11s TX   %s\n", bytesStr(rx), bytesStr(tx))
+	fmt.Fprintf(&b, "TOTAL %-11s RATE %s", bytesStr(used), rateTxt)
+	if tc.QuotaGB > 0 {
+		lim := tunnel.QuotaLimitBytes(tc.QuotaGB)
+		pct := 0
+		if lim > 0 {
+			pct = int(min(used*100/lim, 100))
+		}
+		qState := "ACTIVE"
+		if tc.QuotaStopped {
+			qState = "EXHAUSTED"
+		} else if tc.QuotaOverride {
+			qState = "OVERRIDE"
+		}
+		fmt.Fprintf(&b, "\nQUOTA %s %3d%%  %.1f GB (%s)", bar(pct, 8), pct, tc.QuotaGB, qState)
+	} else {
+		b.WriteString("\nQUOTA Unlimited")
+	}
+	b.WriteString("</pre>\n" + tr(lang, "traffic.lgd"))
 
 	toggleBtn := Button{Text: tr(lang, "b.stop"), Data: "ss:" + tc.Name}
-	if !n.Enabled(tc) {
-		toggleBtn = Button{Text: tr(lang, "b.start"), Data: "go:" + tc.Name}
+	if !n.Enabled(tc) || tc.QuotaStopped {
+		lbl := tr(lang, "b.start")
+		if tc.QuotaStopped || (tc.QuotaGB > 0 && used >= tunnel.QuotaLimitBytes(tc.QuotaGB)) {
+			lbl = tr(lang, "b.overrideStart")
+		}
+		toggleBtn = Button{Text: lbl, Data: "go:" + tc.Name}
 	}
 	rows := [][]Button{
 		{{Text: tr(lang, "b.restart"), Data: "rs:" + tc.Name}, toggleBtn},
+		{{Text: tr(lang, "b.resetQuota"), Data: "qr:" + tc.Name}, {Text: "➕ +10 GB", Data: "qa10:" + tc.Name}},
+		{{Text: "➕ +50 GB", Data: "qa50:" + tc.Name}, {Text: "➕ +100 GB", Data: "qa100:" + tc.Name}},
 		{{Text: tr(lang, "b.logs"), Data: "lo:" + tc.Name}, {Text: tr(lang, "b.refresh"), Data: "tn:" + tc.Name}},
 		{{Text: tr(lang, "b.back"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}},
 	}
 	return b.String(), rows
+}
+
+func (n *Notifier) backupView() (string, [][]Button) {
+	lang := n.lang()
+	cfg, st, _ := n.current()
+	rx, tx := tunnel.TotalTrafficAll(st)
+	autoTxt := "Off"
+	if cfg.AutoBackupHours > 0 {
+		autoTxt = fmt.Sprintf("Every %dh", cfg.AutoBackupHours)
+	}
+	head := "📦 <b>Backup, Restore & Auto-Backup</b>"
+	if lang == "fa" {
+		head = "📦 <b>بکاپ، ریستور و بکاپ خودکار</b>"
+	}
+	var b strings.Builder
+	b.WriteString(head + "\n" + tr(lang, "rule") + "\n<pre>")
+	fmt.Fprintf(&b, "%-12s %d\n", "TUNNELS", len(st.Tunnels))
+	fmt.Fprintf(&b, "%-12s %s (↓%s ↑%s)\n", "TOTAL Σ", shortBytes(rx+tx), shortBytes(rx), shortBytes(tx))
+	fmt.Fprintf(&b, "%-12s %s", "AUTO-BACKUP", autoTxt)
+	b.WriteString("</pre>")
+
+	var presetRow1, presetRow2 []Button
+	for i, h := range autoBackupPresets {
+		lbl := "Off"
+		if h > 0 {
+			lbl = fmt.Sprintf("%dh", h)
+			if h == 168 {
+				lbl = "7d"
+			}
+		}
+		if cfg.AutoBackupHours == h {
+			lbl = "✅ " + lbl
+		}
+		btn := Button{Text: lbl, Data: "ab:" + strconv.Itoa(h)}
+		if i < 3 {
+			presetRow1 = append(presetRow1, btn)
+		} else {
+			presetRow2 = append(presetRow2, btn)
+		}
+	}
+	rows := [][]Button{
+		{{Text: tr(lang, "b.backupNow"), Data: "bk-now:"}},
+		{{Text: tr(lang, "b.restoreSafe"), Data: "bk-rs:safe"}, {Text: tr(lang, "b.restoreOver"), Data: "bk-rs:over"}},
+		presetRow1,
+		presetRow2,
+		{{Text: tr(lang, "b.home"), Data: "m:"}},
+	}
+	return b.String(), rows
+}
+
+func (n *Notifier) adminsView() (string, [][]Button) {
+	lang := n.lang()
+	n.mu.Lock()
+	cfg := n.cfg
+	n.mu.Unlock()
+	admins := cfg.AdminIDs()
+	head := "👥 <b>Bot & Mini App Admins</b>"
+	hint := "Add: <code>/addadmin 123456789</code>\nRemove: <code>/deladmin 123456789</code>"
+	if lang == "fa" {
+		head = "👥 <b>ادمین‌های ربات و Mini App</b>"
+		hint = "افزودن: <code>/addadmin 123456789</code>\nحذف: <code>/deladmin 123456789</code>"
+	}
+	var b strings.Builder
+	b.WriteString(head + "\n" + tr(lang, "rule") + "\n<pre>")
+	b.WriteString(pad("#", 4) + pad("USER ID", 16) + "ACCESS\n")
+	b.WriteString(strings.Repeat("─", 28) + "\n")
+	var rows [][]Button
+	for i, id := range admins {
+		fmt.Fprintf(&b, "%-4d%-16dADMIN\n", i+1, id)
+		if len(admins) > 1 {
+			rows = append(rows, []Button{{Text: fmt.Sprintf("🗑 %d", id), Data: "ad-rm:" + strconv.FormatInt(id, 10)}})
+		}
+	}
+	text := strings.TrimRight(b.String(), "\n") + "</pre>\n" + hint
+	rows = append(rows, []Button{{Text: tr(lang, "b.refresh"), Data: "ad:"}, {Text: tr(lang, "b.home"), Data: "m:"}})
+	return text, rows
+}
+
+func (n *Notifier) gamingView() (string, [][]Button) {
+	lang := n.lang()
+	head := "🎮 <b>Dedicated Gaming Protocols (Direct & Reverse)</b>"
+	if lang == "fa" {
+		head = "🎮 <b>پروتکل‌های اختصاصی گیمینگ (Direct و Reverse)</b>"
+	}
+	var b strings.Builder
+	b.WriteString(head + "\n" + tr(lang, "rule") + "\n<pre>")
+	b.WriteString(pad("METHOD", 10) + pad("MODE", 10) + "BEST FOR\n")
+	b.WriteString(strings.Repeat("─", 38) + "\n")
+	b.WriteString(pad("game-udp", 10) + pad("Dir/Rev", 10) + "Lowest ping, DSCP EF\n")
+	b.WriteString(pad("game-fec", 10) + pad("Dir/Rev", 10) + "0-RTT XOR-FEC loss\n")
+	b.WriteString(pad("game-dup", 10) + pad("Dir/Rev", 10) + "Dual-send small pkts\n")
+	b.WriteString(pad("game-kcp", 10) + pad("L4 D/R", 10) + "5ms KCP port-forward")
+	b.WriteString("</pre>\n")
+	for _, m := range catalog.Methods {
+		if m.Gaming() {
+			fmt.Fprintf(&b, "• <code>%s</code> — %s\n", esc(m.Name), esc(m.Summary))
+		}
+	}
+	rows := [][]Button{{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.home"), Data: "m:"}}}
+	return strings.TrimRight(b.String(), "\n"), rows
 }
 
 func (n *Notifier) logsView(name string) (string, [][]Button) {
@@ -433,7 +830,6 @@ func (n *Notifier) logsView(name string) (string, [][]Button) {
 		lines := strings.Split(raw, "\n")
 		b.WriteString("\n<pre>")
 		for _, ln := range lines {
-			// Strip systemd hostname/unit prefix if present for compact display.
 			parts := strings.SplitN(ln, ": ", 2)
 			if len(parts) == 2 {
 				ts := strings.Fields(parts[0])
@@ -538,6 +934,8 @@ func (n *Notifier) serverView() (string, [][]Button) {
 		pct := int(used * 100 / total)
 		fmt.Fprintf(&res, "DISK %s %3.0f%%  %s/%s\n", bar(pct, 10), float64(pct), bytesStr(used), bytesStr(total))
 	}
+	rx, tx := tunnel.TotalTrafficAll(st)
+	fmt.Fprintf(&res, "CUM  Σ %-10s  ↓%s ↑%s\n", shortBytes(rx+tx), shortBytes(rx), shortBytes(tx))
 	var b strings.Builder
 	b.WriteString(tr(lang, "server.title", esc(n.Host)) + "\n")
 	b.WriteString(tr(lang, "rule") + "\n")

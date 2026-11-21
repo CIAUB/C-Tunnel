@@ -18,10 +18,12 @@ import (
 )
 
 type client struct {
-	cfg   *Config
-	st    *Stats
-	runID [runIDLen]byte
-	guard *PeerGuard
+	cfg     *Config
+	st      *Stats
+	runID   [runIDLen]byte
+	guard   *PeerGuard
+	limDown *rateLimiter
+	limUp   *rateLimiter
 
 	logMu    sync.Mutex
 	lastErr  time.Time
@@ -386,7 +388,7 @@ func (c *client) serve(st net.Conn, kind byte, port int) {
 			st.Close()
 			return
 		}
-		pipe(st, local, &c.st.Down, &c.st.Up)
+		pipe(st, local, &c.st.Down, &c.st.Up, c.limDown, c.limUp)
 	case kindUDP:
 		local, err := net.Dial("udp", addr)
 		if err != nil {

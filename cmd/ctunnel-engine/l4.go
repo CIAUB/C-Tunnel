@@ -48,6 +48,7 @@ func runL4(cfg config) error {
 		LocalSocket: filepath.Join(dir, "tg.sock"),
 		ProbeSocket: filepath.Join(dir, "probe.sock"),
 		PeerPinPath: pinPath,
+		RateMbps:    cfg.rateMbps,
 		Logf:        log.Printf,
 	}, st)
 	close(done)

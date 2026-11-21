@@ -31,12 +31,17 @@ const (
 	// FamilyReverseL4 tunnels forward ports, not packets: Kharej dials Iran and
 	// each user connection rides its own stream (pkg/l4). No tunnel interface.
 	FamilyReverseL4 Family = "Reverse-L4"
+	// FamilyGaming are low-latency, QoS-marked transports tuned for competitive
+	// online gaming (ultra-low ping UDP, 0-RTT XOR-FEC, redundant dual-send UDP,
+	// and 5ms low-latency L4 KCP), available in both Direct and Reverse modes.
+	FamilyGaming Family = "Gaming"
 )
 
 type MethodSpec struct {
 	ID            int
 	Name          string
 	Title         string
+	Summary       string // concise use-case guidance shown in CLI, Web Panel, and Bot
 	Family        Family
 	Overhead      int  // bytes added on top of the inner packet (IPv4 underlay)
 	SupportsFOU   bool // optional UDP (FOU) wrapping with a port
@@ -97,15 +102,31 @@ var Methods = []MethodSpec{
 	{ID: 35, Name: "wssmux", Title: "WebSocket in TLS + MUX", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 42, Name: "udp", Title: "UDP (a KCP session per user connection, AES)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 43, Name: "udpmux", Title: "UDP + MUX (streams over a few KCP sessions, AES)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
+
+	{ID: 46, Name: "game-udp", Title: "Gaming UDP (Ultra-Low Ping · 4B header, DSCP EF, zero-batch)", Summary: "Best for lowest possible ping & jitter on clean links (FPS / competitive). Immediate UDP flush, DSCP EF QoS, no head-of-line blocking.", Family: FamilyGaming, Overhead: 48, NeedsPort: true, Userspace: true},
+	{ID: 47, Name: "game-fec", Title: "Gaming FEC (Packet-Loss Shield · 2+1 XOR-FEC + DSCP EF)", Summary: "Best for unstable or lossy links (2-15% packet loss). Recovers dropped packets in 0-RTT without retransmission ping spikes.", Family: FamilyGaming, Overhead: 56, NeedsPort: true, Userspace: true},
+	{ID: 48, Name: "game-dup", Title: "Gaming Dual-Send (Zero-Spike Redundant UDP + Dedup)", Summary: "Best for severe bursty packet loss. Duplicates small game packets (<=300B) and delivers the first arriving copy with zero FEC grouping wait.", Family: FamilyGaming, Overhead: 52, NeedsPort: true, Userspace: true},
+	{ID: 49, Name: "game-kcp", Title: "Gaming Fast-KCP L4 (5ms NoDelay Port-Forward · No TUN)", Summary: "Best for Direct/Reverse game port forwarding without TUN interfaces on lossy paths. Tuned 5ms KCP + fast UDP forwarding + DSCP EF.", Family: FamilyGaming, NeedsPort: true, Userspace: true},
 }
 
-// L4 reports whether m is a layer-4 reverse transport: always reverse, no
-// tunnel interface or tunnel IP, forwarded ports served by the engine itself.
-func (m MethodSpec) L4() bool { return m.Family == FamilyReverseL4 }
+// L4 reports whether m is a layer-4 port-forwarding transport (no tunnel
+// interface or tunnel IP; forwarded ports served by the engine itself).
+func (m MethodSpec) L4() bool { return m.Family == FamilyReverseL4 || m.Name == "game-kcp" }
 
 // Crypt reports whether m is an encrypted layer-3 tunnel run by the engine
-// with the tunnel secret: the UDP-Crypt and Stealth families.
-func (m MethodSpec) Crypt() bool { return m.Family == FamilyUDPCrypt || m.Family == FamilyStealth }
+// with the tunnel secret: UDP-Crypt, Stealth, and L3 Gaming transports.
+func (m MethodSpec) Crypt() bool {
+	return m.Family == FamilyUDPCrypt || m.Family == FamilyStealth || (m.Family == FamilyGaming && m.Name != "game-kcp")
+}
+
+// Gaming reports whether m belongs to the dedicated Gaming protocol family.
+func (m MethodSpec) Gaming() bool { return m.Family == FamilyGaming }
+
+// IsGaming reports whether method names a dedicated Gaming transport.
+func IsGaming(method string) bool {
+	m, ok := LookupMethod(method)
+	return ok && m.Gaming()
+}
 
 // IsL4 reports whether method names a layer-4 reverse transport.
 func IsL4(method string) bool {
@@ -160,6 +181,13 @@ type TunnelConfig struct {
 	// its port, 0 for the method's default.
 	BackupMethod string `json:"backup_method,omitempty"`
 	BackupPort   int    `json:"backup_port,omitempty"`
+	// QuotaGB caps total cumulative traffic (RX + TX) in GiB; 0 means unlimited.
+	// QuotaOverride lets a manual start bypass an exhausted quota without being
+	// auto-stopped again until reset or top-up. QuotaStopped records that the
+	// agent automatically disabled this tunnel on reaching QuotaGB.
+	QuotaGB       float64 `json:"quota_gb,omitempty"`
+	QuotaOverride bool    `json:"quota_override,omitempty"`
+	QuotaStopped  bool    `json:"quota_stopped,omitempty"`
 }
 
 func PeerRole(role string) string {
@@ -280,6 +308,8 @@ type Store struct {
 	GitHubRepo string         `json:"github_repo,omitempty"`
 	PanelPort  int            `json:"panel_port,omitempty"`
 	PanelCode  string         `json:"panel_code,omitempty"`
+	ArchivedRx uint64         `json:"archived_rx,omitempty"`
+	ArchivedTx uint64         `json:"archived_tx,omitempty"`
 	Tunnels    []TunnelConfig `json:"tunnels"`
 }
 
