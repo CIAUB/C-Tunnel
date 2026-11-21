@@ -104,13 +104,39 @@ func TestConfigMultiAdminManagement(t *testing.T) {
 	if err := cfg.RemoveAdmin(2002); err == nil {
 		t.Fatal("expected error removing last remaining admin")
 	}
-	// MiniAppURL requires https.
-	cfg.MiniAppURL = "http://insecure.example.com"
+	// Panel URL accepts http:// (1-tap direct link) and https:// (Mini App), rejects other schemes.
+	cfg.MiniAppURL = "javascript:alert(1)"
 	if err := cfg.Validate(); err == nil {
-		t.Fatal("expected http MiniAppURL rejection")
+		t.Fatal("expected non-http(s) MiniAppURL rejection")
+	}
+	cfg.MiniAppURL = "http://203.0.113.5:6969/panel-abcdef/"
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid http panel URL rejected: %v", err)
+	}
+	if u, isHTTPS := ResolvePanelURL("", cfg); u != cfg.MiniAppURL || isHTTPS {
+		t.Fatalf("ResolvePanelURL http = (%q, %v)", u, isHTTPS)
 	}
 	cfg.MiniAppURL = "https://panel.example.com/panel-abcdef/"
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("valid https MiniAppURL rejected: %v", err)
+	}
+	if u, isHTTPS := ResolvePanelURL("", cfg); u != cfg.MiniAppURL || !isHTTPS {
+		t.Fatalf("ResolvePanelURL https = (%q, %v)", u, isHTTPS)
+	}
+
+	// Signed HTTP direct-login token verification (valid, expired, wrong admin, tampered).
+	now := time.Unix(1760000000, 0)
+	ptok := SignPanelLoginToken(cfg.Token, 2002, now, DefaultPanelTokenTTL)
+	if uid, err := VerifyPanelLoginToken(ptok, cfg.Token, []int64{2002}, now.Add(5*time.Minute)); err != nil || uid != 2002 {
+		t.Fatalf("valid panel token failed: uid=%d err=%v", uid, err)
+	}
+	if _, err := VerifyPanelLoginToken(ptok, cfg.Token, []int64{2002}, now.Add(2*time.Hour)); !errors.Is(err, ErrExpiredInitData) {
+		t.Fatalf("expired panel token accepted: %v", err)
+	}
+	if _, err := VerifyPanelLoginToken(ptok, cfg.Token, []int64{9999}, now.Add(time.Minute)); !errors.Is(err, ErrNotAdmin) {
+		t.Fatalf("removed admin panel token accepted: %v", err)
+	}
+	if _, err := VerifyPanelLoginToken(ptok+"0", cfg.Token, []int64{2002}, now.Add(time.Minute)); !errors.Is(err, ErrInvalidInitData) {
+		t.Fatalf("tampered panel token accepted: %v", err)
 	}
 }

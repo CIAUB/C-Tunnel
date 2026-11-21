@@ -13,7 +13,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ctunnel/pkg/hostip"
 )
+
+// PanelHostFunc discovers this server's reachable IPv4 when panel.json has no
+// custom Domain and state.json has no tunnel LocalIP (overridable in tests).
+var PanelHostFunc = hostip.Bind4
 
 // Paths of the settings, the agent's memory between runs and the agent's
 // report to the panel; variables so tests can move them.
@@ -244,8 +250,12 @@ func (c *Config) Validate() error {
 	}
 	if c.MiniAppURL != "" {
 		u, err := url.Parse(c.MiniAppURL)
-		if err != nil || strings.ToLower(u.Scheme) != "https" || u.Hostname() == "" || u.User != nil || strings.ContainsAny(c.MiniAppURL, "\r\n\t ") {
-			return errors.New("Mini App URL must be a valid https:// address")
+		scheme := ""
+		if u != nil {
+			scheme = strings.ToLower(u.Scheme)
+		}
+		if err != nil || (scheme != "https" && scheme != "http") || u.Hostname() == "" || u.User != nil || strings.ContainsAny(c.MiniAppURL, "\r\n\t ") {
+			return errors.New("Panel URL must be a valid http:// or https:// address")
 		}
 	}
 	if c.AutoBackupHours < 0 || c.AutoBackupHours > 720 {
@@ -260,18 +270,36 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ResolveMiniAppURL returns the HTTPS Web Panel URL for the Telegram Mini App
-// button: explicit cfg.MiniAppURL first, then auto-detected HTTPS panel.json +
-// state.json (Domain + CertFile + BasePath + PanelPort). Returns "" when the
-// panel only serves plain HTTP.
+// ResolveMiniAppURL returns the HTTPS Web Panel URL suitable for a native
+// Telegram Mini App (web_app) button, or "" when the panel only serves HTTP.
 func ResolveMiniAppURL(storeDir string, cfg Config) string {
+	u, isHTTPS := ResolvePanelURL(storeDir, cfg)
+	if isHTTPS {
+		return u
+	}
+	return ""
+}
+
+// ResolvePanelURL returns the reachable Web Panel URL and whether it uses HTTPS.
+// Priority:
+//  1. Explicit cfg.MiniAppURL (https:// -> Mini App, http:// -> direct browser link).
+//  2. panel.json (Domain + CertFile + BasePath + PanelPort) -> HTTPS Mini App.
+//  3. Default HTTP auto-detection from panel.json (BasePath, optional Domain) +
+//     state.json (PanelPort + tunnel LocalIP) or PanelHostFunc -> HTTP direct link.
+func ResolvePanelURL(storeDir string, cfg Config) (string, bool) {
 	if s := strings.TrimSpace(cfg.MiniAppURL); s != "" {
-		if u, err := url.Parse(s); err == nil && strings.EqualFold(u.Scheme, "https") && u.Host != "" {
-			return s
+		if u, err := url.Parse(s); err == nil && u.Hostname() != "" && u.User == nil {
+			scheme := strings.ToLower(u.Scheme)
+			if scheme == "https" {
+				return s, true
+			}
+			if scheme == "http" {
+				return s, false
+			}
 		}
 	}
 	if storeDir == "" {
-		return ""
+		return "", false
 	}
 	var pc struct {
 		BasePath string `json:"base_path"`
@@ -280,26 +308,56 @@ func ResolveMiniAppURL(storeDir string, cfg Config) string {
 	}
 	b, err := os.ReadFile(filepath.Join(storeDir, "panel.json"))
 	if err != nil || json.Unmarshal(b, &pc) != nil {
-		return ""
+		return "", false
 	}
-	if strings.TrimSpace(pc.Domain) == "" || strings.TrimSpace(pc.CertFile) == "" || strings.TrimSpace(pc.BasePath) == "" {
-		return ""
+	bp := strings.TrimRight(strings.TrimSpace(pc.BasePath), "/")
+	if bp == "" {
+		return "", false
 	}
 	port := 6969
+	var st struct {
+		PanelPort int `json:"panel_port"`
+		Tunnels   []struct {
+			LocalIP string `json:"local_ip"`
+		} `json:"tunnels"`
+	}
 	if sb, err := os.ReadFile(filepath.Join(storeDir, "state.json")); err == nil {
-		var st struct {
-			PanelPort int `json:"panel_port"`
-		}
 		if json.Unmarshal(sb, &st) == nil && st.PanelPort > 0 {
 			port = st.PanelPort
 		}
 	}
-	host := pc.Domain
-	if port != 443 {
-		host = net.JoinHostPort(pc.Domain, strconv.Itoa(port))
+	dom := strings.TrimSpace(pc.Domain)
+	if dom != "" && strings.TrimSpace(pc.CertFile) != "" {
+		host := dom
+		if port != 443 {
+			host = net.JoinHostPort(dom, strconv.Itoa(port))
+		}
+		return "https://" + host + bp + "/", true
 	}
-	bp := strings.TrimRight(pc.BasePath, "/")
-	return "https://" + host + bp + "/"
+	// Default HTTP panel URL: domain -> first concrete tunnel LocalIP -> server IP.
+	host := dom
+	if host == "" {
+		for _, t := range st.Tunnels {
+			ip := net.ParseIP(strings.TrimSpace(t.LocalIP))
+			if ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() {
+				host = ip.String()
+				break
+			}
+		}
+	}
+	if host == "" && PanelHostFunc != nil {
+		if ip := net.ParseIP(strings.TrimSpace(PanelHostFunc())); ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() {
+			host = ip.String()
+		}
+	}
+	if host == "" {
+		return "", false
+	}
+	hostPort := host
+	if port != 80 {
+		hostPort = net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	return "http://" + hostPort + bp + "/", false
 }
 
 // MaskedToken shows enough of the token to recognise it, never all of it.

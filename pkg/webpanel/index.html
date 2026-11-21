@@ -1178,7 +1178,7 @@ details[open] summary{margin-bottom:12px}
       <div><label for="tg-admins">Admin User IDs (multi-admin)</label><input id="tg-admins" class="mono" autocomplete="off" placeholder="123456789, 987654321"></div>
       <div><label for="tg-autobk">Auto-Backup schedule</label><select id="tg-autobk"><option value="0">Disabled</option><option value="6">Every 6 hours</option><option value="12">Every 12 hours</option><option value="24">Every 24 hours</option><option value="48">Every 48 hours</option><option value="72">Every 72 hours</option><option value="168">Every 7 days</option></select></div>
     </div>
-    <div><label for="tg-miniapp">Mini App HTTPS URL (optional override)</label><input id="tg-miniapp" class="mono" type="url" autocomplete="off" placeholder="https://panel.example.com/panel-xxx/"><p id="tg-miniapp-hint" class="hint"></p></div>
+    <div><label for="tg-miniapp">Bot Web Panel URL (optional override, HTTP or HTTPS)</label><input id="tg-miniapp" class="mono" type="url" autocomplete="off" placeholder="Auto-detected (http://IP:6969/panel-... or https://domain/...)"><p id="tg-miniapp-hint" class="hint"></p></div>
     <div><label for="tg-lang">Bot language</label><select id="tg-lang"><option value="fa">فارسی</option><option value="en">English</option></select></div>
     <div><label id="tg-ev-l">Send an alert when</label>
       <div class="tg-events" role="group" aria-labelledby="tg-ev-l">
@@ -2641,8 +2641,10 @@ function fillTelegram(t) {
   if ($("tg-miniapp")) $("tg-miniapp").value = t.mini_app_url || "";
   if ($("tg-miniapp-hint")) {
     $("tg-miniapp-hint").textContent = t.resolved_mini_app_url
-      ? "Active Mini App URL: " + t.resolved_mini_app_url
-      : "Requires HTTPS (configure Domain + TLS in Panel settings, or paste an HTTPS reverse-proxy URL above).";
+      ? (t.resolved_mini_app_https
+          ? "Active HTTPS Mini App (opens inside Telegram): " + t.resolved_mini_app_url
+          : "Active HTTP 1-Tap Login Button (opens in browser): " + t.resolved_mini_app_url + " — enable HTTPS in Panel Settings for in-app Mini App.")
+      : "Leave empty to auto-detect this server's Web Panel URL.";
   }
   if ($("tg-autobk")) {
     const h = String(t.auto_backup_hours || 0);
@@ -3780,7 +3782,7 @@ function renderHostIPs() {
 }
 function onLoggedIn() { renderTunnelSkeletons(); showSponsor(); loadHostIPs(); }
 
-/* ---------- Telegram Mini App (WebApp) passwordless auth ---------- */
+/* ---------- Telegram Mini App & HTTP 1-Tap Bot Link passwordless auth ---------- */
 function extractTelegramInitData() {
   try {
     if (window.Telegram && window.Telegram.WebApp && typeof window.Telegram.WebApp.initData === "string" && window.Telegram.WebApp.initData) {
@@ -3797,6 +3799,17 @@ function extractTelegramInitData() {
       const params = new URLSearchParams(rawSearch);
       const d = params.get("tgWebAppData");
       if (d) return d;
+    }
+  } catch (_) {}
+  return "";
+}
+function extractTelegramLinkToken() {
+  try {
+    const rawHash = (window.location.hash || "").replace(/^#/, "");
+    if (rawHash.includes("tgToken=")) {
+      const params = new URLSearchParams(rawHash);
+      const t = params.get("tgToken");
+      if (t) return t;
     }
   } catch (_) {}
   return "";
@@ -3818,30 +3831,34 @@ $("login-form").addEventListener("submit", async e => {
 
 (async () => {
   const tgInit = extractTelegramInitData();
+  const tgTok = extractTelegramLinkToken();
+  const stripTgHash = () => {
+    const h = window.location.hash || "";
+    if (h.includes("tgWebAppData=") || h.includes("tgToken=")) {
+      history.replaceState(null, "", window.location.pathname + "#/");
+    }
+  };
   try {
     const s = await api("/api/session");
     if (s.totp_enabled) { $("login-totp-wrap").hidden = false; $("login-totp").required = true; }
     if (!s.authenticated) {
-      if (tgInit) {
-        if ($("boot-sub")) $("boot-sub").textContent = "Verifying Telegram Mini App admin session…";
+      if (tgInit || tgTok) {
+        if ($("boot-sub")) $("boot-sub").textContent = "Verifying Telegram admin session…";
         try {
-          await api("/api/auth/telegram", { method: "POST", body: JSON.stringify({ init_data: tgInit }) });
-          if ((window.location.hash || "").includes("tgWebAppData=")) {
-            history.replaceState(null, "", window.location.pathname + "#/");
-          }
+          const payload = tgInit ? { init_data: tgInit } : { token: tgTok };
+          stripTgHash();
+          await api("/api/auth/telegram", { method: "POST", body: JSON.stringify(payload) });
           onLoggedIn();
           await refresh({ force: true, reportErrors: true });
           return;
         } catch (err) {
-          toast("Telegram Mini App auth failed: " + err.message);
+          toast("Telegram login link expired or invalid — tap Refresh in the bot.");
         }
       }
       showGate();
       return;
     }
-    if (tgInit && (window.location.hash || "").includes("tgWebAppData=")) {
-      history.replaceState(null, "", window.location.pathname + "#/");
-    }
+    stripTgHash();
     onLoggedIn();
   } catch (_) { /* an older server without /api/session: ask the overview */ }
   refresh();

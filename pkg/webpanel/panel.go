@@ -457,9 +457,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-// handleTelegramAuth verifies Telegram Mini App (WebApp) signed initData using
-// HMAC-SHA256 with the configured bot token, confirms auth_date freshness and
-// admin membership, and issues a normal authenticated panel session cookie.
+// handleTelegramAuth verifies EITHER:
+//  1. Telegram Mini App (WebApp) signed initData (HMAC-SHA256 with WebAppData), OR
+//  2. A signed short-lived bot direct-login token (#tgToken=...) generated for
+//     plain HTTP panels where Telegram forbids in-app web_app iframes.
+//
+// In both cases it confirms admin membership, enforces login rate limits, and
+// issues a normal authenticated panel session cookie with no password prompt.
 func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
 	ip := limiterKey(clientIP(r))
 	if wait := s.limiter.blocked(ip); wait > 0 {
@@ -468,11 +472,12 @@ func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		InitData string `json:"init_data"`
+		Token    string `json:"token"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.InitData) == "" {
+	if err := decodeJSON(r, &req); err != nil || (strings.TrimSpace(req.InitData) == "" && strings.TrimSpace(req.Token) == "") {
 		s.limiter.fail(ip)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid Telegram Mini App payload"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid Telegram auth payload"})
 		return
 	}
 	tgCfg, err := notify.LoadConfig()
@@ -481,11 +486,25 @@ func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Telegram bot is not configured"})
 		return
 	}
-	user, err := notify.VerifyInitData(req.InitData, tgCfg.Token, tgCfg.AdminIDs(), time.Now(), notify.DefaultInitDataMaxAge)
-	if err != nil {
-		s.limiter.fail(ip)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized Telegram Mini App session"})
-		return
+	var user notify.WebAppUser
+	authMode := "telegram"
+	if strings.TrimSpace(req.InitData) != "" {
+		u, err := notify.VerifyInitData(req.InitData, tgCfg.Token, tgCfg.AdminIDs(), time.Now(), notify.DefaultInitDataMaxAge)
+		if err != nil {
+			s.limiter.fail(ip)
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized Telegram Mini App session"})
+			return
+		}
+		user = u
+	} else {
+		uid, err := notify.VerifyPanelLoginToken(req.Token, tgCfg.Token, tgCfg.AdminIDs(), time.Now())
+		if err != nil {
+			s.limiter.fail(ip)
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "expired or invalid Telegram panel login link"})
+			return
+		}
+		user = notify.WebAppUser{ID: uid}
+		authMode = "telegram-link"
 	}
 	st, err := s.store()
 	if err != nil {
@@ -496,7 +515,7 @@ func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
 	cfg := s.config()
 	https := isHTTPS(r)
 	sameSite := http.SameSiteStrictMode
-	if https {
+	if https && authMode == "telegram" {
 		// Telegram Web / Desktop embeds Mini Apps in a cross-site iframe,
 		// where Secure + SameSite=None is required for session cookies.
 		// All mutating API routes remain protected by X-CSRF-Token + Origin.
@@ -508,7 +527,7 @@ func (s *Server) handleTelegramAuth(w http.ResponseWriter, r *http.Request) {
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
-		"auth":       "telegram",
+		"auth":       authMode,
 		"user_id":    user.ID,
 		"username":   user.Username,
 		"first_name": user.FirstName,

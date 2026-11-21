@@ -145,7 +145,10 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 
 	switch cmd {
 	case "/start", "/help", "/menu":
-		text, rows := n.mainView()
+		text, rows := n.mainView(fromID)
+		_, _ = bot.Send(ctx, chat, text, rows)
+	case "/panel":
+		text, rows := n.panelDirectView(fromID)
 		_, _ = bot.Send(ctx, chat, text, rows)
 	case "/status":
 		text, rows := n.statusView()
@@ -243,7 +246,7 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 	op, arg, _ := strings.Cut(data, ":")
 	switch op {
 	case "m", "home":
-		text, rows = n.mainView()
+		text, rows = n.mainView(fromID)
 	case "st", "status":
 		text, rows = n.statusView()
 	case "rp", "report":
@@ -286,7 +289,7 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 				c.Lang = "en"
 			}
 		})
-		text, rows = n.mainView()
+		text, rows = n.mainView(fromID)
 	case "t", "x":
 		toast = n.change(func(c *Config) {
 			if p := toggleOf(c, arg); p != nil {
@@ -420,7 +423,7 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 	case "ral":
 		_, st, _ := n.current()
 		if len(st.Tunnels) == 0 {
-			text, rows = n.mainView()
+			text, rows = n.mainView(fromID)
 			return
 		}
 		text = tr(lang, "ask.all", len(st.Tunnels))
@@ -441,10 +444,9 @@ func (n *Notifier) press(data string, fromID int64) (text string, rows [][]Butto
 				failCount++
 			}
 		}
-		text, rows = n.mainView()
+		text, rows = n.mainView(fromID)
 		text = tr(lang, "done.all", okCount, failCount) + "\n\n" + text
 	}
-	_ = fromID
 	return text, rows, toast
 }
 
@@ -521,7 +523,53 @@ func uptime() time.Duration {
 	return time.Duration(sec * float64(time.Second))
 }
 
-func (n *Notifier) mainView() (string, [][]Button) {
+func (n *Notifier) panelButton(cfg Config, lang string, actorID int64) (Button, bool, bool) {
+	panelURL, isHTTPS := ResolvePanelURL(n.StoreDir, cfg)
+	if panelURL == "" {
+		return Button{Text: tr(lang, "b.panelGuide"), Data: "pg:"}, false, false
+	}
+	if isHTTPS {
+		return Button{Text: tr(lang, "b.openPanel"), WebApp: &WebAppInfo{URL: panelURL}}, true, true
+	}
+	uid := actorID
+	if uid <= 0 {
+		if ids := cfg.AdminIDs(); len(ids) > 0 {
+			uid = ids[0]
+		}
+	}
+	urlOut := panelURL
+	if tok := SignPanelLoginToken(cfg.Token, uid, n.Now(), DefaultPanelTokenTTL); tok != "" {
+		base, _, _ := strings.Cut(panelURL, "#")
+		urlOut = base + "#tgToken=" + tok
+	}
+	return Button{Text: tr(lang, "b.openPanel"), URL: urlOut}, true, false
+}
+
+func (n *Notifier) panelDirectView(actorID int64) (string, [][]Button) {
+	lang := n.lang()
+	cfg, _, _ := n.current()
+	btn, ok, isHTTPS := n.panelButton(cfg, lang, actorID)
+	if !ok {
+		return tr(lang, "panel.httpsHint", tr(lang, "rule")), [][]Button{{{Text: tr(lang, "b.home"), Data: "m:"}}}
+	}
+	var msg string
+	if isHTTPS {
+		if lang == "fa" {
+			msg = "🌐 <b>ورود مستقیم به وب‌پنل (Mini App)</b>\nروی دکمه زیر بزنید تا پنل داخل تلگرام بدون نیاز به رمز باز شود."
+		} else {
+			msg = "🌐 <b>Direct Web Panel Access (Mini App)</b>\nTap below to open the Web Panel inside Telegram with no password."
+		}
+	} else {
+		if lang == "fa" {
+			msg = "🌐 <b>ورود مستقیم به وب‌پنل (HTTP)</b>\nروی دکمه زیر بزنید تا پنل در مرورگر <b>بدون نیاز به رمز</b> باز شود (اعتبار لینک: ۳۰ دقیقه)."
+		} else {
+			msg = "🌐 <b>Direct Web Panel Access (HTTP)</b>\nTap below to open the Web Panel in your browser with <b>no password</b> (link valid for 30 min)."
+		}
+	}
+	return msg, [][]Button{{btn}, {{Text: tr(lang, "b.home"), Data: "m:"}}}
+}
+
+func (n *Notifier) mainView(actorID int64) (string, [][]Button) {
 	lang := n.lang()
 	cfg, st, _ := n.current()
 	up, down, stopped, quotaStop := 0, 0, 0, 0
@@ -567,11 +615,8 @@ func (n *Notifier) mainView() (string, [][]Button) {
 	b.WriteString(tr(lang, "menu.updated", n.Now().Format("15:04:05")))
 
 	var rows [][]Button
-	if miniURL := ResolveMiniAppURL(n.StoreDir, cfg); miniURL != "" {
-		rows = append(rows, []Button{{Text: tr(lang, "b.openPanel"), WebApp: &WebAppInfo{URL: miniURL}}})
-	} else {
-		rows = append(rows, []Button{{Text: tr(lang, "b.panelGuide"), Data: "pg:"}})
-	}
+	pBtn, _, _ := n.panelButton(cfg, lang, actorID)
+	rows = append(rows, []Button{pBtn})
 	rows = append(rows,
 		[]Button{{Text: tr(lang, "b.status"), Data: "st:"}, {Text: tr(lang, "b.report"), Data: "rp:"}},
 		[]Button{{Text: tr(lang, "b.backup"), Data: "bk:"}, {Text: tr(lang, "b.admins"), Data: "ad:"}},

@@ -17,8 +17,12 @@ import (
 const (
 	// DefaultInitDataMaxAge bounds how old Telegram WebApp initData may be.
 	DefaultInitDataMaxAge = 10 * time.Minute
-	maxInitDataLen        = 8192
-	maxFutureSkewSec      = 120
+	// DefaultPanelTokenTTL is the lifetime of a signed HTTP direct-login link
+	// placed on the bot's default "Open Web Panel" button.
+	DefaultPanelTokenTTL = 30 * time.Minute
+	maxPanelTokenTTL     = 2 * time.Hour
+	maxInitDataLen       = 8192
+	maxFutureSkewSec     = 120
 )
 
 var (
@@ -117,4 +121,69 @@ func VerifyInitData(initData, botToken string, admins []int64, now time.Time, ma
 		}
 	}
 	return WebAppUser{}, ErrNotAdmin
+}
+
+func panelLoginKey(botToken string) []byte {
+	m := hmac.New(sha256.New, []byte("CTunnelPanelLogin"))
+	m.Write([]byte(botToken))
+	return m.Sum(nil)
+}
+
+// SignPanelLoginToken mints a short-lived HMAC-SHA256 admin login token for a
+// bot-generated direct Web Panel URL (used on plain HTTP panels where Telegram
+// does not allow in-app web_app iframes). Format: "<uid>.<exp>.<64-hex-mac>".
+func SignPanelLoginToken(botToken string, userID int64, now time.Time, ttl time.Duration) string {
+	if botToken == "" || userID <= 0 {
+		return ""
+	}
+	if ttl <= 0 || ttl > maxPanelTokenTTL {
+		ttl = DefaultPanelTokenTTL
+	}
+	exp := now.Add(ttl).Unix()
+	payload := strconv.FormatInt(userID, 10) + "." + strconv.FormatInt(exp, 10)
+	mac := hmac.New(sha256.New, panelLoginKey(botToken))
+	mac.Write([]byte(payload))
+	return payload + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+// VerifyPanelLoginToken validates a signed bot login token, checking HMAC
+// authenticity, expiry/future bounds, and live membership in admins.
+func VerifyPanelLoginToken(token, botToken string, admins []int64, now time.Time) (int64, error) {
+	if botToken == "" || len(admins) == 0 {
+		return 0, ErrNotAdmin
+	}
+	token = strings.TrimSpace(token)
+	if len(token) == 0 || len(token) > 160 {
+		return 0, ErrInvalidInitData
+	}
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return 0, ErrInvalidInitData
+	}
+	uid, err1 := strconv.ParseInt(parts[0], 10, 64)
+	exp, err2 := strconv.ParseInt(parts[1], 10, 64)
+	sig := strings.ToLower(parts[2])
+	if err1 != nil || err2 != nil || uid <= 0 || exp <= 0 || len(sig) != 64 {
+		return 0, ErrInvalidInitData
+	}
+	if _, err := hex.DecodeString(sig); err != nil {
+		return 0, ErrInvalidInitData
+	}
+	nowSec := now.Unix()
+	if nowSec > exp || exp > nowSec+int64(maxPanelTokenTTL.Seconds())+maxFutureSkewSec {
+		return 0, ErrExpiredInitData
+	}
+	payload := parts[0] + "." + parts[1]
+	mac := hmac.New(sha256.New, panelLoginKey(botToken))
+	mac.Write([]byte(payload))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if subtle.ConstantTimeCompare([]byte(sig), []byte(expected)) != 1 {
+		return 0, ErrInvalidInitData
+	}
+	for _, id := range admins {
+		if id == uid {
+			return uid, nil
+		}
+	}
+	return 0, ErrNotAdmin
 }

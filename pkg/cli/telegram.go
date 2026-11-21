@@ -50,10 +50,14 @@ func telegramMenu() {
 				}
 				KV("Admins", strings.Join(parts, ", "))
 			}
-			if u := notify.ResolveMiniAppURL(StoreDir, cfg); u != "" {
-				KV("Mini App", u)
+			if u, isHTTPS := notify.ResolvePanelURL(StoreDir, cfg); u != "" {
+				mode := "HTTP 1-tap login"
+				if isHTTPS {
+					mode = "HTTPS Mini App"
+				}
+				KV("Web Panel Button", u+" ("+mode+")")
 			} else {
-				KV("Mini App", "needs HTTPS panel or custom URL")
+				KV("Web Panel Button", "panel not initialized yet")
 			}
 		} else {
 			KV("Bot", "not set")
@@ -106,12 +110,15 @@ func telegramMenu() {
 		case 2:
 			manageTelegramAdmins(&cfg)
 		case 3:
-			if auto := notify.ResolveMiniAppURL(StoreDir, notify.Config{}); auto != "" {
-				Info("Auto-Detected Panel HTTPS URL: " + auto)
-			} else {
-				Warn("Telegram Requires HTTPS For Mini Apps. Enable HTTPS In Panel Settings Or Enter Your Reverse-Proxy HTTPS URL.")
+			if auto, isHTTPS := notify.ResolvePanelURL(StoreDir, notify.Config{}); auto != "" {
+				if isHTTPS {
+					Info("Auto-Detected HTTPS Mini App URL: " + auto)
+				} else {
+					Info("Auto-Detected HTTP Panel URL (direct 1-tap login): " + auto)
+					Subtle("Tip: Enable HTTPS in Panel Settings (or set an https:// reverse-proxy URL below) to open inside Telegram as a Mini App.")
+				}
 			}
-			u := strings.TrimSpace(Ask("Custom Mini App HTTPS URL (blank = auto-detect)", cfg.MiniAppURL))
+			u := strings.TrimSpace(Ask("Custom Panel URL http:// or https:// (blank = auto-detect)", cfg.MiniAppURL))
 			cfg.MiniAppURL = u
 			saveTelegram(cfg)
 		case 4:

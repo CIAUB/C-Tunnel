@@ -195,4 +195,24 @@ func TestBotMultiAdminMiniAppBackupRestoreAndQuota(t *testing.T) {
 	if rx, tx := tunnel.TrafficTotal("kh-gm"); rx != 6<<30 || tx != 5<<30 {
 		t.Fatalf("bot restore did not restore traffic: (%d,%d)", rx, tx)
 	}
+
+	// 8. Default HTTP mode (no MiniAppURL, no TLS cert): /start automatically shows
+	// a direct clickable HTTP Web Panel URL button with a signed #tgToken=... auto-login link!
+	if err := os.WriteFile(filepath.Join(storeDir, "panel.json"), []byte(`{"base_path":"/panel-test1234"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.MiniAppURL = ""
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	n.reload()
+	n.Handle(context.Background(), bot, Update{
+		Message: &Message{Chat: Chat{ID: 2002}, From: &User{ID: 2002}, Text: "/start"},
+	})
+	mu.Lock()
+	httpMarkup := sentMarkup
+	mu.Unlock()
+	if !strings.Contains(httpMarkup, `"url":"http://203.0.113.1:6969/panel-test1234/#tgToken=2002.`) {
+		t.Fatalf("expected default HTTP 1-tap panel URL button on /start, got: %s", httpMarkup)
+	}
 }

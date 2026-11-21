@@ -97,6 +97,22 @@ func TestTelegramMiniAppAuthFlowAndSecurity(t *testing.T) {
 	if ovRes.StatusCode != http.StatusOK || ov["csrf_token"] == "" {
 		t.Fatalf("Mini App session cannot access /api/overview: %d %v", ovRes.StatusCode, ov)
 	}
+
+	// HTTP 1-tap signed bot link token also works without password, while non-admin token fails with 401.
+	c.cookie = nil
+	badLinkTok := notify.SignPanelLoginToken(token, 9999, time.Now(), notify.DefaultPanelTokenTTL)
+	if r, _ := c.do("POST", "/api/auth/telegram", map[string]string{"token": badLinkTok}); r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("non-admin HTTP panel token accepted: %d", r.StatusCode)
+	}
+	goodLinkTok := notify.SignPanelLoginToken(token, 2002, time.Now(), notify.DefaultPanelTokenTTL)
+	linkRes, linkBody := c.do("POST", "/api/auth/telegram", map[string]string{"token": goodLinkTok})
+	if linkRes.StatusCode != http.StatusOK || linkBody["ok"] != true || linkBody["auth"] != "telegram-link" || len(linkRes.Cookies()) == 0 {
+		t.Fatalf("valid HTTP 1-tap panel token failed: %d %v", linkRes.StatusCode, linkBody)
+	}
+	c.cookie = linkRes.Cookies()[0]
+	if r, _ := c.do("GET", "/api/overview", nil); r.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP 1-tap session cannot access /api/overview: %d", r.StatusCode)
+	}
 }
 
 func TestQuotaEndpointsAndBackupTrafficPersistence(t *testing.T) {
