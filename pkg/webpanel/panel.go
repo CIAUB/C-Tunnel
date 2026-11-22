@@ -605,7 +605,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(tc.LocalIP) == "" {
-		tc.LocalIP = localIPv4()
+		tc.LocalIP = defaultLocalIP(tc)
 	}
 	if tc.Role == "kharej" && strings.TrimSpace(tc.Token) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a kharej tunnel needs the iran server's secret token (or use Add from link)"})

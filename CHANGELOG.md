@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.0.1]
+
+### Fixed — Layer-4 TCP & Direct/Reverse TCP Tunnel Reliability
+- **Silent / Blackholed Pooled TCP Connections (`pkg/l4/tcp_linux.go`, `pkg/l4/peek_linux.go`, `cmd/ctunnel-engine/revcarrier.go`):**
+  - Enabled Linux `TCP_USER_TIMEOUT` (`20s`) and tighter TCP keepalive (`Idle: 10s, Interval: 3s, Count: 3`) on all Layer-4 TCP carrier sockets and 8-stream TCP carrier streams (`frp+*` / `turbo+*`), eliminating ~15-minute blackholed TCP zombies when intermediate firewalls/NATs drop idle flows silently without FIN/RST.
+  - Enhanced `socketClosed()` on Linux with `TCP_INFO` state and unacked-retransmit detection so half-open or stalled pooled sockets are evicted immediately before ever being handed to a user connection.
+- **Keepalive Pool Starvation (`pkg/l4/server.go`):**
+  - Fixed `keepPool` draining the entire connection pool (`takeAll`) and pinging sequentially with a 5s timeout per dead socket — which could leave the pool empty and drop incoming user traffic with `"no connection from the Kharej server"`.
+  - Pings now run concurrently in bounded halves (`pingPoolOnce`, `2s` per-socket write deadline) while keeping at least half of the pool available to incoming users at all times and preserving `Links` counts during sweeps.
+- **Reverse TCP Idle Connection Storm (`pkg/l4/client.go`):**
+  - Fixed `runPool` comparing total `Links` (idle + busy) against `poolWant`, which multiplied idle Reverse TCP connections from 16 to 64 within 6 seconds with zero traffic (causing reconnect bursts to hit `maxPendingPerIP` and trigger ISP/firewall rate limits).
+  - Idle and busy stream counts are now tracked separately; temporary burst workers spawn only when active traffic drains the idle pool and exit automatically once the pool recovers.
+- **Direct L4 (`direct+tcp`) Connection Runaway, Socket Leak & Silent Dial Errors (`pkg/l4/server.go`, `pkg/l4/client.go`):**
+  - Replaced polling refill in `dialDirect` with slot-bounded event-driven refill so idle Direct pools stay steady at `Pool` (16) without doubling on startup or growing every 20s ping cycle, closed rejected sockets when the pool is full, and added rate-limited error logging for dial, handshake, and forwarding failures.
+- **Kharej Backend Local Address Fallback (`pkg/l4/client.go`, `cmd/ctunnel-engine/l4.go`):**
+  - Services listening on `[::1]` (IPv6 loopback) or the Kharej server's local interface IP (instead of `127.0.0.1`) previously failed silently with `ECONNREFUSED` and zero traffic. Kharej now falls back across `127.0.0.1`, `[::1]`, and verified local-interface addresses on this host (never external IPs), with rate-limited error logs when a backend port is unreachable.
+- **Live TCP Traffic Counters, Slow-Stream Idle Timeout & Half-Close Deadlines (`pkg/l4/l4.go`):**
+  - Fixed swapped `SetReadDeadline(halfCloseIdle)` targets in `pipe()` so half-closed streams time out the still-reading peer in 30s instead of lingering for 10 minutes.
+  - Lowered `copyChunk` from `1 MiB` to `64 KiB` (matching Linux's default pipe buffer for zero-copy `splice`), ensuring active connections under 1 MiB report live RX/TX traffic immediately and refresh idle deadlines smoothly.
+- **Rolling Upgrade Compatibility with v1.x Peers (`pkg/l4/client.go`, `pkg/l4/peerauth.go`):**
+  - Fixed `dialAndHandshake` falling back only to `CT4\x02` when talking to an unupgraded v1.x server that only accepts `CT4\x01`, while preserving strict `CT4\x03` downgrade protection whenever pinned or configured strict.
+- **NAT VPS Setup Links, Port Conflicts, Health Diagnostics & PCK Fallback (`pkg/webpanel`, `pkg/cli`, `pkg/tunnel`, `pkg/health`, `pkg/pck`):**
+  - On 1:1 NAT VPSes with RFC1918 interface IPs, Layer-4 / Reverse / Carrier tunnel creation now prefers the server's public IPv4 for `ctunnel://` setup links so peers do not dial private addresses.
+  - Fixed `exclusivePort` in `pkg/tunnel/config.go` to catch Direct Layer-4 port collisions; fixed `deploy.go`/`linktest.go`/`index.html` Direct L4 detection for `game-kcp`; fixed CLI `applyAndReport` and `pkg/health` output for Layer-4 TCP/Direct tunnels (including warning when an Iran L4 tunnel has no forwarded ports); fixed `pkg/pck/pckconn_linux.go` `openTx` fallback to raw IP socket when `txFile.SyscallConn()` fails.
+
 ## [2.0.0]
 
 ### Security

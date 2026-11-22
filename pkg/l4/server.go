@@ -23,6 +23,7 @@ import (
 const (
 	streamWait         = 5 * time.Second
 	headerWriteTimeout = 5 * time.Second
+	pingWriteTimeout   = 2 * time.Second
 	forwardRetryEvery  = 5 * time.Second
 	pingInterval       = 20 * time.Second
 	idleRead           = 60 * time.Second
@@ -121,9 +122,10 @@ func Run(ctx context.Context, cfg Config, st *Stats) error {
 }
 
 type pooledConn struct {
-	c     net.Conn
-	runID [runIDLen]byte
-	auth  *sessionAuth
+	c       net.Conn
+	runID   [runIDLen]byte
+	auth    *sessionAuth
+	pingGen uint64
 }
 
 type muxSession struct {
@@ -146,13 +148,59 @@ type server struct {
 	ready    chan struct{}
 	runID    [runIDLen]byte
 	busy     atomic.Int64
+	pinging  atomic.Int64
+	pingGen  atomic.Uint64
+
+	directMu sync.Mutex
+	inFlight int
+	refill   chan struct{}
+
+	logMu   sync.Mutex
+	lastErr time.Time
 
 	pending admission
 }
 
+func (s *server) logErr(format string, args ...any) {
+	s.logMu.Lock()
+	if time.Since(s.lastErr) > 10*time.Second {
+		s.lastErr = time.Now()
+		s.cfg.Logf(format, args...)
+	}
+	s.logMu.Unlock()
+}
+
+func (s *server) triggerRefill() {
+	if s.refill == nil {
+		return
+	}
+	select {
+	case s.refill <- struct{}{}:
+	default:
+	}
+}
+
+func (s *server) claimDirectSlot() bool {
+	s.directMu.Lock()
+	defer s.directMu.Unlock()
+	if s.pool.len()+int(s.pinging.Load())+s.inFlight >= s.cfg.Pool {
+		return false
+	}
+	s.inFlight++
+	return true
+}
+
+func (s *server) releaseDirectSlot() {
+	s.directMu.Lock()
+	if s.inFlight > 0 {
+		s.inFlight--
+	}
+	s.directMu.Unlock()
+}
+
 func (s *server) countLinks() {
 	if !Mux(s.cfg.Transport) {
-		s.st.Links.Store(int64(s.pool.len()) + s.busy.Load())
+		s.st.Links.Store(int64(s.pool.len()) + s.pinging.Load() + s.busy.Load())
 	}
 }
 
@@ -170,6 +218,7 @@ func (s *server) carry(fn func()) {
 
 func (s *server) run(ctx context.Context) error {
 	s.ready = make(chan struct{})
+	s.refill = make(chan struct{}, 1)
 	s.guard = NewPeerGuard(s.cfg.Token, s.cfg.StrictAuth, s.cfg.PeerPinPath)
 	var closers []func()
 	var closersMu sync.Mutex
@@ -207,6 +256,9 @@ func (s *server) run(ctx context.Context) error {
 
 	for _, f := range s.cfg.Forwards {
 		s.startForwardPort(ctx, f, addCloser)
+	}
+	if len(s.cfg.Forwards) == 0 {
+		s.cfg.Logf("warning: no forwarded ports configured; add ports in Edit -> Forwarded Ports so user traffic can pass")
 	}
 	if s.cfg.LocalSocket != "" {
 		ul, err := listenUnix(s.cfg.LocalSocket)
@@ -320,26 +372,50 @@ func (s *server) dialDirect(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			for ctx.Err() == nil {
+				if !Mux(s.cfg.Transport) {
+					if !s.claimDirectSlot() {
+						select {
+						case <-ctx.Done():
+							return
+						case <-s.refill:
+						case <-time.After(2 * time.Second):
+						}
+						continue
+					}
+					// Cascade wakeup so parallel refill workers dial concurrently when multiple slots are free.
+					s.triggerRefill()
+					c, auth, err := dialOnce()
+					if err != nil {
+						s.releaseDirectSlot()
+						if !isExpectedPeerClose(err) && ctx.Err() == nil {
+							s.logErr("direct connect to %s:%d: %v", s.cfg.RemoteIP, s.cfg.Port, err)
+						}
+						select {
+						case <-ctx.Done():
+							return
+						case <-time.After(2 * time.Second):
+						}
+						continue
+					}
+					pushed := s.pool.push(pooledConn{c: c, runID: runID, auth: auth, pingGen: s.pingGen.Load()})
+					s.releaseDirectSlot()
+					if !pushed {
+						_ = c.Close()
+						continue
+					}
+					s.countLinks()
+					s.signal()
+					continue
+				}
 				c, auth, err := dialOnce()
 				if err != nil {
+					if !isExpectedPeerClose(err) && ctx.Err() == nil {
+						s.logErr("direct connect to %s:%d: %v", s.cfg.RemoteIP, s.cfg.Port, err)
+					}
 					select {
 					case <-ctx.Done():
 						return
 					case <-time.After(2 * time.Second):
-					}
-					continue
-				}
-				if !Mux(s.cfg.Transport) {
-					s.pool.push(pooledConn{c: c, runID: runID, auth: auth})
-					s.countLinks()
-					s.signal()
-					// Wait while pool has enough idle connections; wake quickly if drained.
-					for ctx.Err() == nil && s.pool.len() >= max(2, s.cfg.Pool/2) && s.pool.len()+int(s.busy.Load()) >= s.cfg.Pool {
-						select {
-						case <-ctx.Done():
-							return
-						case <-time.After(150 * time.Millisecond):
-						}
 					}
 					continue
 				}
@@ -379,13 +455,12 @@ func (s *server) dialDirect(ctx context.Context) error {
 }
 
 func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
-	if tc, ok := c.(*net.TCPConn); ok {
-		_ = tc.SetNoDelay(true)
-		_ = tc.SetKeepAlive(true)
-		_ = tc.SetKeepAlivePeriod(15 * time.Second)
-	}
+	tuneCarrierTCP(c)
 	runID, auth, err := serverHandshakeAuth(c, s.cfg.Token, s.cfg.Transport, s.guard)
 	if err != nil {
+		if !isExpectedPeerClose(err) && ctx.Err() == nil {
+			s.logErr("handshake from %s: %v", ip, err)
+		}
 		c.Close()
 		time.Sleep(time.Second)
 		s.pending.release(ip)
@@ -395,7 +470,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 	s.st.SetPeerIP(ip)
 	s.adopt(runID)
 	if !Mux(s.cfg.Transport) {
-		if !s.pool.push(pooledConn{c: c, runID: runID, auth: auth}) {
+		if !s.pool.push(pooledConn{c: c, runID: runID, auth: auth, pingGen: s.pingGen.Load()}) {
 			c.Close()
 			return
 		}
@@ -486,21 +561,55 @@ func (s *server) keepPool(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		all := s.pool.takeAll()
-		var keep []pooledConn
-		for _, pc := range all {
-			if !pooledAlive(pc.c) {
-				_ = pc.c.Close()
-				continue
+		s.pingPoolOnce()
+	}
+}
+
+// pingPoolOnce pings idle pooled connections in bounded concurrent batches so
+// at least half of the pool remains available to incoming user streams at all
+// times, and a single stalled socket never blocks healthy connections.
+func (s *server) pingPoolOnce() {
+	total := s.pool.len()
+	if total == 0 {
+		return
+	}
+	gen := s.pingGen.Add(1)
+	batchSize := max(1, total/2)
+	for {
+		batch := s.pool.popOldestDue(gen, batchSize)
+		if len(batch) == 0 {
+			return
+		}
+		s.pinging.Add(int64(len(batch)))
+		alive := make([]bool, len(batch))
+		var wg sync.WaitGroup
+		for i := range batch {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				pc := batch[idx]
+				if !pooledAlive(pc.c) {
+					_ = pc.c.Close()
+					return
+				}
+				_ = pc.c.SetWriteDeadline(time.Now().Add(pingWriteTimeout))
+				err := writeHeaderAuth(pc.c, pc.auth, kindPing, 0)
+				_ = pc.c.SetWriteDeadline(time.Time{})
+				if err != nil {
+					_ = pc.c.Close()
+					return
+				}
+				alive[idx] = true
+			}(i)
+		}
+		wg.Wait()
+		keep := make([]pooledConn, 0, len(batch))
+		for i, ok := range alive {
+			if ok {
+				pc := batch[i]
+				pc.pingGen = gen
+				keep = append(keep, pc)
 			}
-			_ = pc.c.SetWriteDeadline(time.Now().Add(headerWriteTimeout))
-			err := writeHeaderAuth(pc.c, pc.auth, kindPing, 0)
-			_ = pc.c.SetWriteDeadline(time.Time{})
-			if err != nil {
-				_ = pc.c.Close()
-				continue
-			}
-			keep = append(keep, pc)
 		}
 		s.mu.Lock()
 		curRun := s.runID
@@ -510,9 +619,13 @@ func (s *server) keepPool(ctx context.Context) {
 		if curRun != zero {
 			s.pool.dropExcept(curRun)
 		}
+		s.pinging.Add(-int64(len(batch)))
 		s.countLinks()
 		if len(keep) > 0 {
 			s.signal()
+		}
+		if len(keep) < len(batch) {
+			s.triggerRefill()
 		}
 	}
 }
@@ -560,9 +673,11 @@ func (s *server) take() (net.Conn, *sessionAuth) {
 			pc, ok := s.pool.pop()
 			if !ok {
 				s.countLinks()
+				s.triggerRefill()
 				return nil, nil
 			}
 			s.countLinks()
+			s.triggerRefill()
 			if pooledAlive(pc.c) {
 				return pc.c, pc.auth
 			}
@@ -594,6 +709,9 @@ func (s *server) serveTCP(ctx context.Context, ln net.Listener, target int) {
 		go func() {
 			st, err := s.stream(ctx, kindTCP, target)
 			if err != nil {
+				if ctx.Err() == nil {
+					s.logErr("forward tcp port -> %d: %v", target, err)
+				}
 				u.Close()
 				return
 			}
@@ -773,6 +891,27 @@ func (cs *connStack) takeAll() []pooledConn {
 	defer cs.mu.Unlock()
 	out := cs.items
 	cs.items = nil
+	return out
+}
+
+// popOldestDue removes and returns up to limit oldest connections whose
+// pingGen is older than gen, keeping remaining connections available in cs.
+func (cs *connStack) popOldestDue(gen uint64, limit int) []pooledConn {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if limit <= 0 || len(cs.items) == 0 {
+		return nil
+	}
+	var out []pooledConn
+	kept := cs.items[:0]
+	for _, pc := range cs.items {
+		if len(out) < limit && pc.pingGen < gen {
+			out = append(out, pc)
+		} else {
+			kept = append(kept, pc)
+		}
+	}
+	cs.items = kept
 	return out
 }
 

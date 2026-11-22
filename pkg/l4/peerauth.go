@@ -129,7 +129,7 @@ type PeerGuard struct {
 	strict   bool
 	pinPath  string
 	pinned   atomic.Bool
-	fallback atomic.Bool
+	fallback atomic.Int32 // 0=none, 1=CT4\x01, 2=CT4\x02
 	mu       sync.Mutex
 }
 
@@ -164,7 +164,7 @@ func (g *PeerGuard) Proved() {
 	if g == nil {
 		return
 	}
-	g.fallback.Store(false)
+	g.fallback.Store(0)
 	if g.pinned.Swap(true) || g.pinPath == "" {
 		return
 	}

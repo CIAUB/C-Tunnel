@@ -3313,8 +3313,7 @@ function speedCell(val, maxMbps, isUp) {
 }
 function deployFromRow(r) {
   const base = stripPrefix(r.method);
-  const mm = methods.find(x => x.Name === base);
-  const l4 = !!(mm && mm.Family === "Reverse-L4");
+  const l4 = isL4(base);
   const rev = r.mode === "REVERSE";
   openCreate(null);
   $("f-role").value = $("t-role").value || "iran";

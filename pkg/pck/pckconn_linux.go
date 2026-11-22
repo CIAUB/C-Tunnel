@@ -413,9 +413,9 @@ func (c *pckConn) openTx() error {
 				// fall through to the raw IP socket below.
 				_ = c.txFile.Close()
 				c.txFile = nil
-				return nil
+			} else {
+				unix.Close(fd)
 			}
-			unix.Close(fd)
 		}
 		// Fall through to the raw IP socket rather than fail: a machine that
 		// cannot open a second packet socket can still send perfectly well

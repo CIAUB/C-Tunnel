@@ -78,3 +78,21 @@ func TestForwardChecksDialTheKharejEnd(t *testing.T) {
 		t.Errorf("silent port: %+v", got[2])
 	}
 }
+
+func TestL4IranWithoutForwardsWarns(t *testing.T) {
+	orig := tunnel.Run
+	t.Cleanup(func() { tunnel.Run = orig })
+	tunnel.Run = func(name string, args ...string) (string, error) { return "inactive", nil }
+	dir := t.TempDir()
+	tc := catalog.TunnelConfig{Name: "ir-3081", Role: "iran", Method: "tcp", Reverse: true, Port: 3081, Token: strings.Repeat("a", 64)}
+	checks := tunnelChecksFor(dir, tc)
+	foundWarn := false
+	for _, c := range checks {
+		if c.Name == "Forwarded ports" && c.Level == Warn {
+			foundWarn = true
+		}
+	}
+	if !foundWarn {
+		t.Fatalf("expected Warn check for Iran L4 TCP tunnel with no forwarded ports; got %+v", checks)
+	}
+}

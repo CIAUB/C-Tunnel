@@ -41,6 +41,7 @@ func runL4(cfg config) error {
 		Transport:   cfg.kind,
 		Direct:      !cfg.reverse,
 		Port:        cfg.port,
+		LocalIP:     cfg.localIP,
 		RemoteIP:    cfg.remoteIP,
 		Token:       cfg.secret,
 		Forwards:    forwards,

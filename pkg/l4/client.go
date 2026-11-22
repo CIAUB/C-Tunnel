@@ -10,11 +10,14 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/xtaci/smux"
+
+	"ctunnel/pkg/hostip"
 )
 
 type client struct {
@@ -25,12 +28,12 @@ type client struct {
 	limDown *rateLimiter
 	limUp   *rateLimiter
 
-	logMu    sync.Mutex
-	lastErr  time.Time
-	pending  admission
-	inFlight atomic.Int32
-	poolMu   sync.Mutex
-	poolWant int
+	logMu   sync.Mutex
+	lastErr time.Time
+	pending admission
+	idle    atomic.Int64
+	busy    atomic.Int64
+	workers atomic.Int32
 }
 
 func (c *client) run(ctx context.Context) error {
@@ -60,14 +63,13 @@ func (c *client) run(ctx context.Context) error {
 }
 
 // runPool maintains a resilient connection pool for plain transports: it keeps
-// at least cfg.Pool idle/warming workers and bursts up to maxInFlightDials
-// (growing by half the target at once) whenever connections are rapidly consumed.
+// cfg.Pool steady idle workers and spawns temporary burst workers up to
+// maxInFlightDials only when active traffic drains the idle pool.
 func (c *client) runPool(ctx context.Context) error {
 	base := c.cfg.Pool
-	c.poolWant = base
 	c.cfg.Logf("%s to %s:%d, %d connection(s)", c.cfg.Transport, c.cfg.RemoteIP, c.cfg.Port, base)
 	var wg sync.WaitGroup
-	spawn := func(n int) {
+	spawn := func(n int, burst bool) {
 		for i := 0; i < n; i++ {
 			if ctx.Err() != nil {
 				return
@@ -75,14 +77,13 @@ func (c *client) runPool(ctx context.Context) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				c.poolWorker(ctx)
+				c.poolWorker(ctx, burst)
 			}()
 		}
 	}
-	spawn(base)
-	// Monitor starvation: if active links exceed current worker count (meaning
-	// connections are all busy carrying user streams), grow by half up to cap.
-	tk := time.NewTicker(1500 * time.Millisecond)
+	spawn(base, false)
+	lowWater := int64(max(2, base/2))
+	tk := time.NewTicker(500 * time.Millisecond)
 	defer tk.Stop()
 	for {
 		select {
@@ -90,17 +91,11 @@ func (c *client) runPool(ctx context.Context) error {
 			wg.Wait()
 			return nil
 		case <-tk.C:
-			c.poolMu.Lock()
-			want := c.poolWant
-			if int(c.st.Links.Load()) >= want && want < maxInFlightDials {
-				grow := max(4, want/2)
-				add := min(grow, maxInFlightDials-want)
-				c.poolWant += add
-				c.poolMu.Unlock()
-				spawn(add)
-				continue
+			cur := int(c.workers.Load())
+			if c.busy.Load() > 0 && c.idle.Load() < lowWater && cur < maxInFlightDials {
+				add := min(max(4, base/2), maxInFlightDials-cur)
+				spawn(add, true)
 			}
-			c.poolMu.Unlock()
 		}
 	}
 }
@@ -143,25 +138,28 @@ func dialAndHandshake(ctx context.Context, cfg *Config, guard *PeerGuard, runID 
 		if err != nil {
 			return nil, err
 		}
-		if tc, ok := conn.(*net.TCPConn); ok {
-			_ = tc.SetNoDelay(true)
-			_ = tc.SetKeepAlive(true)
-			_ = tc.SetKeepAlivePeriod(15 * time.Second)
-		}
+		tuneCarrierTCP(conn)
 		return conn, nil
 	}
 
+	var zero [runIDLen]byte
 	// Prefer legacy immediately only if we already fell back in this run and peer isn't strict/pinned.
-	if guard != nil && guard.fallback.Load() && !guard.Strict() {
-		conn, err := open()
-		if err != nil {
-			return nil, nil, err
+	if guard != nil && !guard.Strict() {
+		if fb := guard.fallback.Load(); fb == 1 || fb == 2 {
+			conn, err := open()
+			if err != nil {
+				return nil, nil, err
+			}
+			id := runID
+			if fb == 1 {
+				id = zero
+			}
+			if err := clientHandshake(conn, cfg.Token, id); err != nil {
+				conn.Close()
+				return nil, nil, err
+			}
+			return conn, nil, nil
 		}
-		if err := clientHandshake(conn, cfg.Token, runID); err != nil {
-			conn.Close()
-			return nil, nil, err
-		}
-		return conn, nil, nil
 	}
 
 	conn, err := open()
@@ -181,8 +179,8 @@ func dialAndHandshake(ctx context.Context, cfg *Config, guard *PeerGuard, runID 
 	}
 	conn.Close()
 
-	// Graceful upgrade fallback to CT4\x02 only when peer is not strict/pinned and
-	// the peer closed during the v3 handshake (typical of an older server).
+	// Graceful upgrade fallback to CT4\x02 / CT4\x01 only when peer is not strict/pinned
+	// and closed during the v3 handshake (typical of an older server).
 	if (guard == nil || !guard.Strict()) && ctx.Err() == nil && isExpectedPeerClose(err) {
 		c2, err2 := open()
 		if err2 != nil {
@@ -190,24 +188,42 @@ func dialAndHandshake(ctx context.Context, cfg *Config, guard *PeerGuard, runID 
 		}
 		if err2 = clientHandshake(c2, cfg.Token, runID); err2 == nil {
 			if guard != nil {
-				guard.fallback.Store(true)
+				if runID == zero {
+					guard.fallback.Store(1)
+				} else {
+					guard.fallback.Store(2)
+				}
 			}
 			return c2, nil, nil
 		}
 		c2.Close()
+
+		if runID != zero && ctx.Err() == nil && isExpectedPeerClose(err2) {
+			c3, err3 := open()
+			if err3 != nil {
+				return nil, nil, err3
+			}
+			if err3 = clientHandshake(c3, cfg.Token, zero); err3 == nil {
+				if guard != nil {
+					guard.fallback.Store(1)
+				}
+				return c3, nil, nil
+			}
+			c3.Close()
+			return nil, nil, err3
+		}
 		return nil, nil, err2
 	}
 	return nil, nil, err
 }
 
 func (c *client) admitDirect(ctx context.Context, conn net.Conn, ip string) {
-	if tc, ok := conn.(*net.TCPConn); ok {
-		_ = tc.SetNoDelay(true)
-		_ = tc.SetKeepAlive(true)
-		_ = tc.SetKeepAlivePeriod(15 * time.Second)
-	}
+	tuneCarrierTCP(conn)
 	_, auth, err := serverHandshakeAuth(conn, c.cfg.Token, c.cfg.Transport, c.guard)
 	if err != nil {
+		if !isExpectedPeerClose(err) && ctx.Err() == nil {
+			c.logErr("direct handshake from %s: %v", ip, err)
+		}
 		conn.Close()
 		time.Sleep(time.Second)
 		c.pending.release(ip)
@@ -267,14 +283,18 @@ func (c *client) admitDirect(ctx context.Context, conn net.Conn, ip string) {
 	c.st.Links.Add(-1)
 }
 
+func (c *client) logErr(format string, args ...any) {
+	c.logMu.Lock()
+	if time.Since(c.lastErr) > 10*time.Second {
+		c.lastErr = time.Now()
+		c.cfg.Logf(format, args...)
+	}
+	c.logMu.Unlock()
+}
+
 func (c *client) fail(ctx context.Context, what string, err error) {
 	if !isExpectedPeerClose(err) && ctx.Err() == nil {
-		c.logMu.Lock()
-		if time.Since(c.lastErr) > 10*time.Second {
-			c.lastErr = time.Now()
-			c.cfg.Logf("%s: %v", what, err)
-		}
-		c.logMu.Unlock()
+		c.logErr("%s: %v", what, err)
 	}
 	select {
 	case <-ctx.Done():
@@ -291,12 +311,21 @@ func (c *client) connect(ctx context.Context) (net.Conn, *sessionAuth, bool) {
 	return conn, auth, true
 }
 
-func (c *client) poolWorker(ctx context.Context) {
+func (c *client) poolWorker(ctx context.Context, burst bool) {
+	c.workers.Add(1)
+	defer c.workers.Add(-1)
 	for ctx.Err() == nil {
+		if burst && c.idle.Load() >= int64(c.cfg.Pool) {
+			return
+		}
 		conn, auth, ok := c.connect(ctx)
 		if !ok {
+			if burst {
+				return
+			}
 			continue
 		}
+		c.idle.Add(1)
 		c.st.Links.Add(1)
 		stop := context.AfterFunc(ctx, func() { conn.Close() })
 		handed := false
@@ -313,15 +342,25 @@ func (c *client) poolWorker(ctx context.Context) {
 			_ = conn.SetReadDeadline(time.Time{})
 			stop()
 			handed = true
+			c.idle.Add(-1)
+			c.busy.Add(1)
 			go func() {
 				c.serve(conn, kind, port)
+				c.busy.Add(-1)
 				c.st.Links.Add(-1)
 			}()
 			break
 		}
 		if !handed {
 			stop()
+			c.idle.Add(-1)
 			c.st.Links.Add(-1)
+			if burst {
+				return
+			}
+		}
+		if burst && c.idle.Load() >= int64(c.cfg.Pool) {
+			return
 		}
 	}
 }
@@ -367,6 +406,58 @@ func (c *client) muxWorker(ctx context.Context) {
 	}
 }
 
+func (c *client) backendTargets(port int) []string {
+	p := strconv.Itoa(port)
+	targets := []string{
+		net.JoinHostPort("127.0.0.1", p),
+		net.JoinHostPort("::1", p),
+	}
+	seen := map[string]bool{"127.0.0.1": true, "::1": true}
+	addLocal := func(raw string) {
+		ip := net.ParseIP(strings.TrimSpace(raw))
+		if ip == nil || ip.IsUnspecified() {
+			return
+		}
+		s := ip.String()
+		if seen[s] {
+			return
+		}
+		// Only dial addresses that actually belong to this host (loopback or a
+		// configured local interface), never arbitrary/external IPs.
+		if ip.IsLoopback() || hostip.OnInterface(s) {
+			seen[s] = true
+			targets = append(targets, net.JoinHostPort(s, p))
+		}
+	}
+	addLocal(c.cfg.LocalIP)
+	addLocal(hostip.Local4())
+	return targets
+}
+
+func (c *client) dialBackendTCP(port int) (net.Conn, error) {
+	var lastErr error
+	for _, addr := range c.backendTargets(port) {
+		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func (c *client) dialBackendUDP(port int) (net.Conn, error) {
+	var lastErr error
+	for _, addr := range c.backendTargets(port) {
+		conn, err := net.Dial("udp", addr)
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
 func (c *client) serve(st net.Conn, kind byte, port int) {
 	if kind == kindEcho {
 		defer st.Close()
@@ -380,18 +471,19 @@ func (c *client) serve(st net.Conn, kind byte, port int) {
 		c.st.Up.Add(16)
 		return
 	}
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	switch kind {
 	case kindTCP:
-		local, err := net.DialTimeout("tcp", addr, 5*time.Second)
+		local, err := c.dialBackendTCP(port)
 		if err != nil {
+			c.logErr("backend tcp port %d unreachable: %v", port, err)
 			st.Close()
 			return
 		}
 		pipe(st, local, &c.st.Down, &c.st.Up, c.limDown, c.limUp)
 	case kindUDP:
-		local, err := net.Dial("udp", addr)
+		local, err := c.dialBackendUDP(port)
 		if err != nil {
+			c.logErr("backend udp port %d unreachable: %v", port, err)
 			st.Close()
 			return
 		}

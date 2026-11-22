@@ -10,7 +10,8 @@ import (
 )
 
 // socketClosed reports whether the remote end of c has already sent FIN or
-// RST, without consuming any byte waiting in the receive buffer.
+// RST, or (for TCP sockets) has left TCP_ESTABLISHED or stalled retransmitting
+// unacknowledged control bytes on a silently dropped path.
 func socketClosed(c net.Conn) bool {
 	sc, ok := c.(syscall.Conn)
 	if !ok {
@@ -20,15 +21,21 @@ func socketClosed(c net.Conn) bool {
 	if err != nil {
 		return true
 	}
+	const tcpEstablished = 1
 	closed := false
 	err = raw.Read(func(fd uintptr) bool {
 		var b [1]byte
 		n, _, rerr := unix.Recvfrom(int(fd), b[:], unix.MSG_PEEK|unix.MSG_DONTWAIT)
-		if rerr == unix.EAGAIN || rerr == unix.EWOULDBLOCK {
-			return true
+		if rerr != unix.EAGAIN && rerr != unix.EWOULDBLOCK {
+			if n == 0 || rerr != nil {
+				closed = true
+				return true
+			}
 		}
-		if n == 0 || rerr != nil {
-			closed = true
+		if info, err := unix.GetsockoptTCPInfo(int(fd), unix.IPPROTO_TCP, unix.TCP_INFO); err == nil {
+			if info.State != tcpEstablished || (info.Unacked > 0 && info.Retransmits >= 2) {
+				closed = true
+			}
 		}
 		return true
 	})

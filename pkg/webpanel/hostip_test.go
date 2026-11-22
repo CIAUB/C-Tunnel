@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/hostip"
 )
 
@@ -100,5 +101,25 @@ func TestTunnelDevicesAndBridgesAreNotOffered(t *testing.T) {
 		if got := usableForTunnels(c.ifc); got != c.want {
 			t.Errorf("usableForTunnels(%s) = %v, want %v", c.ifc.Name, got, c.want)
 		}
+	}
+}
+
+func TestDefaultLocalIPPrefersPublicForL4BehindNAT(t *testing.T) {
+	srv := answer("203.0.113.42", nil)
+	defer srv.Close()
+	withServices(t, srv.URL)
+
+	loc := localIPv4()
+	ip := net.ParseIP(loc)
+	if ip != nil && !ip.IsPrivate() {
+		t.Skipf("host local IP %s is already public", loc)
+	}
+	gotL4 := defaultLocalIP(catalog.TunnelConfig{Role: "iran", Method: "tcp", Reverse: true})
+	if gotL4 != "203.0.113.42" {
+		t.Fatalf("defaultLocalIP(tcp) = %q, want 203.0.113.42", gotL4)
+	}
+	gotDirectL3 := defaultLocalIP(catalog.TunnelConfig{Role: "iran", Method: "gre"})
+	if gotDirectL3 != loc {
+		t.Fatalf("defaultLocalIP(direct gre) = %q, want local %q", gotDirectL3, loc)
 	}
 }

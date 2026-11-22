@@ -75,6 +75,7 @@ type Config struct {
 	// RemoteIP:Port instead of Kharej dialing Iran.
 	Direct   bool
 	Port     int
+	LocalIP  string
 	RemoteIP string
 	Token    string // the tunnel's 64-hex secret
 	Forwards []Forward
@@ -306,7 +307,7 @@ func readDatagram(r io.Reader, buf []byte) ([]byte, error) {
 const (
 	streamIdle    = 10 * time.Minute
 	halfCloseIdle = 30 * time.Second
-	copyChunk     = 1 << 20
+	copyChunk     = 64 << 10
 )
 
 var copyBufs = sync.Pool{New: func() any { b := make([]byte, 64<<10); return &b }}
@@ -316,12 +317,12 @@ func pipe(a, b net.Conn, ab, ba *atomic.Int64, limAB, limBA *rateLimiter) {
 	go func() {
 		copyCounted(b, a, ab, limAB)
 		closeWrite(b)
-		_ = a.SetReadDeadline(time.Now().Add(halfCloseIdle))
+		_ = b.SetReadDeadline(time.Now().Add(halfCloseIdle))
 		close(done)
 	}()
 	copyCounted(a, b, ba, limBA)
 	closeWrite(a)
-	_ = b.SetReadDeadline(time.Now().Add(halfCloseIdle))
+	_ = a.SetReadDeadline(time.Now().Add(halfCloseIdle))
 	<-done
 	_ = a.Close()
 	_ = b.Close()

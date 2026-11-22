@@ -17,6 +17,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/crypto"
+	"ctunnel/pkg/tcpmss"
 )
 
 const (
@@ -145,8 +146,14 @@ func newRevCarrier(cfg config) (*revCarrier, error) {
 func tuneTCP(c net.Conn) {
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
-		_ = tc.SetKeepAlive(true)
-		_ = tc.SetKeepAlivePeriod(15 * time.Second)
+		_ = tc.SetKeepAliveConfig(net.KeepAliveConfig{
+			Enable:   true,
+			Idle:     10 * time.Second,
+			Interval: 3 * time.Second,
+			Count:    3,
+		})
+		setTCPUserTimeout(tc, 20*time.Second)
+		tcpmss.ApplyBBR(tc)
 		// Leave TCP buffers to kernel autotuning; fixed SO_RCVBUF locks receive growth.
 	}
 }

@@ -544,3 +544,20 @@ func TestLayer4FailoverNeedsALayer4Backup(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectL4PortConflict(t *testing.T) {
+	first := catalog.TunnelConfig{
+		Role: "kharej", Method: "tcp", DirectL4: true,
+		LocalIP: "203.0.113.5", Port: 3081, Index: 1,
+	}
+	if err := Normalize(&first, nil); err != nil {
+		t.Fatal(err)
+	}
+	second := catalog.TunnelConfig{
+		Role: "kharej", Method: "tcp", DirectL4: true,
+		LocalIP: "203.0.113.5", Port: 3081, Index: 2,
+	}
+	if err := Normalize(&second, []catalog.TunnelConfig{first}); err == nil {
+		t.Fatal("two Direct L4 TCP tunnels on the same port 3081 were accepted")
+	}
+}

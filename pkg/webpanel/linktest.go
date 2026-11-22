@@ -411,7 +411,7 @@ func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conn
 			Role: req.Role, Method: base,
 			Reverse:  result.Mode == "REVERSE",
 			Carrier:  result.Mode == "DIRECT" && strings.HasPrefix(result.Method, "turbo+"),
-			DirectL4: result.Mode == "DIRECT" && m.Family == catalog.FamilyReverseL4,
+			DirectL4: result.Mode == "DIRECT" && m.L4(),
 			LocalIP:  localIP, RemoteIP: link.Host,
 			Token: req.Token, Ports: req.Ports,
 		}

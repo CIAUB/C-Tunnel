@@ -291,26 +291,30 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		}
 	}
 
-	// A passive side (reverse iran, or any engine method) must hold its port.
+	// A passive side (reverse iran, direct L4/carrier kharej, or direct kernel/engine) must hold its port.
 	if m, ok := catalog.LookupMethod(t.Method); ok && t.Port > 0 && s.Service == "active" {
 		network := "udp"
-		if (t.Reverse && !m.Crypt() && m.Name != "wireguard") || t.Method == "faketcp" {
+		if ((t.Reverse || t.Carrier) && !m.Crypt() && m.Name != "wireguard") || m.L4() || t.Method == "faketcp" {
 			network = "tcp"
 		}
-		if t.Method == "udp" || t.Method == "udpmux" {
+		if t.Method == "udp" || t.Method == "udpmux" || t.Method == "game-kcp" {
 			network = "udp" // layer 4 over KCP
 		}
 		ports := strconv.Itoa(t.Port)
+		passive := (t.Reverse && t.Role == "iran") || ((t.DirectL4 || t.Carrier) && t.Role == "kharej")
+		shouldListen := passive || (!t.Reverse && !t.DirectL4 && !t.Carrier)
 		// pck and faketcp read their segments off the wire; no socket listens.
-		if (t.Role == "iran" || !t.Reverse) && t.Method != "pck" && t.Method != "faketcp" {
+		if shouldListen && t.Method != "pck" && t.Method != "faketcp" {
 			if listening(t.Port, network) {
 				out = append(out, Check{Group: g, Name: "Tunnel port", Level: OK, Detail: fmt.Sprintf("%d/%s bound", t.Port, network)})
-			} else if t.Reverse {
+			} else if passive {
 				out = append(out, Check{Group: g, Name: "Tunnel port", Level: Fail, Detail: fmt.Sprintf("%d/%s not bound", t.Port, network), Fix: "Live Log — another program may hold the port"})
 			}
 		}
 		if t.Role == "iran" && t.Reverse {
 			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("kharej dials in: %s/%s must be open here", ports, network)})
+		} else if t.Role == "kharej" && (t.DirectL4 || t.Carrier) {
+			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("iran dials in: %s/%s must be open here", ports, network)})
 		}
 	}
 
@@ -325,7 +329,11 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 
 	if t.Role == "iran" {
 		if len(t.Ports) == 0 {
-			out = append(out, Check{Group: g, Name: "Forwarded ports", Level: Info, Detail: "none"})
+			if l4 {
+				out = append(out, Check{Group: g, Name: "Forwarded ports", Level: Warn, Detail: "none — layer-4 tunnels only carry listed ports", Fix: "Manage -> Edit -> Forwarded Ports"})
+			} else {
+				out = append(out, Check{Group: g, Name: "Forwarded ports", Level: Info, Detail: "none"})
+			}
 		} else {
 			out = append(out, Check{Group: g, Name: "Forwarded ports", Level: OK, Detail: strings.Join(t.Ports, ", ")})
 			if l4 && s.Service == "active" {

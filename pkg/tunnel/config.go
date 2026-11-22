@@ -107,8 +107,8 @@ func NextIndex(existing []catalog.TunnelConfig) int {
 // (a second tunnel cannot share it).
 func exclusivePort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
 	// VXLAN/GENEVE demultiplex by VNI, so several tunnels may share 4789/6081.
-	// FOU, WireGuard, UDP-Crypt, Stealth, L2TPv3 and reverse/direct carriers bind a unique socket.
-	return tc.Port > 0 && (tc.Reverse || tc.Carrier || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
+	// FOU, WireGuard, UDP-Crypt, Stealth, L2TPv3, L4 and reverse/direct carriers bind a unique socket.
+	return tc.Port > 0 && (tc.Reverse || tc.Carrier || tc.DirectL4 || m.L4() || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
 }
 
 // Normalize validates tc, fills defaults and allocates the subnet, ports and keys that
@@ -377,7 +377,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 			return fmt.Errorf("remote tunnel address %s is already used by tunnel %q", tc.TunRemote4, o.Name)
 		}
 		if om, ok := catalog.LookupMethod(o.Method); ok && exclusivePort(o, om) && exclusivePort(*tc, m) && o.Port == tc.Port {
-			return fmt.Errorf("UDP port %d is already used by tunnel %q", tc.Port, o.Name)
+			return fmt.Errorf("port %d is already used by tunnel %q", tc.Port, o.Name)
 		}
 		for _, p := range tc.Ports {
 			for _, q := range o.Ports {

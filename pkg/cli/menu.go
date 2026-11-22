@@ -324,7 +324,11 @@ func setupWizard(role string) {
 		}
 		tc.RemoteIP = Ask(remPrompt, "")
 	} else {
-		tc.LocalIP = Ask("This server IP", bindIP())
+		defLocal := bindIP()
+		if m.L4() || tc.Reverse || tc.Carrier {
+			defLocal = publicIP(false)
+		}
+		tc.LocalIP = Ask("This server IP", defLocal)
 		remPrompt := "Remote server IP"
 		if tc.Reverse && role == "iran" {
 			remPrompt = "Remote server IP (optional in reverse mode, Enter = Kharej dials in)"
@@ -530,6 +534,20 @@ func applyAndReport(tc catalog.TunnelConfig) {
 	if err := tunnel.Apply(tc); err != nil {
 		Err("Saved, but starting failed: " + err.Error())
 		Subtle("Details: journalctl -u " + tunnel.Unit(tc) + " -n 30")
+		return
+	}
+	if catalog.IsL4(tc.Method) {
+		Ok(fmt.Sprintf("Tunnel %s (%s) is running on port %d", tc.Name, methodLabel(tc), tc.Port))
+		if tc.Role == "iran" && len(tc.Ports) == 0 {
+			Warn("No forwarded ports set — add ports in Manage -> Edit -> Forwarded Ports so user traffic can pass.")
+		}
+		for _, p := range tc.Ports {
+			src, dst, _ := strings.Cut(p, "=")
+			if dst == "" {
+				dst = src
+			}
+			Subtle(fmt.Sprintf("port %s on this server -> 127.0.0.1:%s on the kharej server", src, dst))
+		}
 		return
 	}
 	Ok(fmt.Sprintf("Tunnel %s (%s) is running: %s -> %s", tc.Name, tc.Method, tc.TunLocal4, tc.TunRemote4))

@@ -186,7 +186,7 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 			Role: req.Role, Method: base,
 			Reverse:  best.Mode == "REVERSE",
 			Carrier:  best.Mode == "DIRECT" && strings.HasPrefix(best.Method, "turbo+"),
-			DirectL4: best.Mode == "DIRECT" && m.Family == catalog.FamilyReverseL4,
+			DirectL4: best.Mode == "DIRECT" && m.L4(),
 			LocalIP:  req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports,
 		}
 		if tc.Role != "iran" {
@@ -245,7 +245,7 @@ func (s *Server) handleDeployBest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(tc.LocalIP) == "" {
-		tc.LocalIP = localIPv4()
+		tc.LocalIP = defaultLocalIP(tc)
 	}
 	st, err := s.store()
 	if err != nil {
