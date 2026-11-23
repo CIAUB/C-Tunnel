@@ -127,6 +127,8 @@ func UpdateProfile(st *catalog.Store, name, profile string) (catalog.TunnelConfi
 
 // Import saves a tunnel decoded from the other server's setup link. An existing
 // tunnel with the same name is replaced only if it points at the same server.
+// For Layer-4 tunnels (which do not use tunnel IPv4 subnets on the wire), any
+// local index or name collision with a different peer is resolved automatically.
 func Import(st *catalog.Store, tc *catalog.TunnelConfig) error {
 	tc.Name = SanitizeName(MirrorName(tc.Name, tc.Role))
 	if strings.TrimSpace(tc.LocalIP) == "" || tc.LocalIP == "0.0.0.0" || tc.LocalIP == "::" {
@@ -134,8 +136,38 @@ func Import(st *catalog.Store, tc *catalog.TunnelConfig) error {
 			tc.LocalIP = ip
 		}
 	}
+	isL4 := catalog.IsL4(tc.Method)
 	if old, exists := st.Find(tc.Name); exists && old.RemoteIP != tc.RemoteIP {
-		return fmt.Errorf("a tunnel named %q to %s already exists; import it under another name", tc.Name, old.RemoteIP)
+		if isL4 {
+			tc.Name = "" // DefaultName will pick a unique kh-t<N> name below
+		} else {
+			return fmt.Errorf("a tunnel named %q to %s already exists; import it under another name", tc.Name, old.RemoteIP)
+		}
+	}
+	if isL4 {
+		var others []catalog.TunnelConfig
+		for _, o := range st.Tunnels {
+			if o.Name != tc.Name {
+				others = append(others, o)
+			}
+		}
+		indexTaken := false
+		for _, o := range others {
+			if o.Index == tc.Index {
+				indexTaken = true
+				break
+			}
+		}
+		if indexTaken || tc.Index <= 0 {
+			if next := NextIndex(others); next > 0 {
+				tc.Index = next
+				tc.TunLocal4 = ""
+				tc.TunRemote4 = ""
+			}
+		}
+		if tc.Name == "" {
+			tc.Name = DefaultName(*tc, others)
+		}
 	}
 	return Save(st, tc)
 }

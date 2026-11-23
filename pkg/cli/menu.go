@@ -329,8 +329,29 @@ func setupWizard(role string) {
 			tc.RemoteIP = Ask(remPrompt, "")
 		}
 	}
-	if !m.L4() {
-		tc.Index = askInt("Subnet index (10.77.N.0/30, unique per tunnel)", tc.Index)
+	indexPrompt := "Subnet index 1-250 (10.77.N.0/30 — change if Kharej already uses this index)"
+	if m.L4() {
+		indexPrompt = "Tunnel index 1-250 (default port = 3080+N; change if needed)"
+	}
+	for {
+		idx := askInt(indexPrompt, tc.Index)
+		if idx < 1 || idx > tunnel.MaxIndex {
+			Warn(fmt.Sprintf("Index must be between 1 and %d.", tunnel.MaxIndex))
+			continue
+		}
+		takenBy := ""
+		for _, o := range st.Tunnels {
+			if o.Index == idx {
+				takenBy = o.Name
+				break
+			}
+		}
+		if takenBy != "" {
+			Warn(fmt.Sprintf("Index %d is already used on this server by %q (next free: %d).", idx, takenBy, tunnel.NextIndex(st.Tunnels)))
+			continue
+		}
+		tc.Index = idx
+		break
 	}
 	tc.Name = Ask("Tunnel name (max 10: a-z 0-9 -, Enter = ir-<port> or kh-<port>)", "")
 	for {
@@ -547,6 +568,7 @@ func setupKharejLink(raw string) {
 	KV("Method", tc.Method)
 	KV("Peer", tc.RemoteIP)
 	KV("This server", tc.LocalIP)
+	KV("Index", strconv.Itoa(tc.Index))
 	if catalog.IsL4(tc.Method) {
 		KV("Tunnel port", strconv.Itoa(tc.Port))
 	} else {
@@ -554,6 +576,47 @@ func setupKharejLink(raw string) {
 	}
 	if old, exists := st.Find(tc.Name); exists && old.RemoteIP != tc.RemoteIP {
 		tc.Name = Ask("Name "+tc.Name+" is taken here, new local name", "")
+	}
+	reassignedIndex := false
+	if !catalog.IsL4(tc.Method) {
+		var conflict *catalog.TunnelConfig
+		for i := range st.Tunnels {
+			o := st.Tunnels[i]
+			if o.Name == tc.Name && o.RemoteIP == tc.RemoteIP {
+				continue
+			}
+			if o.Index == tc.Index || (tc.TunRemote4 != "" && o.TunRemote4 == tc.TunRemote4) {
+				conflict = &st.Tunnels[i]
+				break
+			}
+		}
+		if conflict != nil {
+			nextIdx := tunnel.NextIndex(st.Tunnels)
+			Warn(fmt.Sprintf("Subnet index %d is already used here by %q (next free: %d).", tc.Index, conflict.Name, nextIdx))
+			if Confirm(fmt.Sprintf("Switch this tunnel to a free index (default %d)?", nextIdx), true) {
+				for {
+					chosen := askInt("New subnet index (1-250)", nextIdx)
+					if chosen < 1 || chosen > tunnel.MaxIndex {
+						Warn(fmt.Sprintf("Index must be between 1 and %d.", tunnel.MaxIndex))
+						continue
+					}
+					taken := false
+					for _, o := range st.Tunnels {
+						if o.Index == chosen {
+							Warn(fmt.Sprintf("Index %d is already used by %q.", chosen, o.Name))
+							taken = true
+							break
+						}
+					}
+					if taken {
+						continue
+					}
+					tunnel.ReassignIndex(&tc, chosen)
+					reassignedIndex = true
+					break
+				}
+			}
+		}
 	}
 	if !Confirm("Create and start this tunnel?", true) {
 		return
@@ -564,6 +627,10 @@ func setupKharejLink(raw string) {
 		return
 	}
 	applyAndReport(tc)
+	if reassignedIndex {
+		Warn(fmt.Sprintf("Index was changed to %d on this server — update the other server to index %d (Manage -> Edit -> Subnet Index) or apply this link there:", tc.Index, tc.Index))
+		showLink(tc)
+	}
 	Pause()
 }
 

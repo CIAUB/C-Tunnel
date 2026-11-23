@@ -748,8 +748,9 @@ func (s *Server) handleSetPeer(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Link string `json:"link"`
-		Name string `json:"name"`
+		Link  string `json:"link"`
+		Name  string `json:"name"`
+		Index int    `json:"index"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -762,6 +763,13 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name != "" {
 		tc.Name = req.Name
+	}
+	if req.Index > 0 {
+		if req.Index > tunnel.MaxIndex {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("index must be 1-%d", tunnel.MaxIndex))
+			return
+		}
+		tunnel.ReassignIndex(&tc, req.Index)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

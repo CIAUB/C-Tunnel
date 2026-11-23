@@ -693,3 +693,70 @@ func TestStealthTCPAndWSConfig(t *testing.T) {
 		t.Fatal("malicious SNI accepted on stealth-ws")
 	}
 }
+
+func TestImportL4AutoResolvesIndexAndDialOnlyPort(t *testing.T) {
+	dir := t.TempDir()
+	origRun := Run
+	Run = func(name string, args ...string) (string, error) { return "", nil }
+	t.Cleanup(func() { Run = origRun })
+
+	st, err := catalog.LoadStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two separate Iran servers both create L4 ws tunnels on index 1 & port 3081.
+	ir1 := catalog.TunnelConfig{
+		Name: "ir-3081", Role: "iran", Method: "ws", Reverse: true, Index: 1, Port: 3081,
+		LocalIP: "198.51.100.1", RemoteIP: "203.0.113.10", Token: catalog.GenerateToken(),
+	}
+	ir2 := catalog.TunnelConfig{
+		Name: "ir-3081", Role: "iran", Method: "ws", Reverse: true, Index: 1, Port: 3081,
+		LocalIP: "198.51.100.2", RemoteIP: "203.0.113.10", Token: catalog.GenerateToken(),
+	}
+	link1, err := catalog.EncodeSetupLink(ir1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link2, err := catalog.EncodeSetupLink(ir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kh1, err := catalog.DecodeSetupLink(link1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Import(st, &kh1); err != nil {
+		t.Fatalf("first L4 import failed: %v", err)
+	}
+	kh2, err := catalog.DecodeSetupLink(link2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Import(st, &kh2); err != nil {
+		t.Fatalf("second L4 import with colliding index/port/name failed: %v", err)
+	}
+	if kh2.Index == kh1.Index || kh2.Name == kh1.Name {
+		t.Fatalf("expected distinct index & name on kharej, got kh1=(%s,%d) kh2=(%s,%d)", kh1.Name, kh1.Index, kh2.Name, kh2.Index)
+	}
+	if kh2.Port != 3081 {
+		t.Fatalf("expected second L4 tunnel to preserve remote dial port 3081, got %d", kh2.Port)
+	}
+}
+
+func TestReassignIndexUpdatesDerivedSubnets(t *testing.T) {
+	tc := catalog.TunnelConfig{
+		Name: "ir-xgre", Role: "iran", Method: "xgre", Index: 1,
+		LocalIP: "198.51.100.1", RemoteIP: "203.0.113.10", Token: catalog.GenerateToken(),
+	}
+	if err := Normalize(&tc, nil); err != nil {
+		t.Fatal(err)
+	}
+	ReassignIndex(&tc, 7)
+	if err := Normalize(&tc, nil); err != nil {
+		t.Fatal(err)
+	}
+	if tc.Index != 7 || tc.TunLocal4 != "10.77.7.1" || tc.TunRemote4 != "10.77.7.2" || tc.GREKey != 7*16 {
+		t.Fatalf("unexpected reassigned config: %+v", tc)
+	}
+}

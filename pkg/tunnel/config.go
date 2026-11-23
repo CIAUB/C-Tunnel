@@ -103,12 +103,76 @@ func NextIndex(existing []catalog.TunnelConfig) int {
 	return 0
 }
 
+// isDialOnlyPort reports whether this side only dials out to RemoteIP:Port
+// (using ephemeral local ports) rather than binding Port locally.
+func isDialOnlyPort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
+	if m.L4() {
+		if tc.DirectL4 {
+			return tc.Role == "iran"
+		}
+		return tc.Role == "kharej"
+	}
+	if m.StreamStealth() {
+		if tc.Reverse {
+			return tc.Role == "kharej"
+		}
+		return tc.Role == "iran"
+	}
+	if tc.Reverse && !m.NeedsPort && tc.Role == "kharej" {
+		return true
+	}
+	if tc.Carrier && !tc.Reverse && tc.Role == "iran" {
+		return true
+	}
+	return false
+}
+
 // exclusivePort reports whether the tunnel owns its UDP/TCP port on this server
 // (a second tunnel cannot share it).
 func exclusivePort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
+	if tc.Port <= 0 || isDialOnlyPort(tc, m) {
+		return false
+	}
 	// VXLAN/GENEVE demultiplex by VNI, so several tunnels may share 4789/6081.
 	// FOU, WireGuard, UDP-Crypt, Stealth, L2TPv3, L4 and reverse/direct carriers bind a unique socket.
-	return tc.Port > 0 && (tc.Reverse || tc.Carrier || tc.DirectL4 || m.L4() || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3))
+	return tc.Reverse || tc.Carrier || tc.DirectL4 || m.L4() || m.Crypt() || m.SupportsFOU || (m.NeedsPort && m.Family == catalog.FamilyKernelL3)
+}
+
+// ReassignIndex changes tc.Index to newIndex and resets auto-derived subnet IPs
+// and tunnel IDs that matched the previous index so Normalize computes clean
+// values for newIndex.
+func ReassignIndex(tc *catalog.TunnelConfig, newIndex int) {
+	if newIndex < 1 || newIndex > MaxIndex || newIndex == tc.Index {
+		return
+	}
+	old := tc.Index
+	defLocal := fmt.Sprintf("10.77.%d.1", old)
+	defRemote := fmt.Sprintf("10.77.%d.2", old)
+	if tc.Role == "kharej" {
+		defLocal, defRemote = defRemote, defLocal
+	}
+	if tc.TunLocal4 == "" || tc.TunLocal4 == defLocal {
+		tc.TunLocal4 = ""
+	}
+	if tc.TunRemote4 == "" || tc.TunRemote4 == defRemote {
+		tc.TunRemote4 = ""
+	}
+	if usesCarrier6(tc.Method) {
+		def6A, def6B := fmt.Sprintf("fd77:%x::1", old), fmt.Sprintf("fd77:%x::2", old)
+		if tc.Role == "kharej" {
+			def6A, def6B = def6B, def6A
+		}
+		if tc.CarrierLocal6 == "" || tc.CarrierLocal6 == def6A {
+			tc.CarrierLocal6 = ""
+		}
+		if tc.CarrierRemote6 == "" || tc.CarrierRemote6 == def6B {
+			tc.CarrierRemote6 = ""
+		}
+	}
+	if (tc.Method == "eoip" || tc.Method == "l2tpv3") && tc.TunnelID == uint16(100+old) {
+		tc.TunnelID = 0
+	}
+	tc.Index = newIndex
 }
 
 // Normalize validates tc, fills defaults and allocates the subnet, ports and keys that
@@ -385,10 +449,10 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 			return fmt.Errorf("a tunnel named %q already exists", tc.Name)
 		}
 		if o.Index == tc.Index {
-			return fmt.Errorf("subnet index %d is already used by tunnel %q", tc.Index, o.Name)
+			return fmt.Errorf("subnet index %d is already used by tunnel %q (next free index: %d)", tc.Index, o.Name, NextIndex(others))
 		}
 		if o.TunRemote4 == tc.TunRemote4 {
-			return fmt.Errorf("remote tunnel address %s is already used by tunnel %q", tc.TunRemote4, o.Name)
+			return fmt.Errorf("remote tunnel address %s is already used by tunnel %q (change subnet index to %d)", tc.TunRemote4, o.Name, NextIndex(others))
 		}
 		if om, ok := catalog.LookupMethod(o.Method); ok && exclusivePort(o, om) && exclusivePort(*tc, m) && o.Port == tc.Port {
 			return fmt.Errorf("port %d is already used by tunnel %q", tc.Port, o.Name)

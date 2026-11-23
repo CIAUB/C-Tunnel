@@ -604,7 +604,8 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		}
 		opts := []MenuOpt{
 			{peerLabel, peerVal},
-			{"Performance Profile", catalog.ProfileLabel(catalog.EffectiveProfile(t)) + " (ECO / TURBO / HYPER)"},
+			{"Performance Profile", tunnel.DisplayProfile(t) + " (AUTO / ECO / TURBO / HYPER)"},
+			{"Subnet Index", fmt.Sprintf("%d (10.77.%d.0/30)", t.Index, t.Index)},
 			{"Tunnel Port", portText(t.Port)},
 			{"MTU", strconv.Itoa(t.MTU)},
 			{"Bandwidth Limit", rateText(t.RateMbps)},
@@ -637,17 +638,28 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 				changed = false
 			}
 		case 3:
-			t.Port = askInt("Tunnel port (0 = none)", t.Port)
+			newIdx := askInt("New subnet index (1-250; updates 10.77.N.0/30 automatically)", t.Index)
+			if newIdx == t.Index {
+				changed = false
+			} else if newIdx < 1 || newIdx > tunnel.MaxIndex {
+				Err(fmt.Sprintf("Index must be between 1 and %d.", tunnel.MaxIndex))
+				changed = false
+				Pause()
+			} else {
+				tunnel.ReassignIndex(&t, newIdx)
+			}
 		case 4:
-			t.MTU = askInt("MTU", t.MTU)
+			t.Port = askInt("Tunnel port (0 = none)", t.Port)
 		case 5:
-			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = none)", t.RateMbps)
+			t.MTU = askInt("MTU", t.MTU)
 		case 6:
+			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = none)", t.RateMbps)
+		case 7:
 			t.QuotaGB = askFloat("Traffic quota GB (0 = unlimited)", t.QuotaGB)
 			if t.QuotaGB == 0 {
 				t.QuotaStopped, t.QuotaOverride = false, false
 			}
-		case 7:
+		case 8:
 			if t.Role != "iran" {
 				Warn("Forwarded Ports Live On The Iran Server.")
 				changed = false
@@ -655,7 +667,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			} else {
 				t.Ports = tunnel.ParsePorts(Ask("Forward ports (e.g. 443, 2053=8443)", strings.Join(t.Ports, ", ")))
 			}
-		case 8:
+		case 9:
 			if !Confirm("Make A New Secret Token", false) {
 				changed = false
 				break
@@ -676,7 +688,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			continue
 		}
 		applyAndReport(t)
-		if idx == 3 || idx == 4 || idx == 8 || (idx == 2 && t.Carrier != prevCarrier) {
+		if idx == 3 || idx == 4 || idx == 5 || idx == 9 || (idx == 2 && t.Carrier != prevCarrier) {
 			Warn("Apply The Same Change On The Other Server (Setup Link Below).")
 			showLink(t)
 		}

@@ -990,7 +990,10 @@ details[open] summary{margin-bottom:12px}
       <div id="proto-grid" class="proto-grid" role="listbox" aria-label="Protocols"></div>
       <select id="f-method" class="sr" aria-label="Method"></select>
     </div>
-    <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
+    <div class="grid2">
+      <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
+      <div><label for="f-index">Subnet / Tunnel Index (1-250)</label><input id="f-index" type="number" min="1" max="250" placeholder="auto (next free)"></div>
+    </div>
     <div id="l4-wrap" class="grid2" hidden>
       <div id="l4port-wrap"><label for="f-l4port" id="f-l4port-l">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
       <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="peer IP"></div>
@@ -1036,10 +1039,7 @@ details[open] summary{margin-bottom:12px}
           <div><label for="f-name">Name (max 10)</label><input id="f-name" maxlength="10" placeholder="ir-&lt;port&gt;" pattern="[a-z0-9][a-z0-9-]*"></div>
           <div><label for="f-local">This server IP</label><input id="f-local" class="num"><div class="ip-choices" id="f-ips"></div></div>
         </div>
-        <div class="grid2">
-          <div><label for="f-index">Subnet index (10.77.N.0/30)</label><input id="f-index" type="number" min="1" max="250" placeholder="next free"></div>
-          <div id="port-wrap"><label for="f-port" id="f-port-l">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
-        </div>
+        <div id="port-wrap"><label for="f-port" id="f-port-l">Port (UDP or Reverse TCP)</label><input id="f-port" type="number" min="0" max="65535"></div>
         <div id="token-wrap"><label for="f-token">Secret token (same on both servers)</label>
           <input id="f-token" class="num" autocomplete="off" placeholder="empty = random; required on kharej without a link">
           <p class="hint">64 hex characters, or any phrase of 8+ characters.</p></div>
@@ -1067,7 +1067,10 @@ details[open] summary{margin-bottom:12px}
     <div class="dhead"><div><h3 id="import-title">Add from link</h3><p>Paste the setup link printed on the other server.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <div id="import-error" class="form-error" role="alert" tabindex="-1" hidden></div>
     <div><label for="i-import-link">Setup link</label><textarea id="i-import-link" class="mono" rows="4" placeholder="ctunnel://..." required></textarea></div>
-    <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="10"></div>
+    <div class="grid2">
+      <div><label for="i-name">Local name (optional)</label><input id="i-name" maxlength="10"></div>
+      <div><label for="i-index">Index override (optional, 1-250)</label><input id="i-index" type="number" min="1" max="250" placeholder="from link"></div>
+    </div>
     <div class="dfoot"><button class="btn ghost" type="button" data-close>Cancel</button><button class="btn primary" type="submit">Create and start</button></div>
   </form>
 </dialog>
@@ -2511,9 +2514,16 @@ $("create-form").addEventListener("submit", async e => {
   const form = e.currentTarget;
   await saveTunnel(form, e.submitter || form.querySelector('[type="submit"]'), body, form.edit ? tunnelURL(form.edit) : "/api/tunnels", "dlg-new", "create-error");
 });
+$("f-index").addEventListener("input", () => {
+  const n = num("f-index");
+  if (!n || n < 1 || n > 250) return;
+  const a = $("f-tun-iran").value.trim(), b = $("f-tun-kharej").value.trim();
+  if (!a || /^10\.77\.\d+\.1$/.test(a)) $("f-tun-iran").value = "10.77." + n + ".1";
+  if (!b || /^10\.77\.\d+\.2$/.test(b)) $("f-tun-kharej").value = "10.77." + n + ".2";
+});
 $("import-form").addEventListener("submit", async e => {
   e.preventDefault();
-  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim() }, "/api/import", "dlg-import", "import-error");
+  await saveTunnel(e.currentTarget, e.submitter || e.currentTarget.querySelector('[type="submit"]'), { link: $("i-import-link").value.trim(), name: $("i-name").value.trim(), index: num("i-index") }, "/api/import", "dlg-import", "import-error");
 });
 
 /* ---------- live log ---------- */
