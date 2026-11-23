@@ -53,8 +53,9 @@
 
 Full release notes for every version are in [CHANGELOG.md](CHANGELOG.md).
 
-- **3-Tier Performance Profiles (`ECO` / `TURBO` / `HYPER`) on Every Tunnel:**
-  - Replaces standalone `turbo+` entries with a unified profile selectable on creation (CLI & Web Panel) and changeable anytime via `ctunnel set-profile <name> <eco|turbo|hyper>`, CLI Edit, or Web Panel Edit.
+- **Adaptive & 3-Tier Performance Profiles (`AUTO` / `ECO` / `TURBO` / `HYPER`) on Every Tunnel:**
+  - Replaces standalone `turbo+` entries with a unified profile selectable on creation (CLI & Web Panel) and changeable anytime via `ctunnel set-profile <name> <auto|eco|turbo|hyper>`, CLI Edit, or Web Panel Edit.
+  - **`AUTO` (Adaptive, first in list):** Stays on `ECO` during idle periods (`< 5 Mbps`) and automatically boosts both Iran & Kharej servers to `TURBO` (`>= 15 Mbps`) or `HYPER` (`>= 120 Mbps` on 4+ CPU / 3.5+ GiB RAM hosts) under load; live tier (`AUTO → ECO/TURBO/HYPER`) is visible in real time in CLI, Web Panel, and Telegram Bot.
   - Real runtime scaling of L4 connection pools (`8/16/32`), `smux` buffers (`16M/64M/128M`), KCP windows (`2048/4096/8192`), `revCarrier` BBR streams (`4/8/16`), UDP socket buffers (`4M/16M/32M`), kernel `txqueuelen` (`4000/10000/20000`), and Linux `SO_BUSY_POLL=50` on `HYPER`.
   - Existing tunnels from earlier versions automatically default to `ECO` (legacy Direct `Carrier: true` tunnels default to `TURBO`).
 - **2 New Stealth Layer-3 Transports (`stealth-tcp`, `stealth-ws`):**

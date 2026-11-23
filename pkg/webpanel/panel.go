@@ -543,14 +543,15 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 type tunnelView struct {
 	catalog.TunnelConfig
-	Family    string           `json:"family"`
-	Legacy    bool             `json:"legacy,omitempty"`
-	Status    tunnel.Status    `json:"status"`
-	Quota     tunnel.QuotaInfo `json:"quota"`
-	State     string           `json:"state"`
-	SetupLink string           `json:"setup_link"`
-	SetupCmd  string           `json:"setup_cmd"`
-	MikroTik  string           `json:"mikrotik"`
+	Family      string           `json:"family"`
+	Legacy      bool             `json:"legacy,omitempty"`
+	LiveProfile string           `json:"live_profile,omitempty"`
+	Status      tunnel.Status    `json:"status"`
+	Quota       tunnel.QuotaInfo `json:"quota"`
+	State       string           `json:"state"`
+	SetupLink   string           `json:"setup_link"`
+	SetupCmd    string           `json:"setup_cmd"`
+	MikroTik    string           `json:"mikrotik"`
 }
 
 func state(s tunnel.Status) string {
@@ -578,7 +579,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		m, _ := catalog.LookupMethod(t.Method)
 		status := statuses[i]
 		views = append(views, tunnelView{
-			TunnelConfig: t, Family: string(m.Family), Legacy: m.Legacy, Status: status, Quota: tunnel.QuotaStatus(t), State: state(status),
+			TunnelConfig: t, Family: string(m.Family), Legacy: m.Legacy, LiveProfile: tunnel.LiveProfile(t), Status: status, Quota: tunnel.QuotaStatus(t), State: state(status),
 			SetupLink: link, SetupCmd: catalog.OneLineInstallCommand(link), MikroTik: tunnel.MikroTik(t),
 		})
 	}

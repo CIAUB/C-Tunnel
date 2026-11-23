@@ -148,7 +148,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	} else {
 		prof, ok := catalog.NormalizeProfile(tc.Profile)
 		if !ok {
-			return fmt.Errorf("unknown performance profile %q (use eco, turbo, or hyper)", tc.Profile)
+			return fmt.Errorf("unknown performance profile %q (use auto, eco, turbo, or hyper)", tc.Profile)
 		}
 		tc.Profile = prof
 	}
@@ -157,9 +157,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	} else if m.SupportsFRP {
 		// On Direct core L3 tunnels (xgre, xgre-ip, 6to4, ipip, gre), TURBO and
 		// HYPER automatically activate the multi-stream BBR TCP Carrier; ECO
-		// runs pure raw kernel encapsulation with minimum resource usage.
+		// and AUTO run raw kernel encapsulation (AUTO scales txqueuelen live).
 		tc.Carrier = tc.Profile == catalog.ProfileTurbo || tc.Profile == catalog.ProfileHyper
-	} else if tc.Carrier && (m.Crypt() || m.Name == "wireguard" || m.L4() || m.IPv6Underlay || tc.Profile == catalog.ProfileEco) {
+	} else if tc.Carrier && (m.Crypt() || m.Name == "wireguard" || m.L4() || m.IPv6Underlay || tc.Profile == catalog.ProfileEco || tc.Profile == catalog.ProfileAuto) {
 		tc.Carrier = false
 	}
 	if tc.Reverse && m.IPv6Underlay {

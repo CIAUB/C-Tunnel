@@ -1234,16 +1234,16 @@ func (n *Notifier) statusView() View {
 	var rh, fb strings.Builder
 	fmt.Fprintf(&rh, `<p>%s %s</p><table border="1"><thead><tr>`, n.em("tunnels"), tr(lang, "status.head", esc(n.Host)))
 	if lang == "fa" {
-		rh.WriteString("<th>تانل</th><th>پروتکل</th><th>وضعیت</th><th>حجم / سقف</th><th>سرعت</th>")
+		rh.WriteString("<th>تانل</th><th>پروتکل</th><th>پروفایل</th><th>وضعیت</th><th>حجم / سقف</th>")
 	} else {
-		rh.WriteString("<th>Tunnel</th><th>Method</th><th>Status</th><th>Quota</th><th>Rate</th>")
+		rh.WriteString("<th>Tunnel</th><th>Method</th><th>Profile</th><th>Status</th><th>Quota</th>")
 	}
 	rh.WriteString("</tr></thead><tbody>")
 
 	fb.WriteString(tr(lang, "status.title", esc(n.Host)) + "\n")
 	fb.WriteString(tr(lang, "rule") + "\n<pre>")
-	fb.WriteString(pad("NAME", 10) + pad("PROTO", 9) + pad("ST", 3) + pad("QUOTA", 9) + "RATE\n")
-	fb.WriteString(strings.Repeat("─", 37) + "\n")
+	fb.WriteString(pad("NAME", 9) + pad("PROTO", 8) + pad("PROF", 9) + pad("ST", 3) + "QUOTA\n")
+	fb.WriteString(strings.Repeat("─", 38) + "\n")
 
 	var btnRows [][]Button
 	var pair []Button
@@ -1283,13 +1283,14 @@ func (n *Notifier) statusView() View {
 				qStr += "*"
 			}
 		}
-		rStr := "∞"
-		if tc.RateMbps > 0 {
-			rStr = fmt.Sprintf("%dM", tc.RateMbps)
+		profRich := tunnel.DisplayProfile(tc)
+		profShort := catalog.ProfileLabel(catalog.EffectiveProfile(tc))
+		if catalog.EffectiveProfile(tc) == catalog.ProfileAuto {
+			profShort = "A:" + catalog.ProfileLabel(tunnel.LiveProfile(tc))
 		}
-		fmt.Fprintf(&rh, "<tr><td><code>%s</code></td><td><code>%s</code></td><td>%s %s</td><td>%s</td><td>%s</td></tr>",
-			esc(tc.Name), esc(meth), n.em(iconKey), esc(word), esc(qStr), esc(rStr))
-		fb.WriteString(esc(pad(tc.Name, 10)) + esc(pad(meth, 9)) + stShort + " " + esc(pad(qStr, 9)) + esc(rStr) + "\n")
+		fmt.Fprintf(&rh, "<tr><td><code>%s</code></td><td><code>%s</code></td><td><code>%s</code></td><td>%s %s</td><td>%s</td></tr>",
+			esc(tc.Name), esc(meth), esc(profRich), n.em(iconKey), esc(word), esc(qStr))
+		fb.WriteString(esc(pad(tc.Name, 9)) + esc(pad(meth, 8)) + esc(pad(profShort, 9)) + stShort + " " + esc(qStr) + "\n")
 
 		pair = append(pair, n.btn(iconKey, tc.Name, btnStyle, "tn:"+tc.Name))
 		if len(pair) == 2 {
@@ -1378,8 +1379,10 @@ func (n *Notifier) tunnelView(name string) View {
 		rh.WriteString("<th>Field</th><th>Value</th>")
 	}
 	rh.WriteString("</tr></thead><tbody>")
+	profDisp := tunnel.DisplayProfile(tc)
 	if lang == "fa" {
 		fmt.Fprintf(&rh, "<tr><td>نقش / پروتکل</td><td>%s · <code>%s</code></td></tr>", roleW, esc(n.method(tc)))
+		fmt.Fprintf(&rh, "<tr><td>پروفایل سرعت</td><td><code>%s</code></td></tr>", ltr(esc(profDisp)))
 		if tc.Port > 0 {
 			fmt.Fprintf(&rh, "<tr><td>پورت</td><td><code>%d</code></td></tr>", tc.Port)
 		}
@@ -1389,6 +1392,7 @@ func (n *Notifier) tunnelView(name string) View {
 		fmt.Fprintf(&rh, "<tr><td>روشن از</td><td>%s</td></tr>", esc(since))
 	} else {
 		fmt.Fprintf(&rh, "<tr><td>Role / Method</td><td>%s · <code>%s</code></td></tr>", roleW, esc(n.method(tc)))
+		fmt.Fprintf(&rh, "<tr><td>Performance</td><td><code>%s</code></td></tr>", esc(profDisp))
 		if tc.Port > 0 {
 			fmt.Fprintf(&rh, "<tr><td>Port</td><td><code>%d</code></td></tr>", tc.Port)
 		}
@@ -1404,6 +1408,7 @@ func (n *Notifier) tunnelView(name string) View {
 	fb.WriteString(tr(lang, "rule") + "\n")
 	fb.WriteString(tr(lang, "tunnel.body", roleW, esc(n.method(tc)), extra.String(), esc(since)) + "\n")
 	fb.WriteString("<pre>")
+	fmt.Fprintf(&fb, "PROF  %s\n", profDisp)
 	fmt.Fprintf(&fb, "RX    %-11s TX   %s\n", bytesStr(rx), bytesStr(tx))
 	fmt.Fprintf(&fb, "TOTAL %-11s RATE %s\n", bytesStr(used), rateTxt)
 	fmt.Fprintf(&fb, "QUOTA %s</pre>\n", quotaPre)

@@ -534,7 +534,7 @@ details[open] summary{margin-bottom:12px}
 .prof-box{display:grid;gap:8px;padding:12px 14px;border:1px solid var(--ln2);border-radius:14px;background:var(--s2)}
 .prof-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .prof-head label{margin:0}
-.prof-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.prof-seg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .prof-card{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:9px 11px;border:1px solid var(--ln2);border-radius:11px;background:var(--s1);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s,transform .12s ease-out}
 .prof-card:hover{border-color:var(--ln3);background:var(--s3)}
 .prof-card:active{transform:scale(.98)}
@@ -542,7 +542,8 @@ details[open] summary{margin-bottom:12px}
 .prof-card b{font-size:12.5px;color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
 .prof-card span{font-size:11px;color:var(--mu);line-height:1.35}
 .prof-card[aria-pressed=true]{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,var(--s1));box-shadow:0 0 0 1px var(--ac)}
-@media(max-width:767px){.prof-seg{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:960px){.prof-seg{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:540px){.prof-seg{grid-template-columns:minmax(0,1fr)}}
 .proto-card-desc{font-size:11px;color:var(--mu);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .proto-cur{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 11px;border-radius:10px;border:1px dashed var(--ln2);background:var(--s1);font-size:12px}
 .proto-cur code{font-weight:700;color:var(--ac)}
@@ -1003,10 +1004,11 @@ details[open] summary{margin-bottom:12px}
     <div class="prof-box" id="profile-box" role="group" aria-labelledby="f-prof-l">
       <div class="prof-head">
         <label id="f-prof-l">Performance profile</label>
-        <span id="prof-hint" class="hint">Lowest CPU/RAM · Standard speed</span>
+        <span id="prof-hint" class="hint">Adaptive: ECO when idle · auto TURBO/HYPER under load</span>
       </div>
       <div class="prof-seg" role="group" aria-labelledby="f-prof-l">
-        <button type="button" class="prof-card" data-prof="eco" aria-pressed="true"><b>ECO <span class="proto-tag">Standard</span></b><span>Lowest CPU/RAM · standard speed</span></button>
+        <button type="button" class="prof-card" data-prof="auto" aria-pressed="true"><b>AUTO <span class="proto-tag v2">Smart</span></b><span>ECO when idle · auto TURBO/HYPER</span></button>
+        <button type="button" class="prof-card" data-prof="eco" aria-pressed="false"><b>ECO <span class="proto-tag">Standard</span></b><span>Lowest CPU/RAM · standard speed</span></button>
         <button type="button" class="prof-card" data-prof="turbo" aria-pressed="false"><b>TURBO <span class="proto-tag fast">High Speed</span></b><span>Higher resources · high speed</span></button>
         <button type="button" class="prof-card" data-prof="hyper" aria-pressed="false"><b>HYPER <span class="proto-tag v2">Ultra</span></b><span>Max CPU/RAM · ultra speed</span></button>
       </div>
@@ -1532,6 +1534,10 @@ function methodLabel(t) {
 }
 function profileLabel(t) {
   const p = (t && t.profile) ? String(t.profile).toLowerCase() : (t && t.carrier && !t.reverse ? "turbo" : "eco");
+  if (p === "auto") {
+    const live = (t && t.live_profile) ? String(t.live_profile).toUpperCase() : "ECO";
+    return "AUTO → " + live;
+  }
   return p === "hyper" ? "HYPER" : p === "turbo" ? "TURBO" : "ECO";
 }
 function openPortsModal(t) {
@@ -1999,7 +2005,7 @@ function validateForm(form, errorID) {
 }
 function num(id) { const v = $(id).value.trim(); return v === "" ? 0 : Number(v); }
 
-let protoFamFilter = "all", protoSearchQuery = "", tunnelProfile = "eco", editingLegacyMethod = "";
+let protoFamFilter = "all", protoSearchQuery = "", tunnelProfile = "auto", editingLegacyMethod = "";
 const V2_METHOD_SET = new Set(["tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "faketcp", "icmp", "stealth-tcp", "stealth-ws", "xgre", "xgre-ip", "game-udp", "game-fec", "game-dup", "game-kcp", "game-dtls"]);
 
 function activeMethods() { return methods.filter(m => !m.Legacy); }
@@ -2131,13 +2137,17 @@ function setLimitMode(mode) {
 document.querySelectorAll("[data-lim]").forEach(b => { b.onclick = () => setLimitMode(b.dataset.lim); });
 
 function setProfile(prof) {
-  tunnelProfile = (prof === "turbo" || prof === "hyper") ? prof : "eco";
+  tunnelProfile = (prof === "auto" || prof === "turbo" || prof === "hyper") ? prof : "eco";
   document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === tunnelProfile)));
   syncForm();
 }
 document.querySelectorAll("[data-prof]").forEach(b => { b.onclick = () => setProfile(b.dataset.prof); });
 
 function profileHintText(m, rev, l4, prof) {
+  if (prof === "auto") {
+    if (!rev && m && supportsFRP(m)) return "Adaptive: raw kernel ECO when idle · scales txqueuelen live under load on both servers";
+    return "Adaptive: ECO when idle (<5 Mbps) · auto-boosts to TURBO (≥15 Mbps) or HYPER (≥120 Mbps, 4+ CPU) on both servers";
+  }
   if (!rev && m && supportsFRP(m)) {
     if (prof === "hyper") return "16-Stream BBR TCP Carrier · 512 KiB buffers + SO_BUSY_POLL";
     if (prof === "turbo") return "8-Stream BBR TCP Carrier · 256 KiB buffers (Reverse-grade Direct speed)";
@@ -2330,7 +2340,7 @@ function openCreate(t) {
     const mm = methods.find(x => x.Name === t.method);
     if (mm && mm.Legacy) editingLegacyMethod = mm.Name;
     $("f-role").value = t.role; $("f-reverse").value = t.reverse ? "1" : "0"; $("f-method").value = t.method;
-    tunnelProfile = (t.profile === "turbo" || t.profile === "hyper") ? t.profile : (t.carrier && !t.reverse ? "turbo" : "eco");
+    tunnelProfile = (t.profile === "auto" || t.profile === "turbo" || t.profile === "hyper") ? t.profile : (t.carrier && !t.reverse ? "turbo" : "eco");
     document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === tunnelProfile)));
     protoFamFilter = "all";
     $("f-remote").value = t.remote_ip === "0.0.0.0" || t.remote_ip === "::" ? "" : (t.remote_ip || "");
@@ -2346,8 +2356,8 @@ function openCreate(t) {
     $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
   } else {
     $("f-reverse").value = "1";
-    tunnelProfile = "eco";
-    document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === "eco")));
+    tunnelProfile = "auto";
+    document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === "auto")));
     setLimitMode("none");
     protoFamFilter = "all";
     if ($("proto-search")) $("proto-search").value = "";

@@ -386,7 +386,7 @@ func manageOne(name string) {
 		}
 		idx := ChooseOpt("Action", []MenuOpt{
 			{peerTitle, peerHint + " — switch without recreating tunnel"},
-			{"Edit", "profile (ECO/TURBO/HYPER), peer, ports, MTU, quota, bandwidth, secret"},
+			{"Edit", "profile (AUTO/ECO/TURBO/HYPER), peer, ports, MTU, quota, bandwidth, secret"},
 			{"Quota & Limits", "reset usage, add extra GB, or change caps"},
 			{"Start", startDesc},
 			{"Stop", ""},

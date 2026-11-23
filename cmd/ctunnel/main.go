@@ -167,7 +167,7 @@ func main() {
   up|restart|down <name>       start, restart or stop a tunnel
   set-peer <name> <ip>         change peer IP (Iran IP on Kharej / Kharej IP on Iran) and restart
   set-peer -all <old> <new>    replace peer IP on every tunnel matching <old> and restart
-  set-profile <name> <gear>    switch performance profile (eco | turbo | hyper) and restart
+  set-profile <name> <tier>    switch performance profile (auto | eco | turbo | hyper) and restart
   link <name>                  print the setup link for the other server
   apply-link 'ctunnel://...'   create and start the tunnel from a link
   conntest-server [ip]         iran side of the connection test: prints a link
@@ -261,7 +261,7 @@ func setPeerCommand(args []string) {
 
 func setProfileCommand(args []string) {
 	if len(args) != 2 {
-		log.Fatal("usage: ctunnel set-profile <name> <eco|turbo|hyper>")
+		log.Fatal("usage: ctunnel set-profile <name> <auto|eco|turbo|hyper>")
 	}
 	st, err := catalog.LoadStore(cli.StoreDir)
 	if err != nil {
@@ -274,7 +274,7 @@ func setProfileCommand(args []string) {
 	if err := tunnel.Apply(tc); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("%s (%s): performance profile -> %s (restarted)\n", tc.Name, tc.Method, catalog.ProfileLabel(tc.Profile))
+	fmt.Printf("%s (%s): performance profile -> %s (restarted)\n", tc.Name, tc.Method, tunnel.DisplayProfile(tc))
 }
 
 func applyLink(link string) {

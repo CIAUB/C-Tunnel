@@ -464,26 +464,32 @@ func askFloat(prompt string, def float64) float64 {
 }
 
 func askPerformanceProfile(tc *catalog.TunnelConfig, m catalog.MethodSpec) bool {
+	autoDesc := "Adaptive: ECO when idle, auto-boosts to TURBO/HYPER under load (Recommended)"
 	ecoDesc := "Lowest CPU/RAM footprint · Standard speed (default for existing tunnels)"
 	turboDesc := "Higher resources · High speed (more streams/pools & larger buffers)"
 	hyperDesc := "Max CPU/RAM · Ultra speed (max streams/workers, huge buffers, SO_BUSY_POLL)"
 	if !tc.Reverse && m.SupportsFRP {
+		autoDesc = "Adaptive: raw kernel ECO when idle, scales txqueuelen live under load"
 		ecoDesc = "Raw kernel tunnel · Lowest CPU/RAM, MikroTik-ready, standard speed"
 		turboDesc = "8-Stream BBR TCP Carrier · Higher resources, high throughput"
 		hyperDesc = "16-Stream BBR TCP Carrier · Max resources, ultra throughput + SO_BUSY_POLL"
 	}
 	switch ChooseOpt("Performance Profile (Speed / Resource Tier)", []MenuOpt{
+		{"AUTO   (Adaptive)", autoDesc},
 		{"ECO    (Standard)", ecoDesc},
 		{"TURBO  (High Speed)", turboDesc},
 		{"HYPER  (Ultra Speed)", hyperDesc},
 	}) {
 	case 1:
-		tc.Profile = catalog.ProfileEco
+		tc.Profile = catalog.ProfileAuto
 		return true
 	case 2:
-		tc.Profile = catalog.ProfileTurbo
+		tc.Profile = catalog.ProfileEco
 		return true
 	case 3:
+		tc.Profile = catalog.ProfileTurbo
+		return true
+	case 4:
 		tc.Profile = catalog.ProfileHyper
 		return true
 	default:
@@ -565,17 +571,20 @@ func setupKharejLink(raw string) {
 func PrintTunnelConnected(tc catalog.TunnelConfig) {
 	const boxW = 60
 	bar := strings.Repeat("─", boxW)
-	prof := catalog.ProfileLabel(catalog.EffectiveProfile(tc))
+	prof := tunnel.DisplayProfile(tc)
 	mode := "DIRECT"
 	if tc.Reverse {
 		mode = "REVERSE"
 	}
 	profColor := White
-	switch catalog.EffectiveProfile(tc) {
+	switch tunnel.LiveProfile(tc) {
 	case catalog.ProfileTurbo:
 		profColor = BGreen
 	case catalog.ProfileHyper:
 		profColor = BYellow
+	}
+	if catalog.EffectiveProfile(tc) == catalog.ProfileAuto && tunnel.LiveProfile(tc) == catalog.ProfileEco {
+		profColor = BCyan
 	}
 	unit := tunnel.Unit(tc)
 	row := func(icon, label, val string) {
@@ -685,16 +694,16 @@ func printStatusTable(st *catalog.Store) {
 
 	Info(TunnelSummaryLine(entries))
 	fmt.Println()
-	fmt.Printf(" %s%-12s %-15s %-6s %-6s %-18s %-10s %s%s\n", Bold+White,
-		"NAME", "METHOD", "GEAR", "ROLE", "ENDPOINT / PORTS", "STATE", "RX / TX", Reset)
+	fmt.Printf(" %s%-12s %-15s %-13s %-6s %-18s %-10s %s%s\n", Bold+White,
+		"NAME", "METHOD", "PROFILE", "ROLE", "ENDPOINT / PORTS", "STATE", "RX / TX", Reset)
 	Rule()
 	for _, g := range groups {
 		fmt.Printf("\n %s── %s %s(%d/%d up)%s\n", Bold+Red, strings.ToUpper(g.Category.Title), Gray, g.UpCount, len(g.Items), Reset)
 		for _, e := range g.Items {
 			t := e.Tunnel
 			s := e.Status
-			gear := catalog.ProfileLabel(catalog.EffectiveProfile(t))
-			fmt.Printf(" %-12s %-15s %-6s %-6s %-18s %s  %s / %s\n",
+			gear := tunnel.DisplayProfile(t)
+			fmt.Printf(" %-12s %-15s %-13s %-6s %-18s %s  %s / %s\n",
 				t.Name, e.Method, gear, t.Role, tunnelEndpointHint(t), statusBadge(s),
 				humanBytes(s.RxBytes), humanBytes(s.TxBytes))
 		}

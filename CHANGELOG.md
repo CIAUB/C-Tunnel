@@ -2,9 +2,10 @@
 
 ## [2.1.0]
 
-### Added — 3-Tier Performance Profiles (`ECO` / `TURBO` / `HYPER`)
-- **Universal Per-Tunnel Performance Profiles (`pkg/catalog`, `pkg/tunnel`, `pkg/l4`, `cmd/ctunnel-engine`, `scripts/ctunnel-kernel.sh`):**
-  - Replaced standalone `turbo+` protocol entries with a unified 3-tier Performance Profile selectable on **every tunnel** at creation time (CLI wizard & Web Panel) and changeable anytime via `ctunnel set-profile <name> <eco|turbo|hyper>`, CLI Edit menu, or Web Panel Edit modal.
+### Added — Adaptive & 3-Tier Performance Profiles (`AUTO` / `ECO` / `TURBO` / `HYPER`)
+- **Universal Per-Tunnel Performance Profiles (`pkg/catalog`, `pkg/tunnel`, `pkg/agent`, `pkg/l4`, `cmd/ctunnel-engine`, `scripts/ctunnel-kernel.sh`):**
+  - Replaced standalone `turbo+` protocol entries with a unified Performance Profile selectable on **every tunnel** at creation time (CLI wizard & Web Panel) and changeable anytime via `ctunnel set-profile <name> <auto|eco|turbo|hyper>`, CLI Edit menu, or Web Panel Edit modal.
+  - **`AUTO` (Adaptive — First in List / Recommended):** Runs in `ECO` during low-traffic periods (`< 5 Mbps`), automatically boosts both Iran & Kharej servers to `TURBO` under sustained load (`>= 15 Mbps` for 15s) or `HYPER` (`>= 120 Mbps` on 4+ CPU / 3.5+ GiB RAM hosts), and smoothly demotes back after 60s of quiet traffic with a 90s anti-flap cooldown. Live active tier (`AUTO → ECO` / `AUTO → TURBO` / `AUTO → HYPER`) is displayed in real time in CLI (`ctunnel status`), Web Panel cards, and Telegram Bot (`/status` and tunnel detail view).
   - **`ECO` (Standard):** Lowest CPU/RAM footprint (`L4 Pool: 8`, `Conns: 2/1`, `smux: 16 MiB / 4 MiB`, `KCP window: 2048`, `revCarrier: 4 streams / 128 KiB bufio / 1024 queue`, `UDP buf: 4 MiB`, `txqueuelen: 4000`; Direct core L3 runs raw kernel encapsulation).
   - **`TURBO` (High Speed):** Balanced resource usage & higher throughput (`L4 Pool: 16`, `Conns: 4/2`, `smux: 64 MiB / 16 MiB`, `KCP window: 4096`, `revCarrier: 8 streams / 256 KiB bufio / 2048 queue`, `UDP buf: 16 MiB`, `txqueuelen: 10000`; Direct core L3 auto-enables 8-stream BBR TCP carrier).
   - **`HYPER` (Ultra Speed):** Maximum resources & peak throughput (`L4 Pool: 32`, `Conns: 8/4`, `smux: 128 MiB / 32 MiB`, `KCP window: 8192`, `revCarrier: 16 streams / 512 KiB bufio / 4096 queue`, `UDP buf: 32 MiB`, `txqueuelen: 20000`, Linux `SO_BUSY_POLL=50` on TCP/KCP/carrier sockets; Direct core L3 auto-enables 16-stream BBR TCP carrier).

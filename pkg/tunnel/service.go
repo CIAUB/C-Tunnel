@@ -104,7 +104,7 @@ func Create(st *catalog.Store, tc *catalog.TunnelConfig) error {
 	return Save(st, tc)
 }
 
-// UpdateProfile changes only the performance profile (eco / turbo / hyper) of
+// UpdateProfile changes only the performance profile (auto / eco / turbo / hyper) of
 // an existing tunnel and persists it. The caller should run Apply(updated).
 func UpdateProfile(st *catalog.Store, name, profile string) (catalog.TunnelConfig, error) {
 	tc, ok := st.Find(name)
@@ -113,9 +113,12 @@ func UpdateProfile(st *catalog.Store, name, profile string) (catalog.TunnelConfi
 	}
 	prof, ok := catalog.NormalizeProfile(profile)
 	if !ok {
-		return catalog.TunnelConfig{}, fmt.Errorf("unknown performance profile %q (use eco, turbo, or hyper)", profile)
+		return catalog.TunnelConfig{}, fmt.Errorf("unknown performance profile %q (use auto, eco, turbo, or hyper)", profile)
 	}
 	tc.Profile = prof
+	if prof != catalog.ProfileAuto {
+		ClearLiveProfile(tc.Name)
+	}
 	if err := Save(st, &tc); err != nil {
 		return catalog.TunnelConfig{}, err
 	}
@@ -216,6 +219,7 @@ func Remove(st *catalog.Store, name string) error {
 	_ = os.Remove(EnvPath(st.Dir, name))
 	forgetTraffic(name)
 	_ = setOnBackup(name, false)
+	ClearLiveProfile(name)
 	return nil
 }
 

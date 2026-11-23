@@ -40,6 +40,7 @@ const (
 
 // Performance profile tiers supported on every tunnel.
 const (
+	ProfileAuto  = "auto"  // Adaptive: ECO when idle, auto-boosts to TURBO/HYPER under traffic load on both servers
 	ProfileEco   = "eco"   // Lowest CPU/RAM footprint · standard speed (default for existing tunnels)
 	ProfileTurbo = "turbo" // Balanced resources · high speed (auto-enables 8-stream BBR carrier on Direct core L3)
 	ProfileHyper = "hyper" // Max resources · ultra speed (16-stream BBR carrier, max pools/buffers, SO_BUSY_POLL)
@@ -51,6 +52,8 @@ func NormalizeProfile(s string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "eco", "standard", "std", "low":
 		return ProfileEco, true
+	case "auto", "adaptive", "smart", "dynamic":
+		return ProfileAuto, true
 	case "turbo", "fast", "balanced", "high":
 		return ProfileTurbo, true
 	case "hyper", "ultra", "max", "extreme":
@@ -78,6 +81,8 @@ func EffectiveProfile(tc TunnelConfig) string {
 // ProfileLabel returns the uppercase display tag for a profile.
 func ProfileLabel(profile string) string {
 	switch p, _ := NormalizeProfile(profile); p {
+	case ProfileAuto:
+		return "AUTO"
 	case ProfileTurbo:
 		return "TURBO"
 	case ProfileHyper:
@@ -85,6 +90,30 @@ func ProfileLabel(profile string) string {
 	default:
 		return "ECO"
 	}
+}
+
+// ResolvedProfile returns the concrete runtime tier (eco, turbo, or hyper)
+// for a tunnel configured with configuredProfile and live auto tier liveTier.
+func ResolvedProfile(configuredProfile, liveTier string) string {
+	p, _ := NormalizeProfile(configuredProfile)
+	if p != ProfileAuto {
+		return p
+	}
+	lt, ok := NormalizeProfile(liveTier)
+	if !ok || lt == ProfileAuto {
+		return ProfileEco
+	}
+	return lt
+}
+
+// DisplayProfile formats a tunnel's profile for CLI, Web Panel, and Bot UI.
+// When configured as AUTO, it includes the live runtime tier (e.g. "AUTO -> TURBO").
+func DisplayProfile(configuredProfile, liveTier string) string {
+	p, _ := NormalizeProfile(configuredProfile)
+	if p == ProfileAuto {
+		return "AUTO → " + ProfileLabel(ResolvedProfile(p, liveTier))
+	}
+	return ProfileLabel(p)
 }
 
 type MethodSpec struct {

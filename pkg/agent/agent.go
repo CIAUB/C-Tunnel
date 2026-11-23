@@ -46,8 +46,12 @@ type Monitor struct {
 	Switch       func(storeDir string, tc catalog.TunnelConfig, backup bool) error
 	Switched     func(tc catalog.TunnelConfig, backup bool, why string)
 	QuotaReached func(tc catalog.TunnelConfig, usedBytes, limitBytes uint64)
+	Traffic      func(name string) (rx, tx uint64)
+	ApplyProfile func(storeDir string, tc catalog.TunnelConfig, tier string) error
+	CanHyper     func() bool
 
 	state          map[string]*watch
+	autoState      map[string]*autoWatch
 	lastCheckpoint time.Time
 }
 
@@ -155,6 +159,7 @@ func (m *Monitor) Check() {
 		}
 	}
 	m.CheckQuotas()
+	m.CheckAutoProfiles()
 }
 
 // CheckQuotas checkpoints tunnel traffic periodically and automatically stops
