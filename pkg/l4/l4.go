@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"github.com/xtaci/smux"
+
+	"ctunnel/pkg/catalog"
 )
 
 // Transports lists the transport names in the order the panel offers them.
@@ -90,10 +92,63 @@ type Config struct {
 	// StrictAuth refuses legacy unsealed handshakes from the start.
 	StrictAuth bool
 	// RateMbps caps per-direction throughput on this L4 tunnel (0 = unlimited).
-	RateMbps    int
+	RateMbps int
+	// Profile selects the resource/speed tier: "eco", "turbo", or "hyper".
+	// Empty defaults to "eco" (lowest footprint, standard speed).
+	Profile     string
 	Pool, Conns int
 	Logf        func(format string, args ...any)
 }
+
+type profileSpec struct {
+	pool          int
+	maxBurst      int
+	conns         int
+	pckConns      int
+	smuxRecvBuf   int
+	smuxStreamBuf int
+	kcpWindow     int
+	kcpPCKWindow  int
+	kcpGameWindow int
+	kcpInterval   int
+	kcpGameTick   int
+	kcpSockBuf    int
+	udpQueue      int
+	wsBuf         int
+	busyPoll      bool
+}
+
+func profileTuning(profile string) profileSpec {
+	p, _ := catalog.NormalizeProfile(profile)
+	switch p {
+	case catalog.ProfileHyper:
+		return profileSpec{
+			pool: 32, maxBurst: 128, conns: 8, pckConns: 4,
+			smuxRecvBuf: 128 << 20, smuxStreamBuf: 32 << 20,
+			kcpWindow: 8192, kcpPCKWindow: 16384, kcpGameWindow: 2048,
+			kcpInterval: 5, kcpGameTick: 3, kcpSockBuf: 16 << 20,
+			udpQueue: 512, wsBuf: 128 << 10, busyPoll: true,
+		}
+	case catalog.ProfileTurbo:
+		return profileSpec{
+			pool: 16, maxBurst: 64, conns: 4, pckConns: 2,
+			smuxRecvBuf: 64 << 20, smuxStreamBuf: 16 << 20,
+			kcpWindow: 4096, kcpPCKWindow: 8192, kcpGameWindow: 1024,
+			kcpInterval: 10, kcpGameTick: 5, kcpSockBuf: 8 << 20,
+			udpQueue: 256, wsBuf: 64 << 10, busyPoll: false,
+		}
+	default: // ProfileEco
+		return profileSpec{
+			pool: 8, maxBurst: 32, conns: 2, pckConns: 1,
+			smuxRecvBuf: 16 << 20, smuxStreamBuf: 4 << 20,
+			kcpWindow: 2048, kcpPCKWindow: 4096, kcpGameWindow: 512,
+			kcpInterval: 12, kcpGameTick: 5, kcpSockBuf: 4 << 20,
+			udpQueue: 128, wsBuf: 32 << 10, busyPoll: false,
+		}
+	}
+}
+
+func (c *Config) tuning() profileSpec { return profileTuning(c.Profile) }
 
 func (c *Config) isDialer() bool {
 	if c.Direct {
@@ -118,13 +173,19 @@ func (c *Config) check() error {
 	if len(c.Token) < 16 {
 		return errors.New("token too short")
 	}
+	if p, ok := catalog.NormalizeProfile(c.Profile); ok {
+		c.Profile = p
+	} else {
+		c.Profile = catalog.ProfileEco
+	}
+	prof := c.tuning()
 	if c.Pool <= 0 {
-		c.Pool = 16
+		c.Pool = prof.pool
 	}
 	if c.Conns <= 0 {
-		c.Conns = 4
+		c.Conns = prof.conns
 		if c.Transport == "pck" || c.Transport == "udpmux" {
-			c.Conns = 2
+			c.Conns = prof.pckConns
 		}
 	}
 	if c.Logf == nil {

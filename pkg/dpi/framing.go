@@ -29,13 +29,14 @@ const (
 	ProfileGameUDP    Profile = "game-udp"     // Ultra-low-overhead 4B gaming UDP header (DSCP EF, zero-batch)
 	ProfileGameFEC    Profile = "game-fec"     // Gaming UDP with 2+1 XOR-FEC parity (0-RTT packet-loss recovery)
 	ProfileGameDUP    Profile = "game-dup"     // Gaming redundant dual-send UDP with 32-bit dedup sequence
+	ProfileGameDTLS   Profile = "game-dtls"    // Gaming DTLS 1.3 (wire-compatible with legacy dtls-1.3)
 )
 
 var AllProfiles = []Profile{
 	ProfileDTLS13, ProfileQUICv1, ProfileSRTPDirect, ProfileWGStealth,
 	ProfileRUDPFEC, ProfileDNSCrypt, ProfileNTPDirect, ProfileOpenVPNDCO,
 	ProfileSTUNTURN, ProfileGTPU, ProfileESPUDP,
-	ProfileGameUDP, ProfileGameFEC, ProfileGameDUP,
+	ProfileGameUDP, ProfileGameFEC, ProfileGameDUP, ProfileGameDTLS,
 }
 
 var ErrInvalidFrame = errors.New("ctunnel/dpi: invalid or unrecognized protocol frame")
@@ -73,8 +74,14 @@ func NewFramer(profile Profile, secretHex string) (*Framer, error) {
 	if !IsProfile(string(profile)) {
 		return nil, errors.New("ctunnel/dpi: unknown profile " + string(profile))
 	}
-	sub := crypto.DeriveSubkey(secretHex, "udp-crypt-framer|"+string(profile))
-	f := &Framer{profile: profile, ssrc: binary.BigEndian.Uint32(sub[8:12])}
+	// game-dtls is wire-identical to legacy dtls-1.3 so upgraded peers keep
+	// talking seamlessly with existing dtls-1.3 endpoints.
+	wireProfile := profile
+	if wireProfile == ProfileGameDTLS {
+		wireProfile = ProfileDTLS13
+	}
+	sub := crypto.DeriveSubkey(secretHex, "udp-crypt-framer|"+string(wireProfile))
+	f := &Framer{profile: wireProfile, ssrc: binary.BigEndian.Uint32(sub[8:12])}
 	copy(f.dcid[:], sub[:8])
 	copy(f.magic[:], sub[12:16])
 	f.ts.Store(binary.BigEndian.Uint32(sub[16:20]))

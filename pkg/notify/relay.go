@@ -89,6 +89,12 @@ func SendTest(ctx context.Context, storeDir string) error {
 		lang = "fa"
 	}
 	text := tr(lang, "test", esc(host)) + "\n/start"
+	n := New(storeDir, nil, nil)
+	n.reload()
+	if n.premiumEmojiEligible(bot) {
+		n.ensureEmojiPack(ctx, bot)
+		text = n.upgradeHTML(text)
+	}
 	_, err = bot.Send(ctx, c.ChatID, text, nil)
 	return err
 }

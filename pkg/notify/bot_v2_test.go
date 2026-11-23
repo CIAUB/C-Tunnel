@@ -420,3 +420,189 @@ func TestBotNativeTablesStylesManageReportAndPremiumEmoji(t *testing.T) {
 		t.Fatal("expected bot.CustomEmojiBlocked() == true after 400 rejection")
 	}
 }
+
+func TestPremiumEmojiFullCoverageMessagesAndButtons(t *testing.T) {
+	root := t.TempDir()
+	storeDir := filepath.Join(root, "store")
+	origCfg, origState, origStatus, origBase := ConfigPath, StatePath, StatusPath, APIBase
+	origTraffic, origLock, origRun := tunnel.TrafficDir, tunnel.LockDir, tunnel.Run
+	t.Cleanup(func() {
+		ConfigPath, StatePath, StatusPath, APIBase = origCfg, origState, origStatus, origBase
+		tunnel.TrafficDir, tunnel.LockDir, tunnel.Run = origTraffic, origLock, origRun
+	})
+	ConfigPath = filepath.Join(root, "telegram.json")
+	StatePath = filepath.Join(root, "telegram-state.json")
+	StatusPath = filepath.Join(root, "telegram-status.json")
+	tunnel.TrafficDir = filepath.Join(root, "traffic")
+	tunnel.LockDir = root
+	tunnel.Run = func(name string, args ...string) (string, error) { return "", nil }
+
+	st, err := catalog.LoadStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1 := catalog.TunnelConfig{Name: "ir-game", Role: "kharej", Method: "game-udp", BackupMethod: "game-dtls", LocalIP: "203.0.113.1", RemoteIP: "198.51.100.1", Port: 24001, QuotaGB: 100}
+	if err := tunnel.Save(st, &t1); err != nil {
+		t.Fatal(err)
+	}
+	_ = tunnel.SeedTraffic("ir-game", 4<<30, 2<<30)
+
+	// Simulate multi-pack resolution: pack 1 has 12 stickers (would previously
+	// trigger the old len(resolved)>=12 early break), pack 2 has additional
+	// glyphs, and remaining keys must resolve via iconAliases / universal fallback.
+	var packsFetched []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/getStickerSet") {
+			var req struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(raw, &req)
+			mu.Lock()
+			packsFetched = append(packsFetched, req.Name)
+			mu.Unlock()
+			switch req.Name {
+			case "RestrictedEmoji":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"result": map[string]any{
+						"name":         "RestrictedEmoji",
+						"sticker_type": "custom_emoji",
+						"stickers": []map[string]any{
+							{"file_id": "1", "emoji": "🛡", "custom_emoji_id": "100001", "is_animated": true},
+							{"file_id": "2", "emoji": "🌐", "custom_emoji_id": "100002", "is_animated": true},
+							{"file_id": "3", "emoji": "📡", "custom_emoji_id": "100003", "is_animated": true},
+							{"file_id": "4", "emoji": "📊", "custom_emoji_id": "100004", "is_animated": true},
+							{"file_id": "5", "emoji": "⚙️", "custom_emoji_id": "100005", "is_animated": true},
+							{"file_id": "6", "emoji": "🔄", "custom_emoji_id": "100006", "is_animated": true},
+							{"file_id": "7", "emoji": "📦", "custom_emoji_id": "100007", "is_animated": true},
+							{"file_id": "8", "emoji": "👥", "custom_emoji_id": "100008", "is_animated": true},
+							{"file_id": "9", "emoji": "🔔", "custom_emoji_id": "100009", "is_animated": true},
+							{"file_id": "10", "emoji": "🖥", "custom_emoji_id": "100010", "is_animated": true},
+							{"file_id": "11", "emoji": "✨", "custom_emoji_id": "100011", "is_animated": true},
+							{"file_id": "12", "emoji": "✅", "custom_emoji_id": "100012", "is_animated": true},
+							{"file_id": "13", "emoji": "❌", "custom_emoji_id": "100013", "is_animated": true},
+						},
+					},
+				})
+				return
+			case "AnimatedEmojies":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"result": map[string]any{
+						"name":         "AnimatedEmojies",
+						"sticker_type": "custom_emoji",
+						"stickers": []map[string]any{
+							{"file_id": "20", "emoji": "🟢", "custom_emoji_id": "200001", "is_animated": true},
+							{"file_id": "21", "emoji": "🔴", "custom_emoji_id": "200002", "is_animated": true},
+							{"file_id": "22", "emoji": "⚡", "custom_emoji_id": "200003", "is_animated": true},
+							{"file_id": "23", "emoji": "⏰", "custom_emoji_id": "200004", "is_animated": true},
+							{"file_id": "24", "emoji": "🏠", "custom_emoji_id": "200005", "is_animated": true},
+							{"file_id": "25", "emoji": "🔥", "custom_emoji_id": "200006", "is_animated": true},
+						},
+					},
+				})
+				return
+			default:
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 400, "description": "STICKERSET_INVALID"})
+				return
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 1}})
+	}))
+	defer srv.Close()
+	APIBase = srv.URL
+
+	cfg := DefaultConfig()
+	cfg.Token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	cfg.ChatID = "1001"
+	cfg.Admins = []int64{1001, 2002}
+	cfg.PremiumEmoji = "on"
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	n := New(storeDir, func(catalog.TunnelConfig) bool { return true }, func(catalog.TunnelConfig) bool { return true })
+	n.reload()
+	bot := NewBot(cfg.Token)
+	n.ensureEmojiPack(context.Background(), bot)
+
+	// 1. Must scan past pack 1 (>12 matches) into pack 2 and resolve 100% of iconFallbacks.
+	mu.Lock()
+	fetched := append([]string(nil), packsFetched...)
+	mu.Unlock()
+	if len(fetched) < 2 {
+		t.Fatalf("expected ensureEmojiPack to scan past first pack when keys remain, fetched=%v", fetched)
+	}
+	if len(n.emoji.keyToID) != len(iconFallbacks) {
+		t.Fatalf("resolved %d/%d icon keys", len(n.emoji.keyToID), len(iconFallbacks))
+	}
+	// Exact pack-2 match must be picked rather than falling back early.
+	if got := n.emoji.keyToID["up"]; got != "200001" {
+		t.Fatalf("expected exact pack-2 match for up=200001, got %q", got)
+	}
+
+	// Collect all known Unicode emojis for bare-emoji leakage check.
+	allEmojis := map[string]bool{}
+	for _, fb := range iconFallbacks {
+		allEmojis[normalizeEmoji(fb)] = true
+	}
+	assertNoBareEmoji := func(label, htmlText string) {
+		t.Helper()
+		stripped := tgEmojiTagRE.ReplaceAllString(htmlText, "")
+		for _, r := range stripped {
+			if allEmojis[string(r)] {
+				t.Fatalf("%s contains bare non-premium emoji %q outside <tg-emoji>: %s", label, string(r), htmlText)
+			}
+		}
+	}
+
+	// 2. Every view in both fa & en must have ZERO bare emojis AND 100% Premium buttons!
+	for _, lang := range []string{"fa", "en"} {
+		n.mu.Lock()
+		n.cfg.Lang = lang
+		n.mu.Unlock()
+
+		views := map[string]View{
+			"main":        n.mainView(1001),
+			"status":      n.statusView(),
+			"tunnel":      n.tunnelView("ir-game"),
+			"report":      n.reportView(),
+			"manage":      n.manageView(),
+			"backup":      n.backupView(),
+			"admins":      n.adminsView(),
+			"alerts":      n.alertsView(),
+			"time":        n.timeView(),
+			"server":      n.serverView(),
+			"emoji":       n.emojiView(),
+			"logs":        n.logsView("ir-game"),
+			"panelDirect": n.panelDirectView(1001),
+			"askRestart":  plainView(tr(lang, "ask.restart", "ir-game")+tr(lang, "ask.iran"), [][]Button{{n.btn("ok", tr(lang, "l.yes"), "success", "ok-rs:ir-game")}}),
+			"doneAll":     plainView(tr(lang, "done.all", 2, 1), nil),
+			"quotaHit":    plainView(tr(lang, "quota.hit", "ir-game", "kh-1", "10G", "10G"), nil),
+			"downAlert":   plainView(tr(lang, "down", "ir-game", "1m", "game-udp", "kh-1"), nil),
+			"backAlert":   plainView(tr(lang, "back", "ir-game", "1m", "game-udp"), nil),
+			"upAlert":     plainView(tr(lang, "up", "kh-1", tr(lang, "why.boot"), "2.0.1"), nil),
+			"switchAlert": plainView(tr(lang, "switched", "🔀", "ir-game", "game-dtls", "timeout"), nil),
+			"backupCap":   plainView(formatBackupCaption(lang, "kh-1", 1, 1024, 2048, true), nil),
+		}
+		for name, rawView := range views {
+			v := n.upgradeView(rawView)
+			assertNoBareEmoji(lang+"/"+name+"/RichHTML", v.RichHTML)
+			assertNoBareEmoji(lang+"/"+name+"/Text", v.Text)
+			for rIdx, row := range v.Rows {
+				for cIdx, btn := range row {
+					if btn.IconCustomEmojiID == "" {
+						t.Fatalf("%s/%s button[%d][%d] %q missing IconCustomEmojiID", lang, name, rIdx, cIdx, btn.Text)
+					}
+					for _, r := range btn.Text {
+						if allEmojis[string(r)] {
+							t.Fatalf("%s/%s button[%d][%d] %q still has plain emoji in Text", lang, name, rIdx, cIdx, btn.Text)
+						}
+					}
+				}
+			}
+		}
+	}
+}

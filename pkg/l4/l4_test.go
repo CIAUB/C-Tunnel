@@ -284,3 +284,44 @@ func TestAdmissionCounts(t *testing.T) {
 		t.Fatalf("leak: total %d, sources %d", a.total, len(a.perIP))
 	}
 }
+
+func TestProfileTuningScalingAndCrossTierInterop(t *testing.T) {
+	eco := profileTuning("eco")
+	turbo := profileTuning("turbo")
+	hyper := profileTuning("hyper")
+	if !(eco.pool < turbo.pool && turbo.pool < hyper.pool) {
+		t.Fatalf("pool must scale eco < turbo < hyper: %d / %d / %d", eco.pool, turbo.pool, hyper.pool)
+	}
+	if !(eco.conns < turbo.conns && turbo.conns < hyper.conns) {
+		t.Fatalf("conns must scale eco < turbo < hyper: %d / %d / %d", eco.conns, turbo.conns, hyper.conns)
+	}
+	if !(eco.smuxRecvBuf < turbo.smuxRecvBuf && turbo.smuxRecvBuf < hyper.smuxRecvBuf) {
+		t.Fatalf("smux buffers must scale eco < turbo < hyper")
+	}
+	if !(eco.kcpWindow < turbo.kcpWindow && turbo.kcpWindow < hyper.kcpWindow) {
+		t.Fatalf("KCP window must scale eco < turbo < hyper")
+	}
+	if eco.busyPoll || turbo.busyPoll || !hyper.busyPoll {
+		t.Fatalf("busyPoll must only be enabled on hyper")
+	}
+
+	// Cross-tier interop: Iran on ECO talking to Kharej on HYPER must pass traffic cleanly.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	target := services(t)
+	tunPort, fwd := freePort(t), freePort(t)
+	st := &Stats{}
+	iran := Config{
+		Role: "iran", Transport: "tcpmux", Port: tunPort, Token: testToken, Profile: "eco",
+		Forwards: []Forward{{Listen: fwd, Target: target}}, Logf: t.Logf,
+	}
+	kharej := Config{
+		Role: "kharej", Transport: "tcpmux", Port: tunPort, RemoteIP: "127.0.0.1", Token: testToken, Profile: "hyper",
+		Logf: t.Logf,
+	}
+	go func() { _ = Run(ctx, iran, st) }()
+	time.Sleep(150 * time.Millisecond)
+	go func() { _ = Run(ctx, kharej, nil) }()
+	time.Sleep(250 * time.Millisecond)
+	roundTrip(t, fwd, 256<<10, false)
+}

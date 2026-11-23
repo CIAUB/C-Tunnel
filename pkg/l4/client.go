@@ -67,7 +67,8 @@ func (c *client) run(ctx context.Context) error {
 // maxInFlightDials only when active traffic drains the idle pool.
 func (c *client) runPool(ctx context.Context) error {
 	base := c.cfg.Pool
-	c.cfg.Logf("%s to %s:%d, %d connection(s)", c.cfg.Transport, c.cfg.RemoteIP, c.cfg.Port, base)
+	maxBurst := max(c.cfg.tuning().maxBurst, base)
+	c.cfg.Logf("%s [%s] to %s:%d, %d connection(s)", c.cfg.Transport, c.cfg.Profile, c.cfg.RemoteIP, c.cfg.Port, base)
 	var wg sync.WaitGroup
 	spawn := func(n int, burst bool) {
 		for i := 0; i < n; i++ {
@@ -92,8 +93,8 @@ func (c *client) runPool(ctx context.Context) error {
 			return nil
 		case <-tk.C:
 			cur := int(c.workers.Load())
-			if c.busy.Load() > 0 && c.idle.Load() < lowWater && cur < maxInFlightDials {
-				add := min(max(4, base/2), maxInFlightDials-cur)
+			if c.busy.Load() > 0 && c.idle.Load() < lowWater && cur < maxBurst {
+				add := min(max(4, base/2), maxBurst-cur)
 				spawn(add, true)
 			}
 		}
@@ -133,12 +134,16 @@ func (c *client) listenDirect(ctx context.Context) error {
 }
 
 func dialAndHandshake(ctx context.Context, cfg *Config, guard *PeerGuard, runID [runIDLen]byte) (net.Conn, *sessionAuth, error) {
+	prof := cfg.tuning()
 	open := func() (net.Conn, error) {
 		conn, err := dial(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 		tuneCarrierTCP(conn)
+		if prof.busyPoll {
+			applyBusyPoll(conn)
+		}
 		return conn, nil
 	}
 
@@ -219,6 +224,9 @@ func dialAndHandshake(ctx context.Context, cfg *Config, guard *PeerGuard, runID 
 
 func (c *client) admitDirect(ctx context.Context, conn net.Conn, ip string) {
 	tuneCarrierTCP(conn)
+	if c.cfg.tuning().busyPoll {
+		applyBusyPoll(conn)
+	}
 	_, auth, err := serverHandshakeAuth(conn, c.cfg.Token, c.cfg.Transport, c.guard)
 	if err != nil {
 		if !isExpectedPeerClose(err) && ctx.Err() == nil {
@@ -254,7 +262,7 @@ func (c *client) admitDirect(ctx context.Context, conn net.Conn, ip string) {
 		c.st.Links.Add(-1)
 		return
 	}
-	sess, err := smux.Server(conn, smuxConfig())
+	sess, err := smux.Server(conn, smuxConfigFor(c.cfg.Profile))
 	if err != nil {
 		conn.Close()
 		return
@@ -371,7 +379,7 @@ func (c *client) muxWorker(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		sess, err := smux.Client(conn, smuxConfig())
+		sess, err := smux.Client(conn, smuxConfigFor(c.cfg.Profile))
 		if err != nil {
 			conn.Close()
 			c.fail(ctx, "session", err)
@@ -487,7 +495,7 @@ func (c *client) serve(st net.Conn, kind byte, port int) {
 			st.Close()
 			return
 		}
-		q := newDatagramBatch(udpQueueCap)
+		q := newDatagramBatch(c.cfg.tuning().udpQueue)
 		go func() {
 			var out []byte
 			for {

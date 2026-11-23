@@ -44,7 +44,7 @@ func TestBackupConfigUsesTheBackupMethodDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Method != "dtls-1.3" || b.Port == 0 || b.MTU == 1476 || b.BackupMethod != "" {
+	if b.Method != "game-dtls" || b.Port == 0 || b.MTU == 1476 || b.BackupMethod != "" {
 		t.Fatalf("backup config: %+v", b)
 	}
 	if peer.Port != b.Port || peer.MTU != b.MTU {
@@ -78,13 +78,13 @@ func TestSwitchMethodRunsTheBackupAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	env, _ := ParseEnv(EnvPath(dir, "t1"))
-	if !OnBackup("t1") || env["KIND"] != "dtls-1.3" || Unit(tc) != "ctunnel-engine@t1.service" {
+	if !OnBackup("t1") || env["KIND"] != "game-dtls" || Unit(tc) != "ctunnel-engine@t1.service" {
 		t.Fatalf("on backup: state=%v env=%v unit=%s", OnBackup("t1"), env["KIND"], Unit(tc))
 	}
 	if !contains(calls, "systemctl disable --now ctunnel@t1.service") || !contains(calls, "systemctl restart ctunnel-engine@t1.service") {
 		t.Fatalf("switch to backup: %v", calls)
 	}
-	if s := statusFor(tc, "active"); s.Method != "dtls-1.3" || !s.OnBackup {
+	if s := statusFor(tc, "active"); s.Method != "game-dtls" || !s.OnBackup {
 		t.Fatalf("status on backup: %+v", s)
 	}
 	calls = nil

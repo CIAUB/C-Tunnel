@@ -25,7 +25,15 @@ load_env() {
     source "${f}"
     : "${NAME:?}" "${DEV:?}" "${KIND:?}" "${ROLE:?}" "${LOCAL_IP:?}" "${REMOTE_IP:?}" "${MTU:?}"
     INDEX="${INDEX:-1}" PORT="${PORT:-0}" LANES="${LANES:-1}" GRE_KEY="${GRE_KEY:-0}" RATE_MBIT="${RATE_MBIT:-0}"
-    REVERSE="${REVERSE:-0}" CARRIER="${CARRIER:-0}" FORWARDS="${FORWARDS:-}"
+    REVERSE="${REVERSE:-0}" CARRIER="${CARRIER:-0}" PROFILE="${PROFILE:-eco}" FORWARDS="${FORWARDS:-}"
+}
+
+profile_txq() {
+    case "${PROFILE:-eco}" in
+        eco)   echo 4000 ;;
+        hyper) echo 20000 ;;
+        *)     echo 10000 ;;
+    esac
 }
 
 # Wait for the xtables lock rather than losing rules during concurrent updates.
@@ -132,8 +140,9 @@ fw_apply() {
 }
 
 tune_dev() {
-    local d="$1" cpus mask q
-    ip link set dev "${d}" mtu "${MTU}" txqueuelen 10000 up
+    local d="$1" cpus mask q txq
+    txq="$(profile_txq)"
+    ip link set dev "${d}" mtu "${MTU}" txqueuelen "${txq}" up
     sysctl -qw "net.ipv4.conf.${d//./\/}.rp_filter=2" 2>/dev/null || true
     if [[ "${RATE_MBIT}" -gt 0 ]]; then
         local rate="${RATE_MBIT}" burst
@@ -247,7 +256,7 @@ xgre_ip_up() {
         # shellcheck disable=SC2046,SC2086
         ip link add name "${xd}" type gre local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 ignore-df nopmtudisc $(key_args "${i}") ${fou} ||
             ip link add name "${xd}" type gre local "${LOCAL_IP}" remote "${REMOTE_IP}" ttl 255 $(key_args "${i}") ${fou}
-        ip link set dev "${xd}" mtu $(( MTU + 20 )) txqueuelen 10000 up
+        ip link set dev "${xd}" mtu $(( MTU + 20 )) txqueuelen "$(profile_txq)" up
         if [[ "${LANES}" -gt 1 ]]; then
             ip addr add "${x_local}/32" dev "${xd}"
             nexthops+=(nexthop dev "${xd}" weight 1)
@@ -285,7 +294,7 @@ cmd_up() {
                 local rev_local="172.31.${INDEX}.1" rev_remote="172.31.${INDEX}.2"
                 [[ "${ROLE}" == "kharej" ]] && { rev_local="172.31.${INDEX}.2"; rev_remote="172.31.${INDEX}.1"; }
                 ip tuntap add dev "${DEV}-r" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}-r" mode tun
-                ip link set dev "${DEV}-r" mtu 9000 txqueuelen 10000 up
+                ip link set dev "${DEV}-r" mtu 9000 txqueuelen "$(profile_txq)" up
                 ip addr add "${rev_local}" peer "${rev_remote}/32" dev "${DEV}-r"
                 LOCAL_IP="${rev_local}"
                 REMOTE_IP="${rev_remote}"
@@ -404,7 +413,7 @@ cmd_up() {
             ip tuntap add dev "${DEV}" mode tap multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tap
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;
-        dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco|stun-turn|gtp-u|esp-udp|faketcp|icmp|game-udp|game-fec|game-dup)
+        game-dtls|dtls-1.3|quic-v1|srtp-direct|wg-stealth|rudp-fec|dnscrypt-udp|ntp-direct|openvpn-dco|stun-turn|gtp-u|esp-udp|faketcp|icmp|stealth-tcp|stealth-ws|game-udp|game-fec|game-dup)
             ip tuntap add dev "${DEV}" mode tun multi_queue 2>/dev/null || ip tuntap add dev "${DEV}" mode tun
             tune_dev "${DEV}"; addr4 "${DEV}"
             ;;

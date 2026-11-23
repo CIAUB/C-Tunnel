@@ -47,6 +47,9 @@ func main() {
 	case "set-peer":
 		setPeerCommand(args)
 
+	case "set-profile":
+		setProfileCommand(args)
+
 	case "apply-link":
 		if len(args) != 1 {
 			log.Fatal("usage: ctunnel apply-link 'ctunnel://...'")
@@ -100,8 +103,16 @@ func main() {
 		select {}
 
 	case "catalog", "methods":
+		showAll := len(args) > 0 && (args[0] == "-all" || args[0] == "--all")
 		for _, m := range catalog.Methods {
-			fmt.Printf("%2d  %-13s %-10s %s\n", m.ID, m.Name, m.Family, m.Title)
+			if m.Legacy && !showAll {
+				continue
+			}
+			tag := ""
+			if m.Legacy {
+				tag = " [legacy]"
+			}
+			fmt.Printf("%2d  %-13s %-10s %s%s\n", m.ID, m.Name, m.Family, m.Title, tag)
 		}
 
 	case "panel":
@@ -156,6 +167,7 @@ func main() {
   up|restart|down <name>       start, restart or stop a tunnel
   set-peer <name> <ip>         change peer IP (Iran IP on Kharej / Kharej IP on Iran) and restart
   set-peer -all <old> <new>    replace peer IP on every tunnel matching <old> and restart
+  set-profile <name> <gear>    switch performance profile (eco | turbo | hyper) and restart
   link <name>                  print the setup link for the other server
   apply-link 'ctunnel://...'   create and start the tunnel from a link
   conntest-server [ip]         iran side of the connection test: prints a link
@@ -190,9 +202,14 @@ func tunnelCommand(cmd, name string) {
 	case "link":
 		var link string
 		link, err = catalog.EncodeSetupLink(tc)
-		fmt.Println(link)
-		if mk := tunnel.MikroTik(tc); mk != "" {
-			fmt.Println("\n# MikroTik peer (RouterOS 7):\n" + mk)
+		if err == nil {
+			fmt.Println(link)
+			if cmdLine := catalog.OneLineInstallCommand(link); cmdLine != "" {
+				fmt.Println("\n# One-line install & connect on the other server:\n" + cmdLine)
+			}
+			if mk := tunnel.MikroTik(tc); mk != "" {
+				fmt.Println("\n# MikroTik peer (RouterOS 7):\n" + mk)
+			}
 		}
 	}
 	if err != nil {
@@ -242,6 +259,24 @@ func setPeerCommand(args []string) {
 	fmt.Printf("%s (%s): %s %s -> %s (restarted)\n", tc.Name, tc.Role, tunnel.PeerRoleLabel(tc.Role), oldIP, tc.RemoteIP)
 }
 
+func setProfileCommand(args []string) {
+	if len(args) != 2 {
+		log.Fatal("usage: ctunnel set-profile <name> <eco|turbo|hyper>")
+	}
+	st, err := catalog.LoadStore(cli.StoreDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	tc, err := tunnel.UpdateProfile(st, args[0], args[1])
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := tunnel.Apply(tc); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%s (%s): performance profile -> %s (restarted)\n", tc.Name, tc.Method, catalog.ProfileLabel(tc.Profile))
+}
+
 func applyLink(link string) {
 	tc, err := catalog.DecodeSetupLink(link)
 	if err != nil {
@@ -257,5 +292,10 @@ func applyLink(link string) {
 	if err := tunnel.Apply(tc); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("tunnel %s (%s) up: %s -> %s\n", tc.Name, tc.Method, tc.TunLocal4, tc.TunRemote4)
+	prof := catalog.ProfileLabel(catalog.EffectiveProfile(tc))
+	if catalog.IsL4(tc.Method) {
+		fmt.Printf("tunnel %s (%s, %s) up: port %d -> %s\n", tc.Name, tc.Method, prof, tc.Port, tc.RemoteIP)
+		return
+	}
+	fmt.Printf("tunnel %s (%s, %s) up: %s -> %s\n", tc.Name, tc.Method, prof, tc.TunLocal4, tc.TunRemote4)
 }

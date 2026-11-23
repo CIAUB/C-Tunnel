@@ -302,11 +302,13 @@ func manageTunnels() {
 				for _, e := range g.Items {
 					flat = append(flat, e.Tunnel)
 					idx := len(flat)
-					fmt.Printf("  %s%2d)%s %s%-14s%s  %s%-6s%s  %-13s  %s  %s%s%s\n",
+					gear := catalog.ProfileLabel(catalog.EffectiveProfile(e.Tunnel))
+					fmt.Printf("  %s%2d)%s %s%-14s%s  %s%-6s%s  %-15s %-6s %s  %s%s%s\n",
 						Red, idx, Reset,
 						Bold+White, e.Tunnel.Name, Reset,
 						Gray, strings.ToUpper(e.Tunnel.Role), Reset,
 						e.Method,
+						gear,
 						statusBadge(e.Status),
 						Gray, tunnelEndpointHint(e.Tunnel), Reset)
 				}
@@ -348,7 +350,12 @@ func manageOne(name string) {
 		}
 		Header()
 		Title("Tunnel: " + t.Name)
-		fmt.Printf("  %s%s %s%s  %s\n", Gray, t.Role, methodLabel(t), Reset, stateWord(t))
+		gear := catalog.ProfileLabel(catalog.EffectiveProfile(t))
+		legacyTag := ""
+		if m, ok := catalog.LookupMethod(t.Method); ok && m.Legacy {
+			legacyTag = "  " + Yellow + "[LEGACY]" + Reset
+		}
+		fmt.Printf("  %s%s %s [%s]%s%s  %s\n", Gray, t.Role, methodLabel(t), gear, Reset, legacyTag, stateWord(t))
 		q := tunnel.QuotaStatus(t)
 		if q.Active || t.RateMbps > 0 {
 			var parts []string
@@ -379,7 +386,7 @@ func manageOne(name string) {
 		}
 		idx := ChooseOpt("Action", []MenuOpt{
 			{peerTitle, peerHint + " — switch without recreating tunnel"},
-			{"Edit", "peer, ports, MTU, quota, bandwidth, secret"},
+			{"Edit", "profile (ECO/TURBO/HYPER), peer, ports, MTU, quota, bandwidth, secret"},
 			{"Quota & Limits", "reset usage, add extra GB, or change caps"},
 			{"Start", startDesc},
 			{"Stop", ""},
@@ -597,6 +604,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		}
 		opts := []MenuOpt{
 			{peerLabel, peerVal},
+			{"Performance Profile", catalog.ProfileLabel(catalog.EffectiveProfile(t)) + " (ECO / TURBO / HYPER)"},
 			{"Tunnel Port", portText(t.Port)},
 			{"MTU", strconv.Itoa(t.MTU)},
 			{"Bandwidth Limit", rateText(t.RateMbps)},
@@ -606,6 +614,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		}
 		idx := ChooseOpt("Setting", opts)
 		changed := true
+		prevCarrier := t.Carrier
 		switch idx {
 		case 1:
 			prompt := "New " + peerLabel
@@ -623,17 +632,22 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			applyAndReport(t)
 			continue
 		case 2:
-			t.Port = askInt("Tunnel port (0 = none)", t.Port)
+			m, _ := catalog.LookupMethod(t.Method)
+			if !askPerformanceProfile(&t, m) {
+				changed = false
+			}
 		case 3:
-			t.MTU = askInt("MTU", t.MTU)
+			t.Port = askInt("Tunnel port (0 = none)", t.Port)
 		case 4:
-			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = none)", t.RateMbps)
+			t.MTU = askInt("MTU", t.MTU)
 		case 5:
+			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = none)", t.RateMbps)
+		case 6:
 			t.QuotaGB = askFloat("Traffic quota GB (0 = unlimited)", t.QuotaGB)
 			if t.QuotaGB == 0 {
 				t.QuotaStopped, t.QuotaOverride = false, false
 			}
-		case 6:
+		case 7:
 			if t.Role != "iran" {
 				Warn("Forwarded Ports Live On The Iran Server.")
 				changed = false
@@ -641,7 +655,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			} else {
 				t.Ports = tunnel.ParsePorts(Ask("Forward ports (e.g. 443, 2053=8443)", strings.Join(t.Ports, ", ")))
 			}
-		case 7:
+		case 8:
 			if !Confirm("Make A New Secret Token", false) {
 				changed = false
 				break
@@ -662,7 +676,7 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 			continue
 		}
 		applyAndReport(t)
-		if idx == 2 || idx == 3 || idx == 7 {
+		if idx == 3 || idx == 4 || idx == 8 || (idx == 2 && t.Carrier != prevCarrier) {
 			Warn("Apply The Same Change On The Other Server (Setup Link Below).")
 			showLink(t)
 		}

@@ -2,8 +2,10 @@ package notify
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultEmojiPack is Telegram's official animated custom emoji pack short name.
@@ -14,48 +16,135 @@ var fallbackEmojiPacks = []string{
 	"AnimatedEmojies",
 	"EmojiIcons",
 	"TelegramEmoji",
+	"IconsEmoji",
 }
 
 // iconFallbacks maps each semantic UI icon key to its standard Unicode fallback.
+// Every Unicode emoji used across pkg/notify must have an entry here so
+// upgradeHTML/upgradeButtons can convert 100% of messages and buttons to
+// Telegram Premium animated custom emojis when active.
 var iconFallbacks = map[string]string{
-	"shield":    "🛡",
-	"panel":     "🌐",
-	"tunnels":   "📡",
-	"report":    "📊",
-	"manage":    "⚙️",
-	"refresh":   "🔄",
-	"backup":    "📦",
-	"backupNow": "📤",
-	"restore":   "📥",
-	"overwrite": "♻️",
-	"admins":    "👥",
-	"alerts":    "🔔",
-	"server":    "🖥",
-	"restart":   "🔁",
-	"lang":      "🌐",
-	"emoji":     "✨",
-	"start":     "▶️",
-	"stop":      "⏹",
-	"override":  "⚡",
-	"quota":     "➕",
-	"reset":     "🧹",
-	"logs":      "📜",
-	"up":        "🟢",
-	"down":      "🔴",
-	"paused":    "⏸",
-	"exhausted": "⛔",
-	"ok":        "✅",
-	"off":       "⬜",
-	"cancel":    "❌",
-	"home":      "🏠",
-	"back":      "🔙",
-	"delete":    "🗑",
-	"add":       "➕",
-	"clock":     "⏰",
-	"health":    "💓",
-	"warn":      "⚠️",
-	"search":    "🔎",
+	"shield":       "🛡",
+	"panel":        "🌐",
+	"tunnels":      "📡",
+	"report":       "📊",
+	"manage":       "⚙️",
+	"refresh":      "🔄",
+	"backup":       "📦",
+	"backupNow":    "📤",
+	"restore":      "📥",
+	"overwrite":    "♻️",
+	"admins":       "👥",
+	"alerts":       "🔔",
+	"server":       "🖥",
+	"restart":      "🔁",
+	"lang":         "🌐",
+	"emoji":        "✨",
+	"start":        "▶️",
+	"stop":         "⏹",
+	"override":     "⚡",
+	"quota":        "➕",
+	"reset":        "🧹",
+	"logs":         "📜",
+	"up":           "🟢",
+	"down":         "🔴",
+	"paused":       "⏸",
+	"exhausted":    "⛔",
+	"ok":           "✅",
+	"off":          "⬜",
+	"cancel":       "❌",
+	"home":         "🏠",
+	"back":         "🔙",
+	"delete":       "🗑",
+	"add":          "➕",
+	"clock":        "⏰",
+	"health":       "💓",
+	"warn":         "⚠️",
+	"search":       "🔎",
+	"timer":        "⏱",
+	"upArrow":      "⬆️",
+	"downArrow":    "⬇️",
+	"route":        "📨",
+	"switch":       "🔀",
+	"return":       "↩️",
+	"link":         "🔗",
+	"time":         "🕒",
+	"calendar":     "🗓",
+	"port":         "🚪",
+	"backupMethod": "🛟",
+	"method":       "🧬",
+	"role":         "🧭",
 }
+
+// iconAliases maps each semantic icon key to ordered synonym emojis commonly
+// available in Telegram's official animated custom emoji packs, so keys whose
+// exact Unicode glyph is absent from a pack still resolve to a closely matching
+// Premium animated custom emoji instead of falling back to plain Unicode.
+var iconAliases = map[string][]string{
+	"shield":       {"🔒", "🔐", "⚡", "✨", "⭐"},
+	"panel":        {"🌍", "🌎", "🌏", "💻", "🔗", "⚡"},
+	"tunnels":      {"📶", "🛰", "⚡", "🌐", "🔗", "🚀"},
+	"report":       {"📈", "📉", "📋", "📝", "⚡"},
+	"manage":       {"🔧", "🛠", "🔩", "⚡"},
+	"refresh":      {"🔁", "♻️", "⚡", "✨"},
+	"backup":       {"💾", "📁", "🗂", "📤", "📥"},
+	"backupNow":    {"⬆️", "🚀", "💾", "📦", "⚡"},
+	"restore":      {"⬇️", "♻️", "💾", "📦", "🔄"},
+	"overwrite":    {"🔄", "🔁", "⚠️", "⚡"},
+	"admins":       {"👤", "👑", "🛡", "⭐"},
+	"alerts":       {"📣", "📢", "⚡", "✨"},
+	"server":       {"💻", "🗄", "⚙️", "⚡"},
+	"restart":      {"🔄", "♻️", "⚡", "✨"},
+	"lang":         {"🌍", "🌎", "🌏", "💬", "🌐"},
+	"emoji":        {"⭐", "🌟", "🔥", "💎", "⚡"},
+	"start":        {"⏩", "🚀", "🟢", "✅", "⚡"},
+	"stop":         {"🛑", "🔴", "⛔", "❌"},
+	"override":     {"🔥", "🚀", "✨", "⭐"},
+	"quota":        {"📈", "⬆️", "✨", "✅"},
+	"reset":        {"🗑", "🔄", "✨", "⚡"},
+	"logs":         {"📄", "📋", "📝", "📊"},
+	"up":           {"✅", "💚", "⚡", "⭐"},
+	"down":         {"❌", "💔", "🛑", "⚠️"},
+	"paused":       {"🟡", "🟠", "⏳", "⏰"},
+	"exhausted":    {"🛑", "🚫", "❌", "🔴"},
+	"ok":           {"✔", "🟢", "👍", "⭐"},
+	"off":          {"⚪", "⚫", "🔲", "⏸"},
+	"cancel":       {"🚫", "🛑", "🔴", "⛔"},
+	"home":         {"🏡", "🏢", "⭐", "🛡"},
+	"back":         {"⬅️", "↩️", "◀️", "🔄"},
+	"delete":       {"❌", "🔥", "🚫", "🛑"},
+	"add":          {"✨", "⬆️", "✅", "⭐"},
+	"clock":        {"⏱", "🕒", "⏳", "⚡"},
+	"health":       {"❤️", "💚", "💗", "⚡"},
+	"warn":         {"❗", "‼️", "🚨", "🔴"},
+	"search":       {"🔍", "👀", "📊", "✨"},
+	"timer":        {"⏰", "🕒", "⏳", "⚡"},
+	"upArrow":      {"🔼", "📤", "🚀", "⚡"},
+	"downArrow":    {"🔽", "📥", "⬇️", "⚡"},
+	"route":        {"✉️", "📩", "✈️", "📡", "🌐"},
+	"switch":       {"🔄", "🔁", "⚡", "✨"},
+	"return":       {"🔄", "🔙", "⬅️", "🔁"},
+	"link":         {"🌐", "📡", "⚡", "✨"},
+	"time":         {"⏰", "⏱", "⏳", "✨"},
+	"calendar":     {"📅", "📆", "⏰", "📊"},
+	"port":         {"🔌", "🔑", "🔗", "⚙️"},
+	"backupMethod": {"🛡", "🔄", "🔁", "⚡"},
+	"method":       {"⚙️", "⚡", "🔧", "✨"},
+	"role":         {"🌐", "📍", "🖥", "🛡"},
+}
+
+// universalEmojiHints lists clean, neutral animated emojis used as a final
+// fallback so no icon key stays plain Unicode once any animated pack loads.
+var universalEmojiHints = []string{"✨", "⭐", "⚡", "🔥", "💎", "🛡", "⚙️", "📊", "📡"}
+
+var sortedIconKeys = func() []string {
+	keys := make([]string, 0, len(iconFallbacks))
+	for k := range iconFallbacks {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}()
 
 // ParseEmojiPackName extracts the pack short name from either a full Telegram
 // share link (https://t.me/addemoji/MyPack or t.me/addstickers/MyPack) or a
@@ -89,10 +178,11 @@ func normalizeEmoji(s string) string {
 }
 
 type emojiCache struct {
-	packName  string
-	loadedAt  time.Time
-	keyToID   map[string]string
-	animatedN int
+	requestedPack string
+	packName      string
+	loadedAt      time.Time
+	keyToID       map[string]string
+	animatedN     int
 }
 
 // SetCustomEmojiMap installs an explicit key -> custom_emoji_id mapping
@@ -107,10 +197,11 @@ func (n *Notifier) SetCustomEmojiMap(packName string, ids map[string]string) {
 		}
 	}
 	n.emoji = emojiCache{
-		packName:  packName,
-		loadedAt:  n.Now(),
-		keyToID:   cp,
-		animatedN: len(cp),
+		requestedPack: packName,
+		packName:      packName,
+		loadedAt:      n.Now(),
+		keyToID:       cp,
+		animatedN:     len(cp),
 	}
 }
 
@@ -126,29 +217,28 @@ func (n *Notifier) SetOwnerPremium(premium bool) {
 // from the bot owner/admin so animated custom emojis enable automatically for
 // Telegram Premium accounts and fall back to standard Unicode emojis otherwise.
 func (n *Notifier) observeUserPremium(ctx context.Context, bot *Bot, u *User) {
-	if u == nil || u.ID <= 0 {
-		return
-	}
-	n.mu.Lock()
-	cfg := n.cfg
-	admins := cfg.AdminIDs()
-	isPrimary := len(admins) == 0 || admins[0] == u.ID
-	prev := n.ownerPremium
-	shouldUpdate := isPrimary || prev == nil
-	changed := shouldUpdate && (prev == nil || *prev != u.IsPremium)
-	if shouldUpdate {
-		v := u.IsPremium
-		n.ownerPremium = &v
-	}
-	n.mu.Unlock()
+	if u != nil && u.ID > 0 {
+		n.mu.Lock()
+		cfg := n.cfg
+		admins := cfg.AdminIDs()
+		isPrimary := len(admins) == 0 || admins[0] == u.ID
+		prev := n.ownerPremium
+		shouldUpdate := isPrimary || prev == nil
+		changed := shouldUpdate && (prev == nil || *prev != u.IsPremium)
+		if shouldUpdate {
+			v := u.IsPremium
+			n.ownerPremium = &v
+		}
+		n.mu.Unlock()
 
-	if changed {
-		v := u.IsPremium
-		n.stateMu.Lock()
-		s := n.loadState()
-		s.OwnerPremium = &v
-		n.saveState(s)
-		n.stateMu.Unlock()
+		if changed {
+			v := u.IsPremium
+			n.stateMu.Lock()
+			s := n.loadState()
+			s.OwnerPremium = &v
+			n.saveState(s)
+			n.stateMu.Unlock()
+		}
 	}
 
 	if n.premiumEmojiEligible(bot) {
@@ -188,8 +278,9 @@ func (n *Notifier) premiumEmojiEligible(bot *Bot) bool {
 }
 
 // ensureEmojiPack loads animated custom emoji IDs via Bot API getStickerSet
-// from the configured pack (or Telegram's official animated packs) and caches
-// them for 6 hours.
+// from the configured pack and Telegram's official animated packs, resolving
+// every key in iconFallbacks (exact match -> semantic alias -> universal pack
+// fallback) so zero icons fall back to plain Unicode once any pack loads.
 func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 	if bot == nil {
 		return
@@ -204,10 +295,10 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 	if target == "" {
 		target = DefaultEmojiPack
 	}
-	if len(cur.keyToID) > 0 && cur.packName == target && now.Sub(cur.loadedAt) < 6*time.Hour {
+	if len(cur.keyToID) > 0 && cur.requestedPack == target && now.Sub(cur.loadedAt) < 6*time.Hour {
 		return
 	}
-	if !cur.loadedAt.IsZero() && cur.packName == target && now.Sub(cur.loadedAt) < 10*time.Minute {
+	if !cur.loadedAt.IsZero() && cur.requestedPack == target && now.Sub(cur.loadedAt) < 10*time.Minute {
 		return
 	}
 
@@ -223,13 +314,18 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 
 	// Build reverse lookup: normalized Unicode emoji -> icon keys.
 	emojiToKeys := map[string][]string{}
-	for k, fb := range iconFallbacks {
-		norm := normalizeEmoji(fb)
+	for _, k := range sortedIconKeys {
+		norm := normalizeEmoji(iconFallbacks[k])
 		emojiToKeys[norm] = append(emojiToKeys[norm], k)
 	}
 
 	resolved := map[string]string{}
-	loadedPack := target
+	resolvedAnim := map[string]bool{}
+	allByEmoji := map[string]string{}
+	allByEmojiAnim := map[string]bool{}
+	var firstCustomID, firstAnimatedID string
+	loadedPack := ""
+
 	for _, pack := range candidates {
 		gctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 		set, err := bot.GetStickerSet(gctx, pack)
@@ -237,42 +333,257 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 		if err != nil || set == nil || len(set.Stickers) == 0 {
 			continue
 		}
-		matchedInPack := 0
+		packMatched := false
 		for _, st := range set.Stickers {
 			if st.CustomEmojiID == "" {
 				continue
 			}
-			keys := emojiToKeys[normalizeEmoji(st.Emoji)]
-			for _, k := range keys {
-				if _, exists := resolved[k]; !exists || st.IsAnimated {
-					resolved[k] = st.CustomEmojiID
-					matchedInPack++
+			packMatched = true
+			if firstCustomID == "" {
+				firstCustomID = st.CustomEmojiID
+			}
+			if st.IsAnimated && firstAnimatedID == "" {
+				firstAnimatedID = st.CustomEmojiID
+			}
+			norm := normalizeEmoji(st.Emoji)
+			if norm != "" {
+				if _, ok := allByEmoji[norm]; !ok || (st.IsAnimated && !allByEmojiAnim[norm]) {
+					allByEmoji[norm] = st.CustomEmojiID
+					allByEmojiAnim[norm] = st.IsAnimated
+				}
+				for _, k := range emojiToKeys[norm] {
+					if _, exists := resolved[k]; !exists || (st.IsAnimated && !resolvedAnim[k]) {
+						resolved[k] = st.CustomEmojiID
+						resolvedAnim[k] = st.IsAnimated
+					}
 				}
 			}
 		}
-		if matchedInPack > 0 {
+		if packMatched && loadedPack == "" {
 			loadedPack = set.Name
 			if loadedPack == "" {
 				loadedPack = pack
 			}
-			// If user explicitly asked for a pack or we filled a solid set, stop early.
-			if wantPack != "" && pack == wantPack {
-				break
+		}
+		if len(resolved) == len(iconFallbacks) {
+			break
+		}
+	}
+
+	// Pick a neutral universal animated custom emoji as a last-resort fallback
+	// so no key ever degrades to plain Unicode when at least one pack loaded.
+	universalID := ""
+	for _, hint := range universalEmojiHints {
+		if id := allByEmoji[normalizeEmoji(hint)]; id != "" {
+			universalID = id
+			break
+		}
+	}
+	if universalID == "" {
+		if firstAnimatedID != "" {
+			universalID = firstAnimatedID
+		} else {
+			universalID = firstCustomID
+		}
+	}
+
+	// Fill any keys not matched verbatim using ordered semantic aliases, then
+	// universalID as final guarantee of 100% Premium coverage.
+	if universalID != "" {
+		for _, k := range sortedIconKeys {
+			if resolved[k] != "" {
+				continue
 			}
-			if len(resolved) >= 12 {
-				break
+			for _, syn := range iconAliases[k] {
+				if id := allByEmoji[normalizeEmoji(syn)]; id != "" {
+					resolved[k] = id
+					break
+				}
+			}
+			if resolved[k] == "" {
+				resolved[k] = universalID
 			}
 		}
 	}
 
+	if loadedPack == "" {
+		loadedPack = target
+	}
+
 	n.mu.Lock()
 	n.emoji = emojiCache{
-		packName:  loadedPack,
-		loadedAt:  now,
-		keyToID:   resolved,
-		animatedN: len(resolved),
+		requestedPack: target,
+		packName:      loadedPack,
+		loadedAt:      now,
+		keyToID:       resolved,
+		animatedN:     len(resolved),
 	}
 	n.mu.Unlock()
+}
+
+func (n *Notifier) emojiNormMap() map[string]string {
+	if !n.premiumEmojiEligible(nil) {
+		return nil
+	}
+	n.mu.Lock()
+	if len(n.emoji.keyToID) == 0 {
+		n.mu.Unlock()
+		return nil
+	}
+	out := make(map[string]string, len(n.emoji.keyToID))
+	for _, k := range sortedIconKeys {
+		if id := n.emoji.keyToID[k]; id != "" {
+			norm := normalizeEmoji(iconFallbacks[k])
+			if norm != "" && out[norm] == "" {
+				out[norm] = id
+			}
+		}
+	}
+	n.mu.Unlock()
+	return out
+}
+
+func htmlTagName(tag string) (name string, closing bool) {
+	s := strings.TrimSpace(tag)
+	if strings.HasPrefix(s, "/") {
+		closing = true
+		s = strings.TrimSpace(s[1:])
+	}
+	if i := strings.IndexAny(s, " \t\r\n/>"); i >= 0 {
+		s = s[:i]
+	}
+	return strings.ToLower(s), closing
+}
+
+// upgradeHTML replaces every known plain Unicode emoji outside HTML tags,
+// <tg-emoji>, <pre>, and <code> blocks with its Telegram Premium <tg-emoji>
+// animated custom emoji tag when Premium is active.
+func (n *Notifier) upgradeHTML(s string) string {
+	if s == "" {
+		return s
+	}
+	byEmoji := n.emojiNormMap()
+	if len(byEmoji) == 0 {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 64)
+	var inTgEmoji, inPre, inCode int
+	for i := 0; i < len(s); {
+		if s[i] == '<' {
+			end := strings.IndexByte(s[i:], '>')
+			if end < 0 {
+				b.WriteString(s[i:])
+				break
+			}
+			tag := s[i+1 : i+end]
+			name, closing := htmlTagName(tag)
+			switch name {
+			case "tg-emoji":
+				if closing {
+					if inTgEmoji > 0 {
+						inTgEmoji--
+					}
+				} else {
+					inTgEmoji++
+				}
+			case "pre":
+				if closing {
+					if inPre > 0 {
+						inPre--
+					}
+				} else {
+					inPre++
+				}
+			case "code":
+				if closing {
+					if inCode > 0 {
+						inCode--
+					}
+				} else {
+					inCode++
+				}
+			}
+			b.WriteString(s[i : i+end+1])
+			i += end + 1
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if inTgEmoji > 0 || inPre > 0 || inCode > 0 {
+			b.WriteString(s[i : i+size])
+			i += size
+			continue
+		}
+		tokEnd := i + size
+		// Consume optional U+FE0F variation selector-16 (UTF-8: EF B8 8F).
+		if tokEnd+3 <= len(s) && s[tokEnd] == 0xEF && s[tokEnd+1] == 0xB8 && s[tokEnd+2] == 0x8F {
+			tokEnd += 3
+		}
+		if id := byEmoji[string(r)]; id != "" {
+			b.WriteString(`<tg-emoji emoji-id="`)
+			b.WriteString(esc(id))
+			b.WriteString(`">`)
+			b.WriteString(s[i:tokEnd])
+			b.WriteString(`</tg-emoji>`)
+			i = tokEnd
+			continue
+		}
+		b.WriteString(s[i : i+size])
+		i += size
+	}
+	return b.String()
+}
+
+// upgradeButtons ensures every inline keyboard button uses icon_custom_emoji_id
+// when Premium is active, converting any leading Unicode emoji icon on Button.Text.
+func (n *Notifier) upgradeButtons(rows [][]Button) [][]Button {
+	if len(rows) == 0 {
+		return rows
+	}
+	byEmoji := n.emojiNormMap()
+	if len(byEmoji) == 0 {
+		return rows
+	}
+	out := make([][]Button, len(rows))
+	for i, row := range rows {
+		nr := make([]Button, len(row))
+		for j, btn := range row {
+			if btn.IconCustomEmojiID == "" && btn.Text != "" {
+				r, size := utf8.DecodeRuneInString(btn.Text)
+				tokEnd := size
+				if tokEnd+3 <= len(btn.Text) && btn.Text[tokEnd] == 0xEF && btn.Text[tokEnd+1] == 0xB8 && btn.Text[tokEnd+2] == 0x8F {
+					tokEnd += 3
+				}
+				if id := byEmoji[string(r)]; id != "" {
+					btn.IconCustomEmojiID = id
+					btn.fallbackIcon = btn.Text[:tokEnd]
+					btn.Text = strings.TrimSpace(btn.Text[tokEnd:])
+				}
+			}
+			nr[j] = btn
+		}
+		out[i] = nr
+	}
+	return out
+}
+
+func (n *Notifier) upgradeView(v View) View {
+	v.RichHTML = n.upgradeHTML(v.RichHTML)
+	v.Text = n.upgradeHTML(v.Text)
+	v.Rows = n.upgradeButtons(v.Rows)
+	return v
+}
+
+func (n *Notifier) botSendView(ctx context.Context, bot *Bot, chat string, v View) (int, error) {
+	return bot.SendView(ctx, chat, n.upgradeView(v))
+}
+
+func (n *Notifier) botEditView(ctx context.Context, bot *Bot, chat string, msgID int, v View) error {
+	return bot.EditView(ctx, chat, msgID, n.upgradeView(v))
+}
+
+func (n *Notifier) botSend(ctx context.Context, bot *Bot, chat, text string, rows [][]Button) (int, error) {
+	return bot.Send(ctx, chat, n.upgradeHTML(text), n.upgradeButtons(rows))
 }
 
 // emojiID returns (customEmojiID, fallbackUnicode) for key when Premium

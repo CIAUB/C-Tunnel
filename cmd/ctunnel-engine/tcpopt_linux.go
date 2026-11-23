@@ -17,3 +17,11 @@ func setTCPUserTimeout(tc *net.TCPConn, d time.Duration) {
 		})
 	}
 }
+
+func setTCPBusyPoll(tc *net.TCPConn, usec int) {
+	if raw, err := tc.SyscallConn(); err == nil {
+		_ = raw.Control(func(fd uintptr) {
+			_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_BUSY_POLL, usec)
+		})
+	}
+}

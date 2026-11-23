@@ -53,7 +53,10 @@ func (n *Notifier) maybeSendAutoBackup(ctx context.Context) {
 		return
 	}
 	filename := fmt.Sprintf("ctunnel-backup-%s-%s.json", safeFilePart(n.Host), now.UTC().Format("20060102-150405"))
-	caption := formatBackupCaption(n.lang(), n.Host, len(bf.Tunnels), bf.Total.RxBytes, bf.Total.TxBytes, true)
+	if n.premiumEmojiEligible(bot) {
+		n.ensureEmojiPack(ctx, bot)
+	}
+	caption := n.upgradeHTML(formatBackupCaption(n.lang(), n.Host, len(bf.Tunnels), bf.Total.RxBytes, bf.Total.TxBytes, true))
 
 	sentAny := false
 	for _, chat := range cfg.AlertTargets() {
@@ -79,7 +82,10 @@ func (n *Notifier) sendManualBackup(ctx context.Context, bot *Bot, chatID string
 		return err
 	}
 	filename := fmt.Sprintf("ctunnel-backup-%s-%s.json", safeFilePart(n.Host), n.Now().UTC().Format("20060102-150405"))
-	caption := formatBackupCaption(n.lang(), n.Host, len(bf.Tunnels), bf.Total.RxBytes, bf.Total.TxBytes, false)
+	if n.premiumEmojiEligible(bot) {
+		n.ensureEmojiPack(ctx, bot)
+	}
+	caption := n.upgradeHTML(formatBackupCaption(n.lang(), n.Host, len(bf.Tunnels), bf.Total.RxBytes, bf.Total.TxBytes, false))
 	sctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 	return bot.SendDocument(sctx, chatID, filename, raw, caption)

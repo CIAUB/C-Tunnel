@@ -106,7 +106,7 @@ func main() {
 	if len(st.Tunnels) == 0 {
 		for _, tc := range []catalog.TunnelConfig{
 			{Role: "iran", Method: "gre", RemoteIP: "203.0.113.5", LocalIP: "198.51.100.1", Ports: []string{"443", "2053=8443"}},
-			{Role: "iran", Method: "dtls-1.3", Reverse: true, LocalIP: "198.51.100.1"},
+			{Role: "iran", Method: "game-dtls", Reverse: true, LocalIP: "198.51.100.1"},
 		} {
 			if err := tunnel.Create(st, &tc); err != nil {
 				log.Fatal(err)

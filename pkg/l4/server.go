@@ -96,14 +96,17 @@ func (s *Stats) GetPeerIP() string {
 	return v
 }
 
-func smuxConfig() *smux.Config {
+func smuxConfig() *smux.Config { return smuxConfigFor("") }
+
+func smuxConfigFor(profile string) *smux.Config {
+	prof := profileTuning(profile)
 	c := smux.DefaultConfig()
 	c.Version = 2
 	c.KeepAliveInterval = 10 * time.Second
 	c.KeepAliveTimeout = 35 * time.Second
 	c.MaxFrameSize = 65535
-	c.MaxReceiveBuffer = 64 << 20
-	c.MaxStreamBuffer = 16 << 20
+	c.MaxReceiveBuffer = prof.smuxRecvBuf
+	c.MaxStreamBuffer = prof.smuxStreamBuf
 	return c
 }
 
@@ -419,7 +422,7 @@ func (s *server) dialDirect(ctx context.Context) error {
 					}
 					continue
 				}
-				sess, err := smux.Client(c, smuxConfig())
+				sess, err := smux.Client(c, smuxConfigFor(s.cfg.Profile))
 				if err != nil {
 					c.Close()
 					continue
@@ -456,6 +459,9 @@ func (s *server) dialDirect(ctx context.Context) error {
 
 func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 	tuneCarrierTCP(c)
+	if s.cfg.tuning().busyPoll {
+		applyBusyPoll(c)
+	}
 	runID, auth, err := serverHandshakeAuth(c, s.cfg.Token, s.cfg.Transport, s.guard)
 	if err != nil {
 		if !isExpectedPeerClose(err) && ctx.Err() == nil {
@@ -478,7 +484,7 @@ func (s *server) admit(ctx context.Context, c net.Conn, ip string) {
 		s.signal()
 		return
 	}
-	sess, err := smux.Server(c, smuxConfig())
+	sess, err := smux.Server(c, smuxConfigFor(s.cfg.Profile))
 	if err != nil {
 		c.Close()
 		return
@@ -798,7 +804,7 @@ func (s *server) serveUDP(ctx context.Context, pc *net.UDPConn, target int) {
 					mu.Unlock()
 					return
 				}
-				f := &udpFlow{st: st, q: newDatagramBatch(udpQueueCap)}
+				f := &udpFlow{st: st, q: newDatagramBatch(s.cfg.tuning().udpQueue)}
 				f.last.Store(time.Now().UnixNano())
 				flows[key] = f
 				mu.Unlock()

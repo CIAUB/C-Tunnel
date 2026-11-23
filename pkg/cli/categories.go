@@ -25,7 +25,7 @@ var (
 	CatUDPCrypt      = TunnelCategory{Code: "udp", Title: "UDP-Crypt", Short: "UDP-Crypt", Order: 5}
 	CatStealth       = TunnelCategory{Code: "stealth", Title: "Stealth", Short: "Stealth", Order: 6}
 	CatL3Reverse     = TunnelCategory{Code: "l3r", Title: "L3 Kernel · Reverse", Short: "L3-Rev", Order: 7}
-	CatL3Direct      = TunnelCategory{Code: "l3d", Title: "L3 Kernel · Direct / Turbo", Short: "L3-Dir", Order: 8}
+	CatL3Direct      = TunnelCategory{Code: "l3d", Title: "L3 Kernel · Direct", Short: "L3-Dir", Order: 8}
 	CatL2Kernel      = TunnelCategory{Code: "l2", Title: "L2 Kernel", Short: "L2-Kernel", Order: 9}
 	CatOther         = TunnelCategory{Code: "other", Title: "Other", Short: "Other", Order: 10}
 )

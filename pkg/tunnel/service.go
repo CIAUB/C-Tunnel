@@ -82,13 +82,44 @@ func Save(st *catalog.Store, tc *catalog.TunnelConfig) error {
 	return st.Upsert(*tc)
 }
 
-// Create saves a new tunnel; it fails if the name is taken.
+// Create saves a new tunnel; it fails if the name is taken, if the method is
+// deprecated (legacy), or if reverse frp+ is requested on a method that does
+// not support it. Existing legacy tunnels remain fully manageable via Save.
 func Create(st *catalog.Store, tc *catalog.TunnelConfig) error {
 	tc.Name = SanitizeName(tc.Name)
 	if _, exists := st.Find(tc.Name); exists && tc.Name != "" {
 		return fmt.Errorf("a tunnel named %q already exists", tc.Name)
 	}
+	if m, ok := catalog.LookupMethod(tc.Method); ok {
+		if m.Legacy {
+			return fmt.Errorf("method %q is deprecated and cannot be created anymore (existing tunnels remain manageable)", m.Name)
+		}
+		if tc.Reverse && !m.L4() && !m.Crypt() && !m.SupportsFRP {
+			return fmt.Errorf("reverse frp+ mode is only available for core L3 methods (xgre, xgre-ip, 6to4, ipip, gre), not %s", m.Name)
+		}
+	}
+	if bm, ok := catalog.LookupMethod(tc.BackupMethod); tc.BackupMethod != "" && ok && bm.Legacy {
+		return fmt.Errorf("backup method %q is deprecated; choose an active protocol", bm.Name)
+	}
 	return Save(st, tc)
+}
+
+// UpdateProfile changes only the performance profile (eco / turbo / hyper) of
+// an existing tunnel and persists it. The caller should run Apply(updated).
+func UpdateProfile(st *catalog.Store, name, profile string) (catalog.TunnelConfig, error) {
+	tc, ok := st.Find(name)
+	if !ok {
+		return catalog.TunnelConfig{}, fmt.Errorf("tunnel %q not found", name)
+	}
+	prof, ok := catalog.NormalizeProfile(profile)
+	if !ok {
+		return catalog.TunnelConfig{}, fmt.Errorf("unknown performance profile %q (use eco, turbo, or hyper)", profile)
+	}
+	tc.Profile = prof
+	if err := Save(st, &tc); err != nil {
+		return catalog.TunnelConfig{}, err
+	}
+	return tc, nil
 }
 
 // Import saves a tunnel decoded from the other server's setup link. An existing

@@ -39,6 +39,28 @@ func TestDTLSLengthChecked(t *testing.T) {
 	}
 }
 
+func TestGameDTLSWireCompatibleWithDTLS13(t *testing.T) {
+	oldF, err := NewFramer(ProfileDTLS13, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newF, err := NewFramer(ProfileGameDTLS, secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("competitive-game-frame-64b")
+	// Legacy dtls-1.3 -> upgraded game-dtls
+	got, err := newF.Unwrap(oldF.Wrap(payload))
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("game-dtls failed to unwrap dtls-1.3 frame: %q %v", got, err)
+	}
+	// Upgraded game-dtls -> legacy dtls-1.3
+	got, err = oldF.Unwrap(newF.Wrap(payload))
+	if err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("dtls-1.3 failed to unwrap game-dtls frame: %q %v", got, err)
+	}
+}
+
 func TestXORRecoverBothShards(t *testing.T) {
 	a := []byte("first packet, longer one")
 	b := []byte("second")

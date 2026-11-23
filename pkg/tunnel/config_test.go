@@ -561,3 +561,135 @@ func TestDirectL4PortConflict(t *testing.T) {
 		t.Fatal("two Direct L4 TCP tunnels on the same port 3081 were accepted")
 	}
 }
+
+func TestPerformanceProfilesEcoTurboHyper(t *testing.T) {
+	// Direct core L3 (gre): ECO = raw kernel (Carrier=false), TURBO & HYPER = BBR Carrier (Carrier=true).
+	eco := catalog.TunnelConfig{Role: "iran", Method: "gre", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5"}
+	if err := Normalize(&eco, nil); err != nil {
+		t.Fatal(err)
+	}
+	if eco.Profile != catalog.ProfileEco || eco.Carrier {
+		t.Fatalf("default gre should be eco/non-carrier: %+v", eco)
+	}
+	if !strings.Contains(Env(eco), `PROFILE="eco"`) {
+		t.Fatalf("Env missing PROFILE=eco: %s", Env(eco))
+	}
+
+	turbo := catalog.TunnelConfig{Role: "iran", Method: "gre", Profile: "turbo", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5"}
+	if err := Normalize(&turbo, nil); err != nil {
+		t.Fatal(err)
+	}
+	if turbo.Profile != catalog.ProfileTurbo || !turbo.Carrier || turbo.Port == 0 || Unit(turbo) != "ctunnel-engine@"+turbo.Name+".service" {
+		t.Fatalf("turbo Direct gre must activate BBR TCP carrier: %+v unit=%s", turbo, Unit(turbo))
+	}
+
+	hyper := catalog.TunnelConfig{Role: "iran", Method: "xgre", Profile: "hyper", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5"}
+	if err := Normalize(&hyper, nil); err != nil {
+		t.Fatal(err)
+	}
+	if hyper.Profile != catalog.ProfileHyper || !hyper.Carrier || !strings.Contains(Env(hyper), `PROFILE="hyper"`) {
+		t.Fatalf("hyper Direct xgre failed: %+v", hyper)
+	}
+
+	// Legacy turbo+gre (Carrier=true, Profile="") preserves turbo & Carrier=true.
+	legacyTurbo := catalog.TunnelConfig{Role: "iran", Method: "gre", Carrier: true, LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5"}
+	if err := Normalize(&legacyTurbo, nil); err != nil {
+		t.Fatal(err)
+	}
+	if legacyTurbo.Profile != catalog.ProfileTurbo || !legacyTurbo.Carrier {
+		t.Fatalf("legacy Carrier=true tunnel lost turbo mode: %+v", legacyTurbo)
+	}
+
+	// MikroTik L2 (eoip, vxlan) does NOT turn on Carrier on TURBO/HYPER.
+	eoipHyper := catalog.TunnelConfig{Role: "iran", Method: "eoip", Profile: "hyper", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5"}
+	if err := Normalize(&eoipHyper, nil); err != nil {
+		t.Fatal(err)
+	}
+	if eoipHyper.Carrier || eoipHyper.Profile != catalog.ProfileHyper {
+		t.Fatalf("eoip hyper must stay raw MikroTik-compatible without Carrier: %+v", eoipHyper)
+	}
+
+	// Invalid profile rejected.
+	bad := catalog.TunnelConfig{Role: "iran", Method: "tcp", Profile: "warp9", LocalIP: "198.51.100.1"}
+	if err := Normalize(&bad, nil); err == nil {
+		t.Fatal("invalid profile accepted")
+	}
+}
+
+func TestLegacyMethodBlockedOnCreateAllowedOnManage(t *testing.T) {
+	dir := t.TempDir()
+	st, err := catalog.LoadStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := Run
+	Run = func(name string, args ...string) (string, error) {
+		if name == "systemctl" && len(args) > 0 && args[0] == "is-active" {
+			return "inactive", fmt.Errorf("inactive")
+		}
+		return "", nil
+	}
+	t.Cleanup(func() { Run = orig })
+
+	// Creating a new legacy tunnel must fail.
+	wgNew := catalog.TunnelConfig{Role: "iran", Method: "wireguard", LocalIP: "198.51.100.1", RemoteIP: "203.0.113.5"}
+	if err := Create(st, &wgNew); err == nil {
+		t.Fatal("Create accepted legacy method wireguard")
+	}
+	// Creating reverse frp+ on non-SupportsFRP (eoip, vxlan) must fail.
+	frpEoip := catalog.TunnelConfig{Role: "iran", Method: "eoip", Reverse: true, LocalIP: "198.51.100.1"}
+	if err := Create(st, &frpEoip); err == nil {
+		t.Fatal("Create accepted reverse frp+ on eoip")
+	}
+	// Creating reverse frp+ on core L3 (xgre) succeeds.
+	frpXgre := catalog.TunnelConfig{Role: "iran", Method: "xgre", Reverse: true, LocalIP: "198.51.100.1"}
+	if err := Create(st, &frpXgre); err != nil {
+		t.Fatalf("Create rejected frp+xgre: %v", err)
+	}
+	// Existing legacy tunnel in store remains fully manageable via Save & UpdateProfile.
+	existing := catalog.TunnelConfig{
+		Name: "oldwg", Role: "iran", Method: "wireguard", Index: 5,
+		LocalIP: "198.51.100.1", RemoteIP: "203.0.113.9", Port: 51825,
+		Token: catalog.GenerateToken(),
+	}
+	if err := Save(st, &existing); err != nil {
+		t.Fatalf("Save rejected existing legacy tunnel: %v", err)
+	}
+	updated, err := UpdateProfile(st, "oldwg", "hyper")
+	if err != nil || updated.Profile != catalog.ProfileHyper {
+		t.Fatalf("UpdateProfile on legacy tunnel failed: %+v %v", updated, err)
+	}
+}
+
+func TestStealthTCPAndWSConfig(t *testing.T) {
+	// Direct stealth-ws on Kharej is passive (RemoteIP optional) and allows SNI.
+	kh := catalog.TunnelConfig{
+		Role: "kharej", Method: "stealth-ws", LocalIP: "203.0.113.5",
+		SNI: "cdn.example.com", Profile: "turbo",
+	}
+	if err := Normalize(&kh, nil); err != nil {
+		t.Fatalf("stealth-ws kharej direct failed: %v", err)
+	}
+	if !IsPassivePeer(kh) || kh.RemoteIP != "0.0.0.0" || kh.SNI != "cdn.example.com" || Unit(kh) != "ctunnel-engine@"+kh.Name+".service" {
+		t.Fatalf("unexpected stealth-ws config: %+v", kh)
+	}
+	// Reverse stealth-tcp on Iran is passive and clears SNI.
+	ir := catalog.TunnelConfig{
+		Role: "iran", Method: "stealth-tcp", Reverse: true, LocalIP: "198.51.100.1",
+		SNI: "ignored.example.com", Profile: "hyper",
+	}
+	if err := Normalize(&ir, nil); err != nil {
+		t.Fatalf("stealth-tcp iran reverse failed: %v", err)
+	}
+	if !IsPassivePeer(ir) || ir.RemoteIP != "0.0.0.0" || ir.SNI != "" || ir.Port == 0 {
+		t.Fatalf("unexpected stealth-tcp config: %+v", ir)
+	}
+	// Bad SNI rejected on stealth-ws.
+	badSNI := catalog.TunnelConfig{
+		Role: "iran", Method: "stealth-ws", Reverse: true, LocalIP: "198.51.100.1",
+		SNI: "bad host;rm -rf /",
+	}
+	if err := Normalize(&badSNI, nil); err == nil {
+		t.Fatal("malicious SNI accepted on stealth-ws")
+	}
+}

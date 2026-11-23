@@ -5,6 +5,8 @@
 #
 # A trailing version also works with bash -c (where it becomes $0):
 #   sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" v0.2.1
+# To install and immediately apply a setup link on a peer server:
+#   curl -fsSL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh | sudo bash -s -- --apply-link 'ctunnel://...'
 # Downloads the latest stable GitHub Release by default and verifies SHA256SUMS.
 # Explicit arguments override CTUNNEL_VERSION; source mode uses CTUNNEL_LOCAL=1.
 # From a git checkout (sudo bash install.sh) it installs the local files instead.
@@ -21,16 +23,39 @@ die() { echo "error: $*" >&2; exit 1; }
 resolve_installer_version() {
     local launch_name="$1" source_path="$2"
     shift 2
-    [[ "$#" -le 1 ]] || die "expected at most one version argument"
+    local positional=()
+    APPLY_LINK="${CTUNNEL_APPLY_LINK:-}"
+    while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --apply-link)
+                [[ "$#" -ge 2 && -n "$2" ]] || die "--apply-link requires a ctunnel:// setup link"
+                APPLY_LINK="$2"
+                shift 2
+                ;;
+            --apply-link=*)
+                APPLY_LINK="${1#--apply-link=}"
+                [[ -n "$APPLY_LINK" ]] || die "--apply-link requires a ctunnel:// setup link"
+                shift
+                ;;
+            *)
+                positional+=("$1")
+                shift
+                ;;
+        esac
+    done
+    [[ "${#positional[@]}" -le 1 ]] || die "expected at most one version argument"
     VERSION="${CTUNNEL_VERSION:-latest}"
-    if [[ "$#" -eq 1 ]]; then
-        VERSION="$1"
+    if [[ "${#positional[@]}" -eq 1 ]]; then
+        VERSION="${positional[0]}"
     elif [[ -z "$source_path" && ( "$launch_name" == latest || "$launch_name" =~ ^v?[0-9] ) ]]; then
         VERSION="$launch_name"
     fi
     [[ "$VERSION" == latest || "$VERSION" =~ ^v?[0-9][A-Za-z0-9_.-]*$ ]] || die "invalid version"
     if [[ "$VERSION" != latest && "$VERSION" != v* ]]; then
         VERSION="v${VERSION}"
+    fi
+    if [[ -n "$APPLY_LINK" ]]; then
+        [[ "${#APPLY_LINK}" -le 8192 && "$APPLY_LINK" =~ ^ctunnel://[A-Za-z0-9_-]+$ ]] || die "invalid setup link"
     fi
 }
 resolve_installer_version "$0" "${BASH_SOURCE[0]:-}" "$@"
@@ -219,12 +244,20 @@ systemctl restart ctunnel-agent.service || die "files installed, but ctunnel-age
 
 echo
 echo "C-Tunnel $(/usr/local/bin/ctunnel version | awk '{print $2}') installed."
+
+apply_setup_link() {
+    [[ -n "${APPLY_LINK:-}" ]] || return 0
+    echo "Applying tunnel setup link..."
+    /usr/local/bin/ctunnel apply-link "$APPLY_LINK" || die "C-Tunnel installed, but applying the setup link failed"
+}
+apply_setup_link
+
 echo "Run: sudo ctunnel"
 
 # Only open the interactive menu in a terminal. Never leave the installation lock
 # or temporary release files attached to the menu's long-running process.
 launch_menu() {
-    [[ "${CTUNNEL_NO_MENU:-0}" != 1 && -t 0 && -t 1 ]] || return 0
+    [[ -z "${APPLY_LINK:-}" && "${CTUNNEL_NO_MENU:-0}" != 1 && -t 0 && -t 1 ]] || return 0
     flock -u 9
     exec 9>&-
     rm -rf -- "$WORK"

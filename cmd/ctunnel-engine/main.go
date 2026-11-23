@@ -26,12 +26,23 @@ type config struct {
 	tunnelID          uint16
 	padding           uint8
 	rateMbps          int
+	profile           string
 	reverse           bool
 	carrier           bool
-	forwards, sni     string // layer-4 transports only
+	forwards, sni     string // layer-4 transports and stealth-ws
+}
+
+func isStreamStealth(kind string) bool {
+	return kind == "stealth-tcp" || kind == "stealth-ws"
 }
 
 func (c config) isPassive() bool {
+	if isStreamStealth(c.kind) {
+		if c.reverse {
+			return c.role == "iran"
+		}
+		return c.role == "kharej"
+	}
 	if c.carrier && !c.reverse {
 		return c.role == "kharej"
 	}
@@ -65,12 +76,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("ctunnel-engine %s: %s tunnel %s, role %s, peer %s", version.Version, cfg.kind, cfg.dev, cfg.role, cfg.remoteIP)
+	log.Printf("ctunnel-engine %s: %s [%s] tunnel %s, role %s, peer %s", version.Version, cfg.kind, catalog.ProfileLabel(cfg.profile), cfg.dev, cfg.role, cfg.remoteIP)
 
 	switch {
 	case catalog.IsL4(cfg.kind):
 		err = runL4(cfg)
-	case (cfg.reverse || cfg.carrier) && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard":
+	case isStreamStealth(cfg.kind) || ((cfg.reverse || cfg.carrier) && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard"):
 		err = runReverseCarrier(cfg)
 	case cfg.kind == "eoip" || cfg.kind == "etherip":
 		err = runRawBridge(cfg)
@@ -98,6 +109,14 @@ func loadConfig(path string) (config, error) {
 	tid, _ := strconv.Atoi(env["TUNNEL_ID"])
 	pad, _ := strconv.Atoi(env["PADDING"])
 	rateMbps, _ := strconv.Atoi(env["RATE_MBIT"])
+	prof, okProf := catalog.NormalizeProfile(env["PROFILE"])
+	if !okProf || env["PROFILE"] == "" {
+		if car && !rev {
+			prof = catalog.ProfileTurbo
+		} else {
+			prof = catalog.ProfileEco
+		}
+	}
 	cfg := config{
 		kind:     m.Name,
 		name:     env["NAME"],
@@ -110,6 +129,7 @@ func loadConfig(path string) (config, error) {
 		tunnelID: uint16(tid),
 		padding:  uint8(min(max(pad, 0), 255)),
 		rateMbps: max(rateMbps, 0),
+		profile:  prof,
 		reverse:  rev || (m.L4() && !directL4),
 		carrier:  car,
 		forwards: env["FORWARDS"],
@@ -127,11 +147,32 @@ func loadConfig(path string) (config, error) {
 	return cfg, nil
 }
 
-func workerCount(kind string) int {
-	if kind == string(dpi.ProfileRUDPFEC) {
+func workerCount(kind, profile string) int {
+	// Both rudp-fec and game-fec maintain sequential FEC group counters and XOR
+	// parity buffers; parallel workers would interleave group IDs and corrupt FEC.
+	if kind == string(dpi.ProfileRUDPFEC) || kind == string(dpi.ProfileGameFEC) {
 		return 1
 	}
-	return min(max(runtime.NumCPU(), 2), 8)
+	cpus := runtime.NumCPU()
+	switch p, _ := catalog.NormalizeProfile(profile); p {
+	case catalog.ProfileHyper:
+		return min(max(cpus*2, 4), 16)
+	case catalog.ProfileTurbo:
+		return min(max(cpus, 2), 8)
+	default: // ProfileEco
+		return min(max(cpus/2, 1), 2)
+	}
+}
+
+func socketBufferFor(profile string) int {
+	switch p, _ := catalog.NormalizeProfile(profile); p {
+	case catalog.ProfileHyper:
+		return 32 << 20
+	case catalog.ProfileTurbo:
+		return 16 << 20
+	default: // ProfileEco
+		return 4 << 20
+	}
 }
 
 func openDevice(cfg config, vnet bool) (*os.File, error) {

@@ -530,6 +530,19 @@ details[open] summary{margin-bottom:12px}
 .proto-tag{display:inline-flex;padding:1px 6px;border-radius:999px;font:700 9.5px/1.4 var(--mono);border:1px solid var(--ln2);background:var(--s2);color:var(--mu);white-space:nowrap}
 .proto-tag.fast{border-color:color-mix(in srgb,var(--ok) 45%,transparent);color:var(--ok);background:color-mix(in srgb,var(--ok) 10%,var(--s1))}
 .proto-tag.v2{border-color:color-mix(in srgb,var(--ac) 45%,transparent);color:var(--ac);background:color-mix(in srgb,var(--ac) 10%,var(--s1))}
+.proto-tag.legacy{border-color:color-mix(in srgb,var(--wn,#f59e0b) 45%,transparent);color:var(--wn,#f59e0b);background:color-mix(in srgb,var(--wn,#f59e0b) 10%,var(--s1))}
+.prof-box{display:grid;gap:8px;padding:12px 14px;border:1px solid var(--ln2);border-radius:14px;background:var(--s2)}
+.prof-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.prof-head label{margin:0}
+.prof-seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.prof-card{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:9px 11px;border:1px solid var(--ln2);border-radius:11px;background:var(--s1);cursor:pointer;text-align:left;transition:border-color .15s,background-color .15s,transform .12s ease-out}
+.prof-card:hover{border-color:var(--ln3);background:var(--s3)}
+.prof-card:active{transform:scale(.98)}
+.prof-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.prof-card b{font-size:12.5px;color:var(--tx);display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
+.prof-card span{font-size:11px;color:var(--mu);line-height:1.35}
+.prof-card[aria-pressed=true]{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 12%,var(--s1));box-shadow:0 0 0 1px var(--ac)}
+@media(max-width:767px){.prof-seg{grid-template-columns:minmax(0,1fr)}}
 .proto-card-desc{font-size:11px;color:var(--mu);line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .proto-cur{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 11px;border-radius:10px;border:1px dashed var(--ln2);background:var(--s1);font-size:12px}
 .proto-cur code{font-weight:700;color:var(--ac)}
@@ -701,10 +714,11 @@ details[open] summary{margin-bottom:12px}
               <button type="button" class="chip-btn" data-pick-fam="all">Select all</button>
               <button type="button" class="chip-btn" data-pick-fam="none">Clear</button>
               <button type="button" class="chip-btn" data-pick-fam="Reverse-L4">Layer 4</button>
-              <button type="button" class="chip-btn" data-pick-fam="UDP-Crypt">UDP-Crypt</button>
+              <button type="button" class="chip-btn" data-pick-fam="Gaming">Gaming</button>
               <button type="button" class="chip-btn" data-pick-fam="Stealth">Stealth</button>
               <button type="button" class="chip-btn" data-pick-fam="L3-Direct">L3 Kernel</button>
               <button type="button" class="chip-btn" data-pick-fam="L2-Direct">L2 Kernel</button>
+              <button type="button" class="chip-btn" data-pick-fam="UDP-Crypt">UDP-Crypt</button>
               <span id="t-pick-count" class="hint">0 selected</span>
             </div>
             <div id="t-picker-grid" class="picker-grid"></div>
@@ -957,8 +971,8 @@ details[open] summary{margin-bottom:12px}
         <label id="f-reverse-l">Tunnel mode</label>
         <select id="f-reverse" class="sr" aria-labelledby="f-reverse-l"><option value="1" selected>1 · REVERSE — kharej dials in</option><option value="0">2 · DIRECT — iran dials kharej</option></select>
         <div class="mode-switch" role="group" aria-labelledby="f-reverse-l">
-          <button type="button" class="mode-card" data-tmode="1" aria-pressed="true"><b>1 · REVERSE <span class="proto-tag v2">Anti-DPI</span></b><span>Kharej dials into Iran (frp+ / rev+ / L4 / Gaming)</span></button>
-          <button type="button" class="mode-card" data-tmode="0" aria-pressed="false"><b>2 · DIRECT <span class="proto-tag fast">Fast Direct</span></b><span>Iran dials Kharej (Direct L4, 8x BBR, xGRE, Gaming)</span></button>
+          <button type="button" class="mode-card" data-tmode="1" aria-pressed="true"><b>1 · REVERSE <span class="proto-tag v2">Anti-DPI</span></b><span>Kharej dials into Iran (L4 / Gaming / Stealth / frp+)</span></button>
+          <button type="button" class="mode-card" data-tmode="0" aria-pressed="false"><b>2 · DIRECT <span class="proto-tag fast">Direct</span></b><span>Iran dials Kharej (Direct L4, xGRE, Stealth, Gaming, MikroTik)</span></button>
         </div>
       </div>
     </div>
@@ -970,18 +984,15 @@ details[open] summary{margin-bottom:12px}
       </div>
       <div class="proto-top">
         <div id="proto-tabs" class="proto-tabs" role="tablist" aria-label="Protocol family filter"></div>
-        <input id="proto-search" class="proto-search" type="search" placeholder="Search protocol (xgre, tcpmux, wg…)" aria-label="Search protocol" autocomplete="off">
+        <input id="proto-search" class="proto-search" type="search" placeholder="Search protocol (xgre, stealth-ws, game…)" aria-label="Search protocol" autocomplete="off">
       </div>
       <div id="proto-grid" class="proto-grid" role="listbox" aria-label="Protocols"></div>
       <select id="f-method" class="sr" aria-label="Method"></select>
     </div>
     <div><label for="f-remote" id="f-remote-l">Remote server IP</label><input id="f-remote" class="num" required></div>
     <div id="l4-wrap" class="grid2" hidden>
-      <div><label for="f-l4port" id="f-l4port-l">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
-      <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="the Iran IP"></div>
-    </div>
-    <div id="turbo-wrap" class="sec-box" hidden>
-      <label class="switch"><input id="f-carrier" type="checkbox"><span><b>8-Stream BBR TCP Turbo Carrier (turbo+)</b> — carries L2/L3 packets over 8 parallel encrypted TCP streams for Reverse-grade Direct throughput</span></label>
+      <div id="l4port-wrap"><label for="f-l4port" id="f-l4port-l">Tunnel port (TCP)</label><input id="f-l4port" type="number" min="1" max="65535" placeholder="3080 + index"></div>
+      <div id="sni-wrap"><label for="f-sni">Host / SNI (optional)</label><input id="f-sni" class="num" maxlength="253" placeholder="peer IP"></div>
     </div>
     <div id="token-slot"></div>
     <div id="backup-wrap"><label for="f-backup">Backup method (failover)</label><select id="f-backup"><option value="">None</option></select>
@@ -989,6 +1000,17 @@ details[open] summary{margin-bottom:12px}
     <div id="fwd-wrap"><label for="f-ports">Forward ports to the kharej server</label>
       <input id="f-ports" class="num" placeholder="443, 8080, 2053=8443">
       <p class="hint" id="fwd-hint">listen=target. Leave empty to forward nothing.</p></div>
+    <div class="prof-box" id="profile-box" role="group" aria-labelledby="f-prof-l">
+      <div class="prof-head">
+        <label id="f-prof-l">Performance profile</label>
+        <span id="prof-hint" class="hint">Lowest CPU/RAM · Standard speed</span>
+      </div>
+      <div class="prof-seg" role="group" aria-labelledby="f-prof-l">
+        <button type="button" class="prof-card" data-prof="eco" aria-pressed="true"><b>ECO <span class="proto-tag">Standard</span></b><span>Lowest CPU/RAM · standard speed</span></button>
+        <button type="button" class="prof-card" data-prof="turbo" aria-pressed="false"><b>TURBO <span class="proto-tag fast">High Speed</span></b><span>Higher resources · high speed</span></button>
+        <button type="button" class="prof-card" data-prof="hyper" aria-pressed="false"><b>HYPER <span class="proto-tag v2">Ultra</span></b><span>Max CPU/RAM · ultra speed</span></button>
+      </div>
+    </div>
     <div class="lim-box" role="group" aria-label="Traffic quota and bandwidth limits">
       <div>
         <label id="f-lim-l">Traffic quota &amp; bandwidth limit (optional)</label>
@@ -1050,11 +1072,12 @@ details[open] summary{margin-bottom:12px}
 
 <dialog id="dlg-link" class="wide" aria-labelledby="d-title">
   <div class="dbody">
-    <div class="dhead"><div><h3 id="d-title"></h3><p>On the other server: <code>sudo ctunnel</code> → Setup Kharej, or <code>ctunnel apply-link '…'</code></p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
-    <pre id="d-link" class="out"></pre>
+    <div class="dhead"><div><h3 id="d-title"></h3><p>Run the one-line command on the peer server to install C-Tunnel from GitHub and connect automatically, or paste the raw link into an existing setup.</p></div><button class="btn icon sm" type="button" data-close aria-label="Close"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div>
+    <div id="d-cmd-wrap" class="stack"><div class="hint">One-line install &amp; connect (fresh or existing peer server)</div><pre id="d-cmd" class="out"></pre></div>
+    <div class="stack"><div class="hint">Raw setup link (if C-Tunnel is already installed — <code>sudo ctunnel</code> → Setup Kharej)</div><pre id="d-link" class="out"></pre></div>
     <div class="stack"><div class="hint">Secret token — a server without it cannot join</div><pre id="d-token" class="out"></pre></div>
     <div id="d-mt-wrap" class="stack"><div class="hint">MikroTik peer (RouterOS 7)</div><pre id="d-mt" class="out"></pre></div>
-    <div class="dfoot"><button class="btn ghost" type="button" data-close>Close</button><button id="d-copy" class="btn primary" type="button">Copy link</button></div>
+    <div class="dfoot"><button class="btn ghost" type="button" data-close>Close</button><button id="d-copy" class="btn ghost" type="button">Copy link</button><button id="d-copy-cmd" class="btn primary" type="button">Copy install command</button></div>
   </div>
 </dialog>
 
@@ -1504,8 +1527,12 @@ function tunnelState(t) {
 }
 function methodLabel(t) {
   if (t.family === "Reverse-L4" || t.method === "game-kcp") return (t.direct_l4 && !t.reverse ? "direct+" : t.family === "Gaming" ? "rev+" : "") + t.method;
-  if (!t.reverse) return (t.carrier ? "turbo+" : "") + t.method;
+  if (!t.reverse) return t.method;
   return (t.family === "UDP-Crypt" || t.family === "Stealth" || t.family === "Gaming" || t.method === "wireguard" ? "rev+" : "frp+") + t.method;
+}
+function profileLabel(t) {
+  const p = (t && t.profile) ? String(t.profile).toLowerCase() : (t && t.carrier && !t.reverse ? "turbo" : "eco");
+  return p === "hyper" ? "HYPER" : p === "turbo" ? "TURBO" : "ECO";
 }
 function openPortsModal(t) {
   activePortsTunnel = t;
@@ -1700,7 +1727,7 @@ function updateTunnel(c, t) {
   c.card.className = "tun st-" + st.cls;
   c.name.textContent = t.name;
   const onBackup = t.status && t.status.on_backup;
-  c.meth.textContent = [onBackup ? t.status.active_method + " (backup)" : methodLabel(t), t.family, t.role, t.reverse ? "reverse" : "direct",
+  c.meth.textContent = [onBackup ? t.status.active_method + " (backup)" : methodLabel(t), profileLabel(t), t.legacy ? "LEGACY" : "", t.family, t.role, t.reverse ? "reverse" : "direct",
     t.backup_method && !onBackup ? "backup " + t.backup_method : ""].filter(Boolean).join(" · ");
   c.state.textContent = st.label + (onBackup ? " · on backup" : "");
   c.peer.textContent = (t.remote_ip && t.remote_ip !== "0.0.0.0" && t.remote_ip !== "::" ? t.remote_ip : "any (dials in)") + (t.port ? " :" + t.port : "");
@@ -1925,7 +1952,7 @@ function route() {
     const t = allTunnels.find(x => x.name === parts[1]);
     if (!t) { toast("Tunnel " + parts[1] + " not found"); history.replaceState(null, "", "#/tunnels"); return; }
     if (parts[2] === "logs") openLogs(t);
-    else if (parts[2] === "link") showLink(t.name, t.setup_link, t.mikrotik, t.token, true);
+    else if (parts[2] === "link") showLink(t.name, t.setup_link, t.mikrotik, t.token, true, t.setup_cmd);
     else if (parts[2] === "peer") openPeer(t);
     else if (parts[2] === "edit") openCreate(t);
     return;
@@ -1972,23 +1999,44 @@ function validateForm(form, errorID) {
 }
 function num(id) { const v = $(id).value.trim(); return v === "" ? 0 : Number(v); }
 
-let protoFamFilter = "all", protoSearchQuery = "";
-const V2_METHOD_SET = new Set(["tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip", "game-udp", "game-fec", "game-dup", "game-kcp"]);
+let protoFamFilter = "all", protoSearchQuery = "", tunnelProfile = "eco", editingLegacyMethod = "";
+const V2_METHOD_SET = new Set(["tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux", "faketcp", "icmp", "stealth-tcp", "stealth-ws", "xgre", "xgre-ip", "game-udp", "game-fec", "game-dup", "game-kcp", "game-dtls"]);
+
+function activeMethods() { return methods.filter(m => !m.Legacy); }
+function supportsFRP(m) {
+  if (!m) return false;
+  if (typeof m.SupportsFRP === "boolean") return m.SupportsFRP;
+  return (m.Family === "L3-Direct" || m.Family === "L2-Direct") && !m.IPv6Underlay;
+}
+function isStreamStealth(name) { return name === "stealth-tcp" || name === "stealth-ws"; }
+function isCryptMethod(m) {
+  return !!(m && (m.Family === "UDP-Crypt" || m.Family === "Stealth" || (m.Family === "Gaming" && m.Name !== "game-kcp")));
+}
 
 function fillMethods(list) {
   methods = list;
   for (const v of newMethods) V2_METHOD_SET.add(v);
   for (const sel of [$("f-method"), $("f-backup")]) {
+    const prev = sel.value;
+    sel.replaceChildren();
+    if (sel.id === "f-backup") {
+      const noneOpt = el("option", "", "None");
+      noneOpt.value = "";
+      sel.appendChild(noneOpt);
+    }
     const groups = {};
     for (const m of methods) {
+      if (sel.id === "f-backup" && m.Legacy) continue;
       if (!groups[m.Family]) { groups[m.Family] = el("optgroup"); groups[m.Family].label = familyLabel[m.Family] || m.Family; sel.appendChild(groups[m.Family]); }
-      const o = el("option", "", m.Name + " — " + m.Title);
+      const o = el("option", "", m.Name + (m.Legacy ? " [legacy]" : "") + " — " + m.Title);
       o.value = m.Name;
       groups[m.Family].appendChild(o);
     }
+    if (prev) sel.value = prev;
   }
+  const testable = activeMethods().filter(m => !m.IPv6Underlay);
   if (!selectedTestMethods.size) {
-    for (const m of methods) selectedTestMethods.add(m.Name);
+    for (const m of testable) selectedTestMethods.add(m.Name);
   }
   renderMethodPicker();
   renderV2Pills();
@@ -1999,10 +2047,10 @@ function renderV2Pills() {
   if (!box) return;
   box.replaceChildren();
   const items = newMethods && newMethods.length ? newMethods : Array.from(V2_METHOD_SET);
-  const extras = ["direct+<l4> (Fast Direct L4)", "turbo+<l2/l3> (8x BBR Turbo Direct)"];
+  const extras = ["direct+<l4> (Fast Direct L4)", "stealth-tcp / stealth-ws", "game-dtls (Anti-DPI Gaming)"];
   for (const name of [...items, ...extras]) {
     const pill = el("span", "port-pill", name);
-    if (name === "xgre" || name === "xgre-ip" || name.startsWith("direct+") || name.startsWith("turbo+")) {
+    if (name === "xgre" || name === "xgre-ip" || name.startsWith("stealth-") || name.startsWith("game-") || name.startsWith("direct+")) {
       pill.style.borderColor = "color-mix(in srgb,var(--ok) 45%,transparent)";
       pill.style.color = "var(--ok)";
     }
@@ -2013,7 +2061,8 @@ function renderMethodPicker() {
   const grid = $("t-picker-grid");
   if (!grid) return;
   grid.replaceChildren();
-  for (const m of methods) {
+  const testable = activeMethods().filter(m => !m.IPv6Underlay);
+  for (const m of testable) {
     const lbl = el("label", "m-check");
     const cb = el("input");
     cb.type = "checkbox";
@@ -2033,7 +2082,8 @@ function renderMethodPicker() {
 }
 function updatePickerCount() {
   const c = $("t-pick-count");
-  if (c) c.textContent = selectedTestMethods.size + " of " + methods.length + " selected";
+  const testable = activeMethods().filter(m => !m.IPv6Underlay);
+  if (c) c.textContent = selectedTestMethods.size + " of " + testable.length + " selected";
 }
 function setTestScope(scope) {
   testScope = scope;
@@ -2045,10 +2095,11 @@ document.querySelectorAll("[data-scope]").forEach(b => { b.onclick = () => setTe
 document.querySelectorAll("[data-pick-fam]").forEach(b => {
   b.onclick = () => {
     const fam = b.dataset.pickFam;
-    if (fam === "all") { for (const m of methods) selectedTestMethods.add(m.Name); }
+    const testable = activeMethods().filter(m => !m.IPv6Underlay);
+    if (fam === "all") { for (const m of testable) selectedTestMethods.add(m.Name); }
     else if (fam === "none") { selectedTestMethods.clear(); }
     else {
-      const famList = methods.filter(m => m.Family === fam);
+      const famList = testable.filter(m => m.Family === fam);
       const allIn = famList.every(m => selectedTestMethods.has(m.Name));
       for (const m of famList) {
         if (allIn) selectedTestMethods.delete(m.Name);
@@ -2059,9 +2110,12 @@ document.querySelectorAll("[data-pick-fam]").forEach(b => {
   };
 });
 const familyLabel = {
-  "Gaming": "Gaming — game-udp (lowest ping), game-fec (lossy links), game-dup (anti-spike), game-kcp (no-TUN L4)",
-  "Stealth": "Stealth — faketcp (TCP look), icmp (ping)",
+  "Gaming": "Gaming — game-udp, game-fec, game-dup, game-dtls (anti-DPI), game-kcp (no-TUN L4)",
+  "Stealth": "Stealth — stealth-tcp (TLS-shaped TCP), stealth-ws (WebSocket), faketcp, icmp",
   "Reverse-L4": "Layer 4 — port forwarding (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)",
+  "L3-Direct": "L3 Kernel — xgre, xgre-ip, 6to4, ipip, gre, ip6gre",
+  "L2-Direct": "L2 Kernel (MikroTik) — eoip, vxlan",
+  "UDP-Crypt": "UDP-Crypt — wg-stealth, rudp-fec",
 };
 function isL4(name) { const mm = methods.find(x => x.Name === name); return !!(mm && (mm.Family === "Reverse-L4" || mm.Name === "game-kcp")); }
 let limitMode = "none";
@@ -2076,48 +2130,74 @@ function setLimitMode(mode) {
 }
 document.querySelectorAll("[data-lim]").forEach(b => { b.onclick = () => setLimitMode(b.dataset.lim); });
 
+function setProfile(prof) {
+  tunnelProfile = (prof === "turbo" || prof === "hyper") ? prof : "eco";
+  document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === tunnelProfile)));
+  syncForm();
+}
+document.querySelectorAll("[data-prof]").forEach(b => { b.onclick = () => setProfile(b.dataset.prof); });
+
+function profileHintText(m, rev, l4, prof) {
+  if (!rev && m && supportsFRP(m)) {
+    if (prof === "hyper") return "16-Stream BBR TCP Carrier · 512 KiB buffers + SO_BUSY_POLL";
+    if (prof === "turbo") return "8-Stream BBR TCP Carrier · 256 KiB buffers (Reverse-grade Direct speed)";
+    return "Pure raw kernel tunnel · lowest CPU/RAM, MikroTik-compatible";
+  }
+  if (l4) {
+    if (prof === "hyper") return "32-conn pool / 8 mux / 128 MiB smux + SO_BUSY_POLL · ultra speed";
+    if (prof === "turbo") return "16-conn pool / 4 mux / 64 MiB smux · balanced high speed";
+    return "8-conn pool / 2 mux / 16 MiB smux · lowest RAM & CPU";
+  }
+  if ((m && isStreamStealth(m.Name)) || (rev && m && supportsFRP(m))) {
+    if (prof === "hyper") return "16 parallel encrypted streams · 512 KiB buffers + SO_BUSY_POLL";
+    if (prof === "turbo") return "8 parallel encrypted streams · 256 KiB buffers";
+    return "4 parallel encrypted streams · 128 KiB buffers · lowest footprint";
+  }
+  if (prof === "hyper") return "Max workers · 32 MiB socket buffers · txq 20k + SO_BUSY_POLL";
+  if (prof === "turbo") return "Balanced multi-worker · 16 MiB socket buffers · txq 10k";
+  return "1-2 workers · 4 MiB socket buffers · txq 4k · lowest CPU/RAM";
+}
+
 function renderProtoPicker() {
   const tabsBox = $("proto-tabs"), grid = $("proto-grid");
   if (!tabsBox || !grid || !methods.length) return;
   const rev = $("f-reverse").value === "1";
   const curMethod = $("f-method").value || "gre";
-  const curTurbo = !rev && $("f-carrier").checked;
   const curSpec = methods.find(x => x.Name === curMethod);
   const curL4 = isL4(curMethod);
   const curGame = !!(curSpec && curSpec.Family === "Gaming");
+  const curCarrier = !rev && curSpec && supportsFRP(curSpec) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
 
   const dispName = rev
-    ? (curL4 ? (curGame ? "rev+" + curMethod : curMethod) : (curSpec && (curSpec.Family === "UDP-Crypt" || curSpec.Family === "Stealth" || curSpec.Family === "Gaming" || curMethod === "wireguard") ? "rev+" + curMethod : "frp+" + curMethod))
-    : (curL4 ? "direct+" + curMethod : (curTurbo ? "turbo+" + curMethod : curMethod));
-  if ($("proto-cur-name")) $("proto-cur-name").textContent = dispName;
+    ? (curL4 ? (curGame ? "rev+" + curMethod : curMethod) : (isCryptMethod(curSpec) || curMethod === "wireguard" ? "rev+" + curMethod : "frp+" + curMethod))
+    : (curL4 ? "direct+" + curMethod : curMethod);
+  if ($("proto-cur-name")) $("proto-cur-name").textContent = dispName + " [" + tunnelProfile.toUpperCase() + "]";
   if ($("proto-cur-desc")) $("proto-cur-desc").textContent = curSpec ? "— " + (curSpec.Summary || curSpec.Title) : "";
   if ($("proto-cur-badge")) {
-    $("proto-cur-badge").textContent = curGame ? (rev ? "GAMING · REVERSE" : "GAMING · DIRECT") : (rev ? "1 · REVERSE" : (curTurbo || curL4 ? "2 · FAST DIRECT" : "2 · DIRECT"));
-    $("proto-cur-badge").className = "proto-tag " + (curGame ? "game" : (rev ? "v2" : "fast"));
+    $("proto-cur-badge").textContent = curSpec && curSpec.Legacy ? "LEGACY" : curGame ? (rev ? "GAMING · REVERSE" : "GAMING · DIRECT") : (rev ? "1 · REVERSE" : (curCarrier || curL4 ? "2 · DIRECT · " + tunnelProfile.toUpperCase() : "2 · DIRECT"));
+    $("proto-cur-badge").className = "proto-tag " + (curSpec && curSpec.Legacy ? "legacy" : curGame ? "game" : (rev ? "v2" : "fast"));
   }
 
   const tabDefs = rev
     ? [
         ["all", "All Reverse"],
-        ["Gaming", "🎮 Gaming (Reverse)"],
         ["Reverse-L4", "Layer 4 (Port Fwd)"],
+        ["Gaming", "🎮 Gaming"],
+        ["Stealth", "Stealth (TCP / WS / Raw)"],
         ["L3-Direct", "L3 Kernel (frp+)"],
-        ["L2-Direct", "L2 Kernel (frp+)"],
-        ["UDP-Crypt", "UDP-Crypt (rev+)"],
-        ["Stealth", "Stealth (rev+)"]
+        ["UDP-Crypt", "UDP-Crypt (rev+)"]
       ]
     : [
-        ["fast", "⚡ Fast Direct (Turbo & L4)"],
-        ["Gaming", "🎮 Gaming (Direct)"],
-        ["L3-Direct", "L3 Kernel (xGRE / GRE / WG)"],
-        ["L2-Direct", "L2 Kernel (EoIP / VXLAN)"],
+        ["all", "All Direct"],
         ["Reverse-L4", "Direct Layer 4"],
-        ["UDP-Crypt", "UDP-Crypt"],
-        ["Stealth", "Stealth"],
-        ["all", "All Direct"]
+        ["Gaming", "🎮 Gaming"],
+        ["Stealth", "Stealth (TCP / WS / Raw)"],
+        ["L3-Direct", "L3 Kernel (xGRE / GRE)"],
+        ["L2-Direct", "L2 Kernel (MikroTik)"],
+        ["UDP-Crypt", "UDP-Crypt"]
       ];
   if (!tabDefs.some(t => t[0] === protoFamFilter)) {
-    protoFamFilter = rev ? "all" : "fast";
+    protoFamFilter = "all";
   }
   tabsBox.replaceChildren();
   for (const [id, label] of tabDefs) {
@@ -2129,44 +2209,30 @@ function renderProtoPicker() {
   }
 
   const q = protoSearchQuery.trim().toLowerCase();
-  const gameBadge = name => name === "game-udp" ? "LOWEST PING" : name === "game-fec" ? "FEC LOSS-PROOF" : name === "game-dup" ? "ANTI-SPIKE" : "L4 KCP GAME";
+  const gameBadge = name => name === "game-udp" ? "LOWEST PING" : name === "game-fec" ? "FEC LOSS-PROOF" : name === "game-dup" ? "ANTI-SPIKE" : name === "game-dtls" ? "DTLS 1.3 ANTI-DPI" : "L4 KCP GAME";
   const entries = [];
   for (const m of methods) {
-    if (rev && m.IPv6Underlay) continue;
+    const isEditingThisLegacy = m.Legacy && editingLegacyMethod === m.Name;
+    if (m.Legacy && !isEditingThisLegacy) continue;
+    if (rev && !isEditingThisLegacy) {
+      if (m.IPv6Underlay) continue;
+      if (!isL4(m.Name) && !isCryptMethod(m) && !supportsFRP(m)) continue;
+    }
+    if (protoFamFilter !== "all" && m.Family !== protoFamFilter && !isEditingThisLegacy) continue;
     const mL4 = isL4(m.Name);
     const mGame = m.Family === "Gaming";
-    const canTurbo = !rev && !mL4 && (m.Family === "L3-Direct" || m.Family === "L2-Direct") && !m.IPv6Underlay;
-    if (!rev && protoFamFilter === "fast" && !q) {
-      if (mGame) {
-        entries.push({ m, turbo: false, code: mL4 ? "direct+" + m.Name : m.Name, badge: gameBadge(m.Name), badgeCls: "game", desc: m.Summary || m.Title });
-        continue;
-      }
-      if (m.Name === "xgre" || m.Name === "xgre-ip") {
-        entries.push({ m, turbo: false, code: m.Name, badge: "NEW 2.0", badgeCls: "v2", desc: m.Title });
-      }
-      if (canTurbo) {
-        entries.push({ m, turbo: true, code: "turbo+" + m.Name, badge: "8x BBR", badgeCls: "fast", desc: "8-stream BBR TCP Turbo · " + m.Title });
-      } else if (mL4) {
-        entries.push({ m, turbo: false, code: "direct+" + m.Name, badge: "DIRECT L4", badgeCls: "fast", desc: "Zero-copy splice Direct L4 · " + m.Title });
-      }
-      continue;
-    }
-    if (protoFamFilter !== "all" && protoFamFilter !== "fast" && m.Family !== protoFamFilter) continue;
     const code = rev
-      ? (mGame ? "rev+" + m.Name : (mL4 ? m.Name : (m.Family === "UDP-Crypt" || m.Family === "Stealth" || m.Name === "wireguard" ? "rev+" + m.Name : "frp+" + m.Name)))
+      ? (mGame ? "rev+" + m.Name : (mL4 ? m.Name : (isCryptMethod(m) || m.Name === "wireguard" ? "rev+" + m.Name : "frp+" + m.Name)))
       : (mL4 ? "direct+" + m.Name : m.Name);
-    const badge = mGame ? gameBadge(m.Name) : (m.Name === "xgre" || m.Name === "xgre-ip") ? "NEW xGRE" : mL4 && !rev ? "DIRECT L4" : V2_METHOD_SET.has(m.Name) ? "NEW 2.0" : m.MikroTik ? "MIKROTIK" : m.Family.replace("Reverse-", "").replace("-Direct", "");
-    const badgeCls = mGame ? "game" : (m.Name === "xgre" || m.Name === "xgre-ip" || (mL4 && !rev)) ? "fast" : V2_METHOD_SET.has(m.Name) ? "v2" : "";
-    entries.push({ m, turbo: false, code, badge, badgeCls, desc: m.Summary || m.Title });
-    if (!rev && canTurbo && (protoFamFilter === "all" || q)) {
-      entries.push({ m, turbo: true, code: "turbo+" + m.Name, badge: "8x BBR", badgeCls: "fast", desc: "8-stream BBR TCP Turbo · " + m.Title });
-    }
+    const badge = m.Legacy ? "LEGACY" : mGame ? gameBadge(m.Name) : isStreamStealth(m.Name) ? "STEALTH" : (m.Name === "xgre" || m.Name === "xgre-ip") ? "xGRE" : mL4 && !rev ? "DIRECT L4" : V2_METHOD_SET.has(m.Name) ? "MODERN" : m.MikroTik ? "MIKROTIK" : m.Family.replace("Reverse-", "").replace("-Direct", "");
+    const badgeCls = m.Legacy ? "legacy" : mGame ? "game" : (isStreamStealth(m.Name) || m.Name === "xgre" || m.Name === "xgre-ip" || (mL4 && !rev)) ? "fast" : V2_METHOD_SET.has(m.Name) ? "v2" : "";
+    entries.push({ m, code, badge, badgeCls, desc: m.Summary || m.Title });
   }
 
   const filtered = entries.filter(e => !q || [e.code, e.m.Name, e.m.Family, e.desc, e.badge].join(" ").toLowerCase().includes(q));
   grid.replaceChildren();
   for (const item of filtered) {
-    const selected = item.m.Name === curMethod && (rev || (item.m.Family === "Reverse-L4") || item.turbo === curTurbo);
+    const selected = item.m.Name === curMethod;
     const card = el("button", "proto-card");
     card.type = "button";
     card.setAttribute("role", "option");
@@ -2177,7 +2243,6 @@ function renderProtoPicker() {
     card.append(head, desc);
     card.onclick = () => {
       $("f-method").value = item.m.Name;
-      $("f-carrier").checked = !rev && !!item.turbo;
       syncForm();
     };
     grid.appendChild(card);
@@ -2186,7 +2251,7 @@ function renderProtoPicker() {
 document.querySelectorAll("[data-tmode]").forEach(b => {
   b.onclick = () => {
     $("f-reverse").value = b.dataset.tmode;
-    protoFamFilter = b.dataset.tmode === "1" ? "all" : "fast";
+    protoFamFilter = "all";
     syncForm();
   };
 });
@@ -2204,63 +2269,69 @@ function syncForm() {
   document.querySelectorAll("[data-tmode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.tmode === $("f-reverse").value)));
   for (const o of $("f-method").options) {
     const mm = methods.find(x => x.Name === o.value);
-    o.hidden = o.disabled = rev && !!(mm && mm.IPv6Underlay);
+    const keepLegacy = !!(mm && mm.Legacy && editingLegacyMethod === mm.Name);
+    const disallowRev = rev && !keepLegacy && mm && (mm.IPv6Underlay || (!isL4(mm.Name) && !isCryptMethod(mm) && !supportsFRP(mm)));
+    o.hidden = o.disabled = (!!(mm && mm.Legacy) && !keepLegacy) || disallowRev;
   }
-  if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) { $("f-method").value = "gre"; return syncForm(); }
+  if ($("f-method").selectedOptions[0] && $("f-method").selectedOptions[0].disabled) {
+    const first = Array.from($("f-method").options).find(o => !o.disabled);
+    if (first) { $("f-method").value = first.value; return syncForm(); }
+  }
   for (const o of $("f-backup").options) {
     const mm = methods.find(x => x.Name === o.value);
-    // The backup is of the same kind: port forwarding for a layer-4 tunnel, packets otherwise.
-    o.hidden = o.disabled = !!o.value && (o.value === $("f-method").value || (rev && !!(mm && mm.IPv6Underlay)) || isL4(o.value) !== l4);
+    o.hidden = o.disabled = !!o.value && (o.value === $("f-method").value || !!(mm && mm.Legacy) || (rev && !!(mm && (mm.IPv6Underlay || (!isL4(mm.Name) && !isCryptMethod(mm) && !supportsFRP(mm))))) || isL4(o.value) !== l4);
   }
   if ($("f-backup").selectedOptions[0] && $("f-backup").selectedOptions[0].disabled) $("f-backup").value = "";
   $("bport-wrap").hidden = !$("f-backup").value;
   const m = methods.find(x => x.Name === $("f-method").value);
+  const method = $("f-method").value;
+  const carrierOn = !rev && !l4 && m && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
   const iran = $("f-role").value === "iran", revIran = rev && iran;
-  const passiveKharej = !rev && !iran && (l4 || $("f-carrier").checked);
+  const passiveKharej = !rev && !iran && (l4 || carrierOn || isStreamStealth(method));
   $("f-remote").required = !(revIran || passiveKharej);
-  // Kharej is built by hand here as easily as from a link: the secret moves
-  // out of Advanced, and the port is asked for where it must match Iran's.
   $("kharej-hint").hidden = iran;
   ($("f-role").value === "kharej" ? $("token-slot") : $("adv-stack")).prepend($("token-wrap"));
   $("f-token").placeholder = iran ? "empty = random; required on kharej without a link" : "the secret the Iran server shows for this tunnel";
   $("f-remote-l").textContent = iran ? "Kharej server IP" : "Iran server IP";
-  $("l4-wrap").hidden = !l4;
-  $("sni-wrap").hidden = !(l4 && $("f-method").value.startsWith("ws"));
+  const showSNI = (l4 && method.startsWith("ws")) || method === "stealth-ws";
+  $("l4-wrap").hidden = !(l4 || showSNI);
+  if ($("l4port-wrap")) $("l4port-wrap").hidden = !l4;
+  $("sni-wrap").hidden = !showSNI;
   $("f-l4port").required = l4 && !iran;
   $("f-l4port").placeholder = iran ? "3080 + index" : "the Iran tunnel port";
-  const canTurbo = !rev && !l4 && m && (m.Family === "L3-Direct" || m.Family === "L2-Direct") && !m.IPv6Underlay;
-  $("turbo-wrap").hidden = !canTurbo;
-  if (!canTurbo) $("f-carrier").checked = false;
-  const method = $("f-method").value;
   $("port-wrap").hidden = l4 || method === "icmp";
-  $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : $("f-carrier").checked ? "Turbo Carrier TCP Port" : "Port (UDP or Reverse TCP)";
+  $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : isStreamStealth(method) ? "Stealth TCP/WS Port" : carrierOn ? "BBR Carrier TCP Port (" + tunnelProfile.toUpperCase() + ")" : "Port (UDP or Reverse TCP)";
   $("f-l4port-l").textContent = method === "udp" || method === "udpmux" || method === "game-kcp" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;
   $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";
-  $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes($("f-method").value);
-  $("pad-wrap").hidden = !(m && (m.Family === "UDP-Crypt" || m.Family === "Stealth" || m.Family === "Gaming") && !l4);
+  $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes(method);
+  $("pad-wrap").hidden = !(m && isCryptMethod(m) && !l4);
   $("lanes-wrap").hidden = !(m && m.SupportsLanes);
   $("tid-wrap").hidden = !(m && ["eoip", "l2tpv3"].includes(m.Name));
-  if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
+  if ($("prof-hint")) $("prof-hint").textContent = profileHintText(m, rev, l4, tunnelProfile);
+  if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : passiveKharej ? "Optional (Iran dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
   renderProtoPicker();
 }
 $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
 $("f-reverse").onchange = syncForm;
 $("f-backup").onchange = syncForm;
-$("f-carrier").onchange = syncForm;
 
 function openCreate(t) {
   const form = $("create-form");
   form.reset(); form.saved = null; form.edit = t ? t.name : null;
+  editingLegacyMethod = "";
   $("create-error").hidden = true;
   $("f-name").disabled = !!t;
   $("new-title").textContent = t ? "Edit " + t.name : "New tunnel";
   form.querySelector('[type="submit"]').textContent = t ? "Save and restart" : "Create and start";
   if (t) {
+    const mm = methods.find(x => x.Name === t.method);
+    if (mm && mm.Legacy) editingLegacyMethod = mm.Name;
     $("f-role").value = t.role; $("f-reverse").value = t.reverse ? "1" : "0"; $("f-method").value = t.method;
-    $("f-carrier").checked = !!t.carrier;
+    tunnelProfile = (t.profile === "turbo" || t.profile === "hyper") ? t.profile : (t.carrier && !t.reverse ? "turbo" : "eco");
+    document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === tunnelProfile)));
     protoFamFilter = "all";
     $("f-remote").value = t.remote_ip === "0.0.0.0" || t.remote_ip === "::" ? "" : (t.remote_ip || "");
     $("f-local").value = t.local_ip || ""; $("f-name").value = t.name;
@@ -2275,6 +2346,8 @@ function openCreate(t) {
     $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
   } else {
     $("f-reverse").value = "1";
+    tunnelProfile = "eco";
+    document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === "eco")));
     setLimitMode("none");
     protoFamFilter = "all";
     if ($("proto-search")) $("proto-search").value = "";
@@ -2291,6 +2364,7 @@ function openImport() {
   openRouteDialog("dlg-import");
 }
 function isPassivePeer(t) {
+  if (isStreamStealth(t.method)) return t.reverse ? t.role === "iran" : t.role === "kharej";
   return !!((t.reverse && t.role === "iran") || ((t.direct_l4 || t.carrier) && t.role === "kharej"));
 }
 function openPeer(t) {
@@ -2345,14 +2419,29 @@ $("peer-form").addEventListener("submit", async e => {
     form.busy = false; btn.disabled = false; btn.removeAttribute("aria-busy");
   }
 });
-function showLink(name, link, mikrotik, token, routed) {
+function buildInstallCmd(link, setupCmd) {
+  if (setupCmd) return setupCmd;
+  if (typeof link === "string" && /^ctunnel:\/\/[A-Za-z0-9_-]{1,8192}$/.test(link)) {
+    return "curl -fsSL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh | sudo bash -s -- --apply-link '" + link + "'";
+  }
+  return "";
+}
+function showLink(name, link, mikrotik, token, routed, setupCmd) {
+  const cmd = buildInstallCmd(link, setupCmd);
   $("d-title").textContent = "Setup link for " + name;
+  $("d-cmd").textContent = cmd;
+  $("d-cmd-wrap").hidden = !cmd;
+  $("d-copy-cmd").hidden = !cmd;
   $("d-token").textContent = token || "";
   $("d-link").textContent = link || "";
   $("d-mt").textContent = mikrotik || "";
   $("d-mt-wrap").hidden = !mikrotik;
   if (routed) openRouteDialog("dlg-link"); else $("dlg-link").showModal();
 }
+$("d-copy-cmd").onclick = async () => {
+  try { await copyText($("d-cmd").textContent); toast("Install command copied", true); }
+  catch (_) { toast("Copy failed: select the command and copy it by hand"); }
+};
 $("d-copy").onclick = async () => {
   try { await copyText($("d-link").textContent); toast("Setup link copied", true); }
   catch (_) { toast("Copy failed: select the link and copy it by hand"); }
@@ -2378,7 +2467,7 @@ async function saveTunnel(form, submitter, body, endpoint, dialog, errorID) {
     $(dialog).close(); form.reset(); form.saved = null; form.edit = null;
     $("f-name").disabled = false;
     syncForm(); toast(editing ? "Tunnel saved and restarted" : "Tunnel created and started", true);
-    if (result.setup_link) showLink(result.name, result.setup_link, result.mikrotik, result.token);
+    if (result.setup_link) showLink(result.name, result.setup_link, result.mikrotik, result.token, false, result.setup_cmd);
   } catch (err) { formError(errorID, err.message); toast(err.message); await refresh(); }
   finally {
     form.busy = false; submitter.disabled = false; submitter.removeAttribute("aria-busy");
@@ -2389,18 +2478,22 @@ $("create-form").addEventListener("submit", async e => {
   e.preventDefault();
   const iran = $("f-role").value === "iran";
   const a = $("f-tun-iran").value.trim(), b = $("f-tun-kharej").value.trim();
-  const rev = $("f-reverse").value === "1", l4 = isL4($("f-method").value);
+  const method = $("f-method").value;
+  const m = methods.find(x => x.Name === method);
+  const rev = $("f-reverse").value === "1", l4 = isL4(method);
+  const carrierOn = !rev && !l4 && m && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
   const body = {
-    role: $("f-role").value, method: $("f-method").value, reverse: rev,
-    carrier: !rev && !l4 && $("f-carrier").checked,
+    role: $("f-role").value, method, reverse: rev,
+    carrier: carrierOn,
     direct_l4: !rev && l4,
+    profile: tunnelProfile,
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,
-    index: num("f-index"), port: isL4($("f-method").value) ? num("f-l4port") : num("f-port"), mtu: num("f-mtu"),
+    index: num("f-index"), port: l4 ? num("f-l4port") : num("f-port"), mtu: num("f-mtu"),
     rate_mbps: (limitMode === "rate" || limitMode === "both") ? num("f-rate") : 0,
     quota_gb: (limitMode === "quota" || limitMode === "both") ? (parseFloat($("f-quota").value) || 0) : 0,
     lanes: num("f-lanes"), tunnel_id: num("f-tid"), padding: num("f-padding"),
-    sni: isL4($("f-method").value) ? $("f-sni").value.trim() : "",
+    sni: (l4 || method === "stealth-ws") ? $("f-sni").value.trim() : "",
     ports: iran ? $("f-ports").value.split(/[\s,]+/).filter(Boolean) : [],
     backup_method: $("f-backup").value, backup_port: $("f-backup").value ? num("f-bport") : 0
   };
@@ -3319,7 +3412,7 @@ function deployFromRow(r) {
   $("f-role").value = $("t-role").value || "iran";
   $("f-reverse").value = rev ? "1" : "0";
   $("f-method").value = base;
-  $("f-carrier").checked = !rev && !l4 && (r.method || "").startsWith("turbo+");
+  setProfile((!rev && !l4 && (r.method || "").startsWith("turbo+")) ? "turbo" : "eco");
   const linkVal = $("t-link").value.trim();
   const hostMatch = /^ctunnel-test:\/\/([^:/?#]+)/i.exec(linkVal);
   if (hostMatch && hostMatch[1]) $("f-remote").value = hostMatch[1];
@@ -3511,7 +3604,7 @@ async function deployBest(mode) {
   const r = await run(btn, () => api("/api/deploy-best", { method: "POST", timeout: 120000, body: JSON.stringify({ test_id: id, token: $("t-secret").value.trim() }) }), "Tunnel deployed");
   if (r && r.name) {
     btn.textContent = r.ok ? "Deployed" : "Saved — restart it from its card";
-    if (r.ok) showLink(r.name, r.setup_link, r.mikrotik, r.token);
+    if (r.ok) showLink(r.name, r.setup_link, r.mikrotik, r.token, false, r.setup_cmd);
   }
 }
 $("t-mode-iran").onclick = () => setTestMode("iran");

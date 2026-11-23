@@ -27,6 +27,7 @@ type udpTunnel struct {
 	tx, rx *crypto.FastAEAD
 	framer framer
 	peer   atomic.Pointer[net.UDPAddr]
+	peerAP atomic.Pointer[netip.AddrPort]
 	fec    bool
 	gaming bool
 	dup    bool
@@ -42,6 +43,33 @@ type udpTunnel struct {
 	readers  []func() (carrier, error)
 }
 
+func (t *udpTunnel) storePeer(ap netip.AddrPort) {
+	ap = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+	cp := ap
+	t.peerAP.Store(&cp)
+	t.peer.Store(net.UDPAddrFromAddrPort(ap))
+}
+
+func (t *udpTunnel) loadPeerAP() (netip.AddrPort, bool) {
+	if p := t.peerAP.Load(); p != nil {
+		return *p, true
+	}
+	if u := t.peer.Load(); u != nil {
+		return addrPort(u), true
+	}
+	return netip.AddrPort{}, false
+}
+
+// isGamingKind reports whether kind is a low-latency L3 Gaming UDP transport.
+func isGamingKind(kind string) bool {
+	switch kind {
+	case string(dpi.ProfileGameUDP), string(dpi.ProfileGameFEC), string(dpi.ProfileGameDUP),
+		string(dpi.ProfileGameDTLS), string(dpi.ProfileDTLS13):
+		return true
+	}
+	return false
+}
+
 // stealth reports whether kind is one of the carriers that are not plain UDP.
 func stealth(kind string) bool { return kind == "faketcp" || kind == "icmp" }
 
@@ -49,7 +77,7 @@ func runUDPCrypt(cfg config) error {
 	t := &udpTunnel{
 		cfg:    cfg,
 		fec:    cfg.kind == string(dpi.ProfileRUDPFEC) || cfg.kind == string(dpi.ProfileGameFEC),
-		gaming: cfg.kind == string(dpi.ProfileGameUDP) || cfg.kind == string(dpi.ProfileGameFEC) || cfg.kind == string(dpi.ProfileGameDUP),
+		gaming: isGamingKind(cfg.kind),
 		dup:    cfg.kind == string(dpi.ProfileGameDUP),
 	}
 	peerRole := catalog.PeerRole(cfg.role)
@@ -81,7 +109,9 @@ func runUDPCrypt(cfg config) error {
 		if cfg.kind == "icmp" {
 			port = int(icmpID(cfg.secret))
 		}
-		t.peer.Store(&net.UDPAddr{IP: net.ParseIP(cfg.remoteIP).To4(), Port: port})
+		if addr, err := netip.ParseAddr(cfg.remoteIP); err == nil {
+			t.storePeer(netip.AddrPortFrom(addr.Unmap(), uint16(port)))
+		}
 	}
 
 	closeCarrier, err := t.openCarriers(dialer)
@@ -91,7 +121,7 @@ func runUDPCrypt(cfg config) error {
 	stopOnSignal(closeCarrier)
 	defer closeCarrier()
 
-	workers := workerCount(cfg.kind)
+	workers := workerCount(cfg.kind, cfg.profile)
 	batched := batching && !t.fec && !t.gaming
 	devs, closeDevs, err := openDevices(cfg, workers, batched)
 	if err == nil && batched {
@@ -152,9 +182,11 @@ func (t *udpTunnel) openCarriers(dialer bool) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("listen udp :%d: %w", cfg.port, err)
 	}
-	forceBuffers(t.conn, socketBuffer)
+	forceBuffers(t.conn, socketBufferFor(cfg.profile))
 	if t.gaming {
 		applyGamingQoS(t.conn)
+	} else if cfg.profile == catalog.ProfileHyper {
+		applyUDPBusyPoll(t.conn)
 	}
 	conn := t.conn
 	t.openSend = func() (carrier, error) { return newUDPBatch(conn) }
@@ -176,27 +208,27 @@ func (t *udpTunnel) deviceToNet(dev *os.File) error {
 			return fmt.Errorf("read %s: %w", t.cfg.dev, err)
 		}
 		ct := t.tx.Seal(out[hlen:hlen], pkt[:n], t.cfg.padding)
-		peer := t.peer.Load()
-		if peer == nil {
+		dst, ok := t.loadPeerAP()
+		if !ok {
 			continue
 		}
 		if !t.fec {
 			t.framer.PutHeader(out[:hlen], len(ct))
 			pktOut := out[:hlen+len(ct)]
-			_, _ = t.conn.WriteToUDP(pktOut, peer)
+			_, _ = t.conn.WriteToUDPAddrPort(pktOut, dst)
 			if t.dup && len(ct) <= gameDupMaxPayload {
 				// Duplicate small gaming frames immediately with the same sequence;
 				// receiver deduplicates in O(1) so the first arriving copy wins.
-				_, _ = t.conn.WriteToUDP(pktOut, peer)
+				_, _ = t.conn.WriteToUDPAddrPort(pktOut, dst)
 			}
 			continue
 		}
 		group, shard := enc.Next()
 		dpi.PutRUDPHeader(out[:8], group, shard, len(ct))
-		_, _ = t.conn.WriteToUDP(out[:8+len(ct)], peer)
+		_, _ = t.conn.WriteToUDPAddrPort(out[:8+len(ct)], dst)
 		if par, pg := enc.Commit(ct, parity[8:]); par != nil {
 			dpi.PutRUDPHeader(parity[:8], pg, dpi.ShardParity, len(par))
-			_, _ = t.conn.WriteToUDP(parity[:8+len(par)], peer)
+			_, _ = t.conn.WriteToUDPAddrPort(parity[:8+len(par)], dst)
 		}
 	}
 }
@@ -437,10 +469,10 @@ func (t *udpTunnel) open(ct []byte, src netip.AddrPort, plainBuf []byte) []byte 
 		return nil
 	}
 	src = netip.AddrPortFrom(src.Addr().Unmap(), src.Port())
-	cur := t.peer.Load()
-	if src.IsValid() && (cur == nil || addrPort(cur) != src) {
+	cur, hasCur := t.loadPeerAP()
+	if src.IsValid() && (!hasCur || cur != src) {
 		log.Printf("peer address active: %s", src)
-		t.peer.Store(net.UDPAddrFromAddrPort(src))
+		t.storePeer(src)
 	}
 	return plain
 }

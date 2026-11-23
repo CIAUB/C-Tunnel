@@ -27,9 +27,9 @@ func runRawBridge(cfg config) error {
 	}
 	defer pc.Close()
 	conn := pc.(*net.IPConn)
-	forceBuffers(conn, socketBuffer)
+	forceBuffers(conn, socketBufferFor(cfg.profile))
 
-	workers := workerCount(cfg.kind)
+	workers := workerCount(cfg.kind, cfg.profile)
 	devs, closeDevs, err := openDevices(cfg, workers, false)
 	if err != nil {
 		return err

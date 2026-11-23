@@ -103,6 +103,40 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
             with self.subTest(args=args):
                 self.assertNotEqual(self.installer_version(args=args).returncode, 0)
         self.assertNotEqual(self.installer_version(launcher='v0.2.1/invalid').returncode, 0)
+    def test_installer_apply_link_validation_and_menu_skip(self):
+        script = (ROOT/'install.sh').read_text()
+        helper = script[script.index('resolve_installer_version() {'):
+                        script.index('\nresolve_installer_version "$0"')]
+        code = ('set -euo pipefail\ndie() { echo "$*" >&2; exit 1; }\n' + helper +
+                '\nresolve_installer_version "$0" "$INSTALLER_SOURCE" "$@"\nprintf "%s|%s\\n" "$VERSION" "$APPLY_LINK"\n')
+        base_env = dict(self.env, INSTALLER_SOURCE='')
+        base_env.pop('CTUNNEL_VERSION', None)
+        base_env.pop('CTUNNEL_APPLY_LINK', None)
+        # Valid forms: --apply-link <val>, --apply-link=<val>, combined with version, and env var.
+        r = subprocess.run(['bash', '-c', code, 'bash', '--apply-link', 'ctunnel://AbC_123-xyZ'], env=base_env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'latest|ctunnel://AbC_123-xyZ')
+        r = subprocess.run(['bash', '-c', code, 'bash', 'v2.0.1', '--apply-link=ctunnel://AbC_123'], env=base_env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'v2.0.1|ctunnel://AbC_123')
+        r = subprocess.run(['bash', '-c', code, 'bash'], env=dict(base_env, CTUNNEL_APPLY_LINK='ctunnel://EnvLink_1'), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'latest|ctunnel://EnvLink_1')
+        # Malicious or malformed setup links must be rejected before installation.
+        for bad_args in (('--apply-link',), ('--apply-link', ''), ('--apply-link', 'http://evil/x'),
+                         ('--apply-link', "ctunnel://abc';id"), ('--apply-link', 'ctunnel://abc def'),
+                         ('--apply-link', 'ctunnel://../etc/passwd')):
+            with self.subTest(bad_args=bad_args):
+                res = subprocess.run(['bash', '-c', code, 'bash', *bad_args], env=base_env, capture_output=True, text=True)
+                self.assertNotEqual(res.returncode, 0)
+        # Interactive menu must be skipped when APPLY_LINK is set.
+        menu_fn = script[script.index('launch_menu() {'):script.index('\nlaunch_menu\n')]
+        marker = self.d/'apply-menu-opened'
+        r = subprocess.run(['bash', '-c', 'set -euo pipefail\n' + menu_fn + '\nlaunch_menu\n'],
+                           env=dict(self.env, APPLY_LINK='ctunnel://AbC_123', WORK=str(self.d)),
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(marker.exists())
     def installer_menu(self, interactive=True, disabled=False):
         import pty
         import shlex

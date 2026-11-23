@@ -35,3 +35,17 @@ func tuneCarrierTCP(c net.Conn) {
 		})
 	}
 }
+
+// applyBusyPoll enables low-latency kernel NAPI busy polling (50µs) on HYPER
+// sockets; ignored silently when unsupported or unprivileged.
+func applyBusyPoll(c net.Conn) {
+	tc, ok := c.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	if raw, err := tc.SyscallConn(); err == nil {
+		_ = raw.Control(func(fd uintptr) {
+			_ = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_BUSY_POLL, 50)
+		})
+	}
+}

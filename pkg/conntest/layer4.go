@@ -145,6 +145,7 @@ func (r *Responder) startL4(transport string, target int) error {
 		Transport: transport,
 		Port:      int(r.l4Port.Load()),
 		Token:     l4Token(r.token),
+		Profile:   catalog.ProfileTurbo,
 		Forwards:  []l4.Forward{{Listen: fwd, Target: target}},
 	}
 	go func() {
@@ -341,6 +342,7 @@ func (s *session) measureL4Live(ctx context.Context, l Link, transport string, o
 			Port:      l.L4Port,
 			RemoteIP:  l.Host,
 			Token:     l4Token(s.token),
+			Profile:   catalog.ProfileTurbo,
 			Forwards:  []l4.Forward{{Listen: target, Target: target}},
 		}, &l4.Stats{})
 	}()

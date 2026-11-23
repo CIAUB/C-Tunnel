@@ -269,13 +269,17 @@ func (n *Notifier) sender(ctx context.Context) {
 		if bot == nil || len(targets) == 0 {
 			continue
 		}
+		if n.premiumEmojiEligible(bot) {
+			n.ensureEmojiPack(ctx, bot)
+		}
+		v := n.upgradeView(View{RichHTML: m.richHTML, Text: m.text, Rows: m.rows})
 		var lastErr error
 		sentAny := false
 		for _, chat := range targets {
 			var err error
 			for try := 0; try < 4; try++ {
 				sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-				_, err = bot.SendView(sctx, chat, View{RichHTML: m.richHTML, Text: m.text, Rows: m.rows})
+				_, err = bot.SendView(sctx, chat, v)
 				cancel()
 				if err == nil {
 					sentAny = true
@@ -402,9 +406,9 @@ func (n *Notifier) Failover(tc catalog.TunnelConfig, backup bool, why string) {
 		return
 	}
 	lang := n.lang()
-	to, icon := tc.Method, "↩️"
+	to, icon := tc.Method, n.em("return")
 	if backup {
-		to, icon = tc.BackupMethod, "🔀"
+		to, icon = tc.BackupMethod, n.em("switch")
 	}
 	n.send(tr(lang, "switched", icon, esc(tc.Name), esc(to), esc(whyIn(lang, why))), nil)
 }
@@ -497,7 +501,7 @@ func (n *Notifier) report(st *catalog.Store, s *state) View {
 	// 1. Standard HTML fallback (<pre> box table + Server Total + Admins).
 	var fb strings.Builder
 	fb.WriteString(n.em("report") + " " + tr(lang, "report.headTitle", esc(n.Host)) + "\n")
-	fb.WriteString("🗓 " + nowStr + "\n")
+	fb.WriteString(n.em("calendar") + " " + nowStr + "\n")
 	fb.WriteString(tr(lang, "rule") + "\n")
 	if len(rows) == 0 {
 		fb.WriteString(tr(lang, "noTunnels") + "\n")

@@ -92,7 +92,7 @@ func chooseBestMode(rows []conntest.Result, mode string) (conntest.Result, bool)
 		}
 		base := stripTestMethodPrefix(r.Method)
 		m, ok := catalog.LookupMethod(base)
-		if !ok || m.Name != base {
+		if !ok || m.Legacy || (m.Name != base && base != "dtls-1.3") {
 			continue
 		}
 		score := r.Total() / (1 + (r.RTTms+r.JitterMs)/20)
@@ -182,11 +182,16 @@ func (s *Server) handleLinkTest(w http.ResponseWriter, r *http.Request) {
 		}
 		base := stripTestMethodPrefix(best.Method)
 		m, _ := catalog.LookupMethod(base)
+		prof := catalog.ProfileEco
+		if best.Mode == "DIRECT" && strings.HasPrefix(best.Method, "turbo+") {
+			prof = catalog.ProfileTurbo
+		}
 		tc := catalog.TunnelConfig{
 			Role: req.Role, Method: base,
 			Reverse:  best.Mode == "REVERSE",
 			Carrier:  best.Mode == "DIRECT" && strings.HasPrefix(best.Method, "turbo+"),
 			DirectL4: best.Mode == "DIRECT" && m.L4(),
+			Profile:  prof,
 			LocalIP:  req.LocalIP, RemoteIP: link.Host, Token: req.Token, Ports: req.Ports,
 		}
 		if tc.Role != "iran" {

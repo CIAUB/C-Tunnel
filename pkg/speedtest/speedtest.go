@@ -619,7 +619,7 @@ func Recommend(lossPct, jitterMs float64) (method, reason string) {
 	case lossPct == 0 && jitterMs < 5:
 		return "gre / 6to4 / ipip", "clean link: kernel tunnels have the lowest overhead and CPU cost"
 	case lossPct < 2:
-		return "dtls-1.3 / quic-v1", "light loss or jitter: an encrypted UDP transport rides through it"
+		return "game-dtls / wg-stealth", "light loss or jitter: an encrypted UDP transport rides through it"
 	default:
 		return "rudp-fec", "noticeable loss: 2+1 XOR parity rebuilds single lost packets without retransmission"
 	}

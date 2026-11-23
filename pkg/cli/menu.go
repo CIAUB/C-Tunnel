@@ -96,58 +96,57 @@ type methodFamily struct {
 }
 
 var methodMenu = []methodFamily{
-	{catalog.FamilyKernelL3, "L3 kernel",
-		"gre, xgre, xgre-ip, ipip, 6to4, wireguard, ipsec... Direct or 8-stream BBR Turbo",
-		"gre, xgre, xgre-ip, ipip, 6to4, sit... inside the 8-stream TCP carrier; wireguard rides UDP",
-		[]methodGroup{
-			{"GRE / xGRE", "gre, xgre, xgre-ip, fou-gre, ecmp-lanes, xfrm-ipsec", []string{"gre", "xgre", "xgre-ip", "fou-gre", "ecmp-lanes", "xfrm-ipsec"}},
-			{"IPIP / 6to4", "ipip, gue-ipip, 6to4, 6to4-gre, sit", []string{"ipip", "gue-ipip", "6to4", "6to4-gre", "sit"}},
-			{"UDP", "bareudp: IPv4 straight inside UDP, no header", []string{"bareudp"}},
-			{"IPv6 underlay", "ip6gre, ipip6, ip6ip6: both servers need IPv6", []string{"ip6gre", "ipip6", "ip6ip6"}},
-			{"WireGuard", "kernel WireGuard, keys from the setup link", []string{"wireguard"}},
-		}},
-	{catalog.FamilyKernelL2, "L2 kernel",
-		"eoip (MikroTik), gretap, vxlan, geneve, l2tpv3, etherip",
-		"eoip, gretap, vxlan, geneve, l2tpv3, etherip inside the 8-stream TCP carrier",
-		[]methodGroup{
-			{"MikroTik / raw IP", "eoip, etherip, l2tpv3", []string{"eoip", "etherip", "l2tpv3"}},
-			{"GRE", "gretap, ip6gretap", []string{"gretap", "ip6gretap"}},
-			{"UDP", "vxlan, geneve", []string{"vxlan", "geneve"}},
-		}},
-	{catalog.FamilyUDPCrypt, "UDP-Crypt",
-		"encrypted UDP that looks like DTLS, QUIC, RTP, DNS...",
-		"kharej dials UDP to iran; best on lossy or high-latency links (no TCP-in-TCP)",
-		[]methodGroup{
-			{"Web / VPN look", "dtls-1.3, quic-v1, openvpn-dco, wg-stealth, esp-udp", []string{"dtls-1.3", "quic-v1", "openvpn-dco", "wg-stealth", "esp-udp"}},
-			{"Service look", "srtp-direct, stun-turn, dnscrypt-udp, ntp-direct, gtp-u", []string{"srtp-direct", "stun-turn", "dnscrypt-udp", "ntp-direct", "gtp-u"}},
-			{"Lossy links", "rudp-fec: parity packets rebuild losses", []string{"rudp-fec"}},
-		}},
-	{catalog.FamilyStealth, "Stealth",
-		"encrypted like UDP-Crypt, not plain UDP: faketcp, icmp",
-		"kharej sends, iran answers: faketcp, icmp",
-		[]methodGroup{
-			{"Stealth", "TCP look, ping", []string{"faketcp", "icmp"}},
-		}},
 	{catalog.FamilyReverseL4, "Layer 4",
-		"high-speed zero-copy splice over tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux (Iran dials Kharej)",
-		"port forwarding over tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux; no tunnel IP",
+		"high-speed Direct port forwarding: tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux (Iran dials Kharej)",
+		"Anti-DPI Reverse port forwarding: tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux (no tunnel IP)",
 		[]methodGroup{
 			{"TCP", "tcp, tcpmux, pck", []string{"tcp", "tcpmux", "pck"}},
-			{"WS", "ws, wsmux, wss, wssmux: WebSocket, with TLS in wss", []string{"ws", "wsmux", "wss", "wssmux"}},
-			{"UDP", "udp, udpmux: KCP over UDP, AES; good on lossy links", []string{"udp", "udpmux"}},
+			{"WS / WSS", "ws, wsmux, wss, wssmux: WebSocket, with TLS in wss", []string{"ws", "wsmux", "wss", "wssmux"}},
+			{"UDP (KCP)", "udp, udpmux: KCP over UDP, AES; good on lossy links", []string{"udp", "udpmux"}},
 		}},
 	{catalog.FamilyGaming, "Gaming",
-		"dedicated low-ping Direct gaming tunnels: game-udp (lowest ping), game-fec (XOR-FEC), game-dup (dual-send), game-kcp (L4)",
-		"dedicated low-ping Reverse gaming tunnels (Kharej dials Iran): game-udp, game-fec, game-dup, game-kcp",
+		"dedicated low-ping Direct gaming tunnels: game-udp, game-fec, game-dup, game-dtls (anti-DPI DTLS 1.3), game-kcp (L4)",
+		"dedicated low-ping Reverse gaming tunnels (Kharej dials Iran): game-udp, game-fec, game-dup, game-dtls, game-kcp",
 		[]methodGroup{
-			{"Ultra-Low Ping", "game-udp: lowest ping & jitter, 4B header, DSCP EF QoS, no batching", []string{"game-udp"}},
+			{"Ultra-Low Ping", "game-udp: lowest ping & jitter · game-dtls: encrypted DTLS 1.3 anti-DPI gaming UDP", []string{"game-udp", "game-dtls"}},
 			{"Loss-Resilient", "game-fec (0-RTT 2+1 XOR-FEC) · game-dup (dual-send small game packets + dedup)", []string{"game-fec", "game-dup"}},
-			{"Gaming L4 Port-Forward", "game-kcp: 5ms NoDelay KCP + fast UDP forwarding without TUN", []string{"game-kcp"}},
+			{"Gaming L4 Port-Forward", "game-kcp: NoDelay KCP + fast UDP forwarding without TUN", []string{"game-kcp"}},
+		}},
+	{catalog.FamilyStealth, "Stealth",
+		"encrypted anti-DPI L3 tunnels: stealth-tcp (TLS-shaped TCP), stealth-ws (WebSocket), faketcp, icmp",
+		"Reverse anti-DPI L3 tunnels (Kharej dials Iran): stealth-tcp, stealth-ws, faketcp, icmp",
+		[]methodGroup{
+			{"Stealth Stream (TCP / WS)", "stealth-tcp (TLS 1.3 records, multi-stream BBR) · stealth-ws (encrypted WebSocket)", []string{"stealth-tcp", "stealth-ws"}},
+			{"Stealth Raw (FakeTCP / ICMP)", "faketcp (hand-built TCP segments) · icmp (emergency ping tunnel)", []string{"faketcp", "icmp"}},
+		}},
+	{catalog.FamilyKernelL3, "L3 kernel",
+		"xgre, xgre-ip, 6to4, ipip, gre (ECO raw kernel or TURBO/HYPER BBR carrier), ip6gre (IPv6)",
+		"frp+ multi-stream TLS-shaped TCP carrier: xgre, xgre-ip, 6to4, ipip, gre",
+		[]methodGroup{
+			{"GRE / xGRE", "xgre, xgre-ip, gre", []string{"xgre", "xgre-ip", "gre"}},
+			{"IPIP / 6to4", "ipip, 6to4", []string{"ipip", "6to4"}},
+			{"IPv6 underlay", "ip6gre: both servers need IPv6 (Direct only)", []string{"ip6gre"}},
+		}},
+	{catalog.FamilyKernelL2, "L2 kernel (MikroTik)",
+		"eoip (MikroTik raw GRE), vxlan (MikroTik Ethernet over UDP)",
+		"", // Direct only (no frp+ on L2)
+		[]methodGroup{
+			{"MikroTik L2", "eoip, vxlan", []string{"eoip", "vxlan"}},
+		}},
+	{catalog.FamilyUDPCrypt, "UDP-Crypt",
+		"encrypted anti-DPI UDP: wg-stealth (rotating magic + junk), rudp-fec (2+1 XOR parity)",
+		"kharej dials UDP to iran: wg-stealth, rudp-fec (no TCP-in-TCP)",
+		[]methodGroup{
+			{"UDP-Crypt", "wg-stealth (obfuscated UDP) · rudp-fec (loss-proof XOR-FEC)", []string{"wg-stealth", "rudp-fec"}},
 		}},
 }
 
 // methodOpt is how a method is listed in the given mode.
 func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
+	desc := m.Summary
+	if desc == "" {
+		desc = m.Title
+	}
 	if m.Gaming() {
 		prefix := ""
 		if m.L4() && !reverse {
@@ -155,25 +154,18 @@ func methodOpt(m catalog.MethodSpec, reverse bool) MenuOpt {
 		} else if !m.L4() && reverse {
 			prefix = "rev+"
 		}
-		desc := m.Summary
-		if desc == "" {
-			desc = m.Title
-		}
 		return MenuOpt{Title: prefix + m.Name, Desc: desc}
 	}
 	if m.L4() && !reverse {
-		return MenuOpt{Title: "direct+" + m.Name, Desc: "Fast Direct L4 " + m.Title + " (Iran dials Kharej, zero-copy splice)"}
-	}
-	if !reverse && !m.L4() && !m.Crypt() && m.Name != "wireguard" && !m.IPv6Underlay {
-		return MenuOpt{Title: m.Name + " / turbo+" + m.Name, Desc: m.Title + " (Direct raw or 8x BBR Turbo)"}
+		return MenuOpt{Title: "direct+" + m.Name, Desc: "Fast Direct L4 " + m.Title + " (Iran dials Kharej)"}
 	}
 	if !reverse || m.L4() {
-		return MenuOpt{Title: m.Name, Desc: m.Title}
+		return MenuOpt{Title: m.Name, Desc: desc}
 	}
-	if !m.Crypt() && m.Name != "wireguard" {
-		return MenuOpt{Title: "frp+" + m.Name, Desc: "TCP carrier (8 streams, TLS-shaped) + " + m.Title}
+	if m.SupportsFRP {
+		return MenuOpt{Title: "frp+" + m.Name, Desc: "Multi-stream TLS-shaped TCP carrier + " + m.Title}
 	}
-	return MenuOpt{Title: "rev+" + m.Name, Desc: "Reverse " + m.Title + " (Kharej dials into Iran)"}
+	return MenuOpt{Title: "rev+" + m.Name, Desc: "Reverse " + desc}
 }
 
 // chooseMethod asks for the mode, then the family, then a group, then the
@@ -182,7 +174,7 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	none := func() (catalog.MethodSpec, bool, bool) { return catalog.MethodSpec{}, false, false }
 	mode := ChooseOpt("Tunnel Mode", []MenuOpt{
 		{"REVERSE", "Anti-DPI Reverse (Kharej dials into Iran; hides Kharej IP)"},
-		{"DIRECT", "Direct tunnel (Iran connects to Kharej; includes Fast Direct L4 & 8x BBR Turbo)"},
+		{"DIRECT", "Direct tunnel (Iran connects to Kharej; supports ECO / TURBO / HYPER)"},
 	})
 	if mode == 0 {
 		return none()
@@ -194,7 +186,13 @@ func chooseMethod() (catalog.MethodSpec, bool, bool) {
 	}
 	usable := func(name string) (catalog.MethodSpec, bool) {
 		m, ok := catalog.LookupMethod(name)
-		return m, ok && !(reverse && m.IPv6Underlay)
+		if !ok || m.Legacy {
+			return catalog.MethodSpec{}, false
+		}
+		if reverse && (m.IPv6Underlay || (!m.L4() && !m.Crypt() && !m.SupportsFRP)) {
+			return catalog.MethodSpec{}, false
+		}
+		return m, true
 	}
 
 	var fams []methodFamily
@@ -306,16 +304,6 @@ func setupWizard(role string) {
 		DirectL4: m.L4() && !rev,
 		Index:    tunnel.NextIndex(st.Tunnels),
 	}
-	if !rev && !m.L4() && !m.Crypt() && m.Name != "wireguard" && !m.IPv6Underlay {
-		cm := ChooseOpt("Direct Speed Mode", []MenuOpt{
-			{"Fast Direct Turbo (turbo+" + m.Name + ")", "8-Stream BBR TCP Carrier — Reverse-grade throughput"},
-			{"Standard Direct (" + m.Name + ")", "Raw kernel/packet encapsulation (lowest overhead)"},
-		})
-		if cm == 0 {
-			return
-		}
-		tc.Carrier = cm == 1
-	}
 	if m.IPv6Underlay {
 		tc.LocalIP = Ask("This server IPv6", publicIP(true))
 		remPrompt := "Remote server IPv6"
@@ -325,14 +313,14 @@ func setupWizard(role string) {
 		tc.RemoteIP = Ask(remPrompt, "")
 	} else {
 		defLocal := bindIP()
-		if m.L4() || tc.Reverse || tc.Carrier {
+		if m.L4() || tc.Reverse || m.StreamStealth() {
 			defLocal = publicIP(false)
 		}
 		tc.LocalIP = Ask("This server IP", defLocal)
 		remPrompt := "Remote server IP"
 		if tc.Reverse && role == "iran" {
 			remPrompt = "Remote server IP (optional in reverse mode, Enter = Kharej dials in)"
-		} else if (tc.DirectL4 || tc.Carrier) && role == "kharej" {
+		} else if (tc.DirectL4 || (m.StreamStealth() && !tc.Reverse)) && role == "kharej" {
 			remPrompt = "Iran server IP (optional, Enter = Iran dials in)"
 		} else if role == "kharej" {
 			remPrompt = "Iran server IP"
@@ -395,8 +383,14 @@ func setupWizard(role string) {
 		} else {
 			tc.Port = askInt("Tunnel port ("+proto+"; Kharej dials it)", probe.Port)
 		}
-	case (tc.Reverse || tc.Carrier) && !m.NeedsPort:
-		tc.Port = askInt("Carrier TCP port (8-stream BBR TCP)", probe.Port)
+	case tc.Reverse && !m.NeedsPort:
+		tc.Port = askInt("Carrier TCP port (multi-stream BBR TCP)", probe.Port)
+	case m.StreamStealth():
+		if tc.Reverse {
+			tc.Port = askInt("Stealth TCP/WS port (Kharej dials Iran)", probe.Port)
+		} else {
+			tc.Port = askInt("Stealth TCP/WS port (Iran dials Kharej)", probe.Port)
+		}
 	case m.NeedsPort:
 		tc.Port = askInt("Tunnel port", probe.Port)
 	case m.SupportsFOU:
@@ -411,8 +405,8 @@ func setupWizard(role string) {
 	if m.Crypt() {
 		tc.Padding = askInt("Random padding bytes 1-64", probe.Padding)
 	}
-	if m.L4() && strings.HasPrefix(m.Name, "ws") {
-		tc.SNI = Ask("Host / SNI (Enter = the Iran IP)", "")
+	if (m.L4() && strings.HasPrefix(m.Name, "ws")) || m.Name == "stealth-ws" {
+		tc.SNI = Ask("Host / SNI (Enter = peer IP)", "")
 	}
 	if role == "iran" && !tunnel.IPv6Only(m.Name) {
 		Subtle("Ports users connect to on this server, sent to the kharej server.")
@@ -425,6 +419,15 @@ func setupWizard(role string) {
 	if !m.L4() {
 		probe.Port, probe.Padding = tc.Port, tc.Padding
 		tc.MTU = askInt("Tunnel MTU", tunnel.DefaultMTU(m, tc.Port, probe.Padding))
+	}
+	if !askPerformanceProfile(&tc, m) {
+		return
+	}
+	if !tc.Reverse && m.SupportsFRP && (tc.Profile == catalog.ProfileTurbo || tc.Profile == catalog.ProfileHyper) && tc.Port == 0 {
+		carrierProbe := tc
+		carrierProbe.Carrier = true
+		_ = tunnel.Normalize(&carrierProbe, nil)
+		tc.Port = askInt("BBR TCP Carrier port ("+catalog.ProfileLabel(tc.Profile)+" mode)", carrierProbe.Port)
 	}
 	askTunnelLimits(&tc)
 
@@ -457,6 +460,34 @@ func askFloat(prompt string, def float64) float64 {
 			return v
 		}
 		Warn("Enter a non-negative number (e.g. 50 or 12.5).")
+	}
+}
+
+func askPerformanceProfile(tc *catalog.TunnelConfig, m catalog.MethodSpec) bool {
+	ecoDesc := "Lowest CPU/RAM footprint · Standard speed (default for existing tunnels)"
+	turboDesc := "Higher resources · High speed (more streams/pools & larger buffers)"
+	hyperDesc := "Max CPU/RAM · Ultra speed (max streams/workers, huge buffers, SO_BUSY_POLL)"
+	if !tc.Reverse && m.SupportsFRP {
+		ecoDesc = "Raw kernel tunnel · Lowest CPU/RAM, MikroTik-ready, standard speed"
+		turboDesc = "8-Stream BBR TCP Carrier · Higher resources, high throughput"
+		hyperDesc = "16-Stream BBR TCP Carrier · Max resources, ultra throughput + SO_BUSY_POLL"
+	}
+	switch ChooseOpt("Performance Profile (Speed / Resource Tier)", []MenuOpt{
+		{"ECO    (Standard)", ecoDesc},
+		{"TURBO  (High Speed)", turboDesc},
+		{"HYPER  (Ultra Speed)", hyperDesc},
+	}) {
+	case 1:
+		tc.Profile = catalog.ProfileEco
+		return true
+	case 2:
+		tc.Profile = catalog.ProfileTurbo
+		return true
+	case 3:
+		tc.Profile = catalog.ProfileHyper
+		return true
+	default:
+		return false
 	}
 }
 
@@ -562,8 +593,13 @@ func applyAndReport(tc catalog.TunnelConfig) {
 
 func showLink(tc catalog.TunnelConfig) {
 	link, _ := catalog.EncodeSetupLink(tc)
-	Title("Link For The Other Server")
-	Subtle("On the other server: ctunnel -> Setup Kharej -> paste:")
+	cmd := catalog.OneLineInstallCommand(link)
+	Title("Setup Command For The Other Server")
+	if cmd != "" {
+		Subtle("One-line install + connect (fresh or existing server — installs from GitHub & starts the tunnel):")
+		fmt.Printf("\n   %s%s%s\n", Bold+Green, cmd, Reset)
+	}
+	Subtle("\nOr if C-Tunnel is already installed (ctunnel -> Setup Kharej):")
 	fmt.Printf("\n   %s%s%s\n", Bold+White, link, Reset)
 	fmt.Printf("\n   Secret token: %s%s%s\n", Bold+White, tc.Token, Reset)
 	Subtle("A server without this token cannot join the tunnel.")
@@ -606,16 +642,17 @@ func printStatusTable(st *catalog.Store) {
 
 	Info(TunnelSummaryLine(entries))
 	fmt.Println()
-	fmt.Printf(" %s%-12s %-13s %-6s %-18s %-10s %s%s\n", Bold+White,
-		"NAME", "METHOD", "ROLE", "ENDPOINT / PORTS", "STATE", "RX / TX", Reset)
+	fmt.Printf(" %s%-12s %-15s %-6s %-6s %-18s %-10s %s%s\n", Bold+White,
+		"NAME", "METHOD", "GEAR", "ROLE", "ENDPOINT / PORTS", "STATE", "RX / TX", Reset)
 	Rule()
 	for _, g := range groups {
 		fmt.Printf("\n %s── %s %s(%d/%d up)%s\n", Bold+Red, strings.ToUpper(g.Category.Title), Gray, g.UpCount, len(g.Items), Reset)
 		for _, e := range g.Items {
 			t := e.Tunnel
 			s := e.Status
-			fmt.Printf(" %-12s %-13s %-6s %-18s %s  %s / %s\n",
-				t.Name, e.Method, t.Role, tunnelEndpointHint(t), statusBadge(s),
+			gear := catalog.ProfileLabel(catalog.EffectiveProfile(t))
+			fmt.Printf(" %-12s %-15s %-6s %-6s %-18s %s  %s / %s\n",
+				t.Name, e.Method, gear, t.Role, tunnelEndpointHint(t), statusBadge(s),
 				humanBytes(s.RxBytes), humanBytes(s.TxBytes))
 		}
 	}
@@ -631,9 +668,6 @@ func healthMethodLabel(t catalog.TunnelConfig) string {
 			return "direct+" + t.Method
 		}
 		return t.Method
-	}
-	if t.Carrier && !t.Reverse {
-		return "turbo+" + t.Method
 	}
 	if !t.Reverse {
 		return t.Method
@@ -774,14 +808,14 @@ func selectTestMethods() ([]string, bool) {
 	selected := map[string]bool{}
 	var all []catalog.MethodSpec
 	for _, m := range catalog.Methods {
-		if !m.IPv6Underlay {
+		if !m.Legacy && !m.IPv6Underlay {
 			all = append(all, m)
 		}
 	}
 	for {
 		Header()
 		Title("Select Methods To Test")
-		Subtle("Enter numbers to toggle (e.g. 1,3,5), F1-F5 for a whole family, A=all, N=none, or type method names.")
+		Subtle("Enter numbers to toggle (e.g. 1,3,5), F1-F6 for a whole family, A=all, N=none, or type method names.")
 		Subtle("Press Enter when ready to start the test (0 = cancel).\n")
 
 		families := []struct {
@@ -789,11 +823,12 @@ func selectTestMethods() ([]string, bool) {
 			fam  catalog.Family
 			name string
 		}{
-			{"F1", catalog.FamilyReverseL4, "Layer-4 (tcp, tcpmux, pck, ws, wss, udp, udpmux)"},
-			{"F2", catalog.FamilyUDPCrypt, "UDP-Crypt (dtls-1.3, quic-v1, stun-turn, gtp-u, esp-udp, rudp-fec...)"},
-			{"F3", catalog.FamilyStealth, "Stealth (faketcp, icmp)"},
-			{"F4", catalog.FamilyKernelL3, "L3 Kernel (gre, ipip, 6to4, wireguard, bareudp...)"},
-			{"F5", catalog.FamilyKernelL2, "L2 Kernel (vxlan, geneve, eoip, gretap, l2tpv3...)"},
+			{"F1", catalog.FamilyReverseL4, "Layer-4 (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)"},
+			{"F2", catalog.FamilyGaming, "Gaming (game-udp, game-fec, game-dup, game-kcp, game-dtls)"},
+			{"F3", catalog.FamilyStealth, "Stealth (faketcp, icmp, stealth-tcp, stealth-ws)"},
+			{"F4", catalog.FamilyKernelL3, "L3 Kernel (xgre, xgre-ip, 6to4, ipip, gre)"},
+			{"F5", catalog.FamilyKernelL2, "L2 Kernel (eoip, vxlan)"},
+			{"F6", catalog.FamilyUDPCrypt, "UDP-Crypt (wg-stealth, rudp-fec)"},
 		}
 		for _, fg := range families {
 			var members []int
@@ -837,7 +872,7 @@ func selectTestMethods() ([]string, bool) {
 		} else {
 			Subtle("No methods selected yet.")
 		}
-		in := strings.TrimSpace(Ask("Toggle [1-"+strconv.Itoa(len(all))+", F1-F5, A, N] or Enter to run", ""))
+		in := strings.TrimSpace(Ask("Toggle [1-"+strconv.Itoa(len(all))+", F1-F6, A, N] or Enter to run", ""))
 		if in == "0" {
 			return nil, false
 		}
@@ -887,7 +922,7 @@ func selectTestMethods() ([]string, bool) {
 				selected[name] = !selected[name]
 				continue
 			}
-			if m, ok := catalog.LookupMethod(tok); ok && !m.IPv6Underlay {
+			if m, ok := catalog.LookupMethod(tok); ok && !m.Legacy && !m.IPv6Underlay {
 				selected[m.Name] = !selected[m.Name]
 			}
 		}

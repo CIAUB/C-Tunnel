@@ -544,10 +544,12 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 type tunnelView struct {
 	catalog.TunnelConfig
 	Family    string           `json:"family"`
+	Legacy    bool             `json:"legacy,omitempty"`
 	Status    tunnel.Status    `json:"status"`
 	Quota     tunnel.QuotaInfo `json:"quota"`
 	State     string           `json:"state"`
 	SetupLink string           `json:"setup_link"`
+	SetupCmd  string           `json:"setup_cmd"`
 	MikroTik  string           `json:"mikrotik"`
 }
 
@@ -571,12 +573,13 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	views := make([]tunnelView, 0, len(st.Tunnels))
 	statuses := tunnel.GetStatuses(st.Tunnels)
 	for i, t := range st.Tunnels {
+		t.Profile = catalog.EffectiveProfile(t)
 		link, _ := catalog.EncodeSetupLink(t)
 		m, _ := catalog.LookupMethod(t.Method)
 		status := statuses[i]
 		views = append(views, tunnelView{
-			TunnelConfig: t, Family: string(m.Family), Status: status, Quota: tunnel.QuotaStatus(t), State: state(status),
-			SetupLink: link, MikroTik: tunnel.MikroTik(t),
+			TunnelConfig: t, Family: string(m.Family), Legacy: m.Legacy, Status: status, Quota: tunnel.QuotaStatus(t), State: state(status),
+			SetupLink: link, SetupCmd: catalog.OneLineInstallCommand(link), MikroTik: tunnel.MikroTik(t),
 		})
 	}
 	totalRx, totalTx := tunnel.TotalTrafficAll(st)
@@ -640,9 +643,26 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	if _, ok := st.Find(name); !ok {
+	old, ok := st.Find(name)
+	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "tunnel not found"})
 		return
+	}
+	if m, ok := catalog.LookupMethod(tc.Method); ok {
+		if m.Legacy && m.Name != old.Method {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("method %q is deprecated and cannot be selected for new tunnels", m.Name))
+			return
+		}
+		if tc.Reverse && !old.Reverse && !m.L4() && !m.Crypt() && !m.SupportsFRP {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("reverse frp+ mode is only supported for core L3 methods (xgre, xgre-ip, 6to4, ipip, gre)"))
+			return
+		}
+	}
+	if tc.BackupMethod != "" && tc.BackupMethod != old.BackupMethod {
+		if bm, ok := catalog.LookupMethod(tc.BackupMethod); ok && bm.Legacy {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("backup method %q is deprecated; choose an active protocol", bm.Name))
+			return
+		}
 	}
 	if err := tunnel.Save(st, &tc); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -716,6 +736,7 @@ func (s *Server) handleSetPeer(w http.ResponseWriter, r *http.Request) {
 		"updated":    names,
 		"token":      primary.Token,
 		"setup_link": link,
+		"setup_cmd":  catalog.OneLineInstallCommand(link),
 		"mikrotik":   tunnel.MikroTik(primary),
 	}
 	if len(applyErrs) > 0 {
@@ -763,7 +784,7 @@ func (s *Server) applyAndRespond(w http.ResponseWriter, tc catalog.TunnelConfig)
 
 func (s *Server) startTunnel(tc catalog.TunnelConfig) map[string]any {
 	link, _ := catalog.EncodeSetupLink(tc)
-	resp := map[string]any{"ok": true, "name": tc.Name, "setup_link": link, "token": tc.Token, "mikrotik": tunnel.MikroTik(tc)}
+	resp := map[string]any{"ok": true, "name": tc.Name, "setup_link": link, "setup_cmd": catalog.OneLineInstallCommand(link), "token": tc.Token, "mikrotik": tunnel.MikroTik(tc)}
 	if err := tunnel.Apply(tc); err != nil {
 		resp["ok"] = false
 		resp["error"] = "saved, but starting failed: " + err.Error()

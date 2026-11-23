@@ -19,6 +19,7 @@ import (
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/conntest"
+	"ctunnel/pkg/tunnel"
 	"ctunnel/pkg/version"
 )
 
@@ -208,7 +209,7 @@ func TestBestSelectionAndDeployAreMeasuredAndIdempotent(t *testing.T) {
 		t.Fatalf("duplicate deployment: %+v %v", saved, err)
 	}
 	tc := saved.Tunnels[0]
-	if tc.Method != "dtls-1.3" || !tc.Reverse || tc.RemoteIP != "203.0.113.8" {
+	if tc.Method != "game-dtls" || !tc.Reverse || tc.RemoteIP != "203.0.113.8" {
 		t.Fatalf("wrong generated config: %+v", tc)
 	}
 	count := 0
@@ -632,5 +633,56 @@ func TestLinkTestStreamEmitsLiveTelemetry(t *testing.T) {
 	text := string(body)
 	if !strings.Contains(text, "event: telemetry") || !strings.Contains(text, `"status":"done"`) {
 		t.Fatalf("missing SSE telemetry frames: %s", text)
+	}
+}
+
+func TestPanelLegacyBlockingProfileEditingAndStealthCreation(t *testing.T) {
+	c, st, _ := setup(t)
+	c.login(st.PanelCode)
+
+	// Creating a legacy method must be rejected.
+	res, _ := c.do("POST", "/api/tunnels", map[string]any{
+		"role": "iran", "method": "wireguard", "local_ip": "198.51.100.1", "remote_ip": "203.0.113.5",
+	})
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST legacy wireguard got %d, want 400", res.StatusCode)
+	}
+	// Creating reverse frp+ on eoip must be rejected.
+	res, _ = c.do("POST", "/api/tunnels", map[string]any{
+		"role": "iran", "method": "eoip", "reverse": true, "local_ip": "198.51.100.1",
+	})
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST frp+eoip got %d, want 400", res.StatusCode)
+	}
+	// Creating stealth-ws with HYPER profile succeeds.
+	res, out := c.do("POST", "/api/tunnels", map[string]any{
+		"name": "sws1", "role": "iran", "method": "stealth-ws", "reverse": true,
+		"profile": "hyper", "sni": "ws.example.com", "local_ip": "198.51.100.1",
+	})
+	if res.StatusCode != http.StatusOK || out["ok"] != true {
+		t.Fatalf("POST stealth-ws failed: %d %v", res.StatusCode, out)
+	}
+	// Pre-existing legacy tunnel in state.json remains editable (including changing profile).
+	existing := catalog.TunnelConfig{
+		Name: "oldq", Role: "iran", Method: "quic-v1", Index: 9,
+		LocalIP: "198.51.100.1", RemoteIP: "203.0.113.9", Port: 24009, Token: catalog.GenerateToken(),
+	}
+	if err := tunnel.Save(st, &existing); err != nil {
+		t.Fatal(err)
+	}
+	res, out = c.do("PUT", "/api/tunnels/oldq", map[string]any{
+		"role": "iran", "method": "quic-v1", "index": 9, "local_ip": "198.51.100.1",
+		"remote_ip": "203.0.113.9", "port": 24009, "token": existing.Token, "profile": "turbo",
+	})
+	if res.StatusCode != http.StatusOK || out["ok"] != true {
+		t.Fatalf("PUT existing legacy tunnel failed: %d %v", res.StatusCode, out)
+	}
+	reloaded, err := catalog.LoadStore(st.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.Find("oldq")
+	if !ok || got.Profile != catalog.ProfileTurbo {
+		t.Fatalf("legacy tunnel profile not updated: %+v", got)
 	}
 }

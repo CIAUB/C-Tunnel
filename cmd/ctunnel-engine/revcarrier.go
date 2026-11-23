@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	crand "crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -12,8 +14,12 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"ctunnel/pkg/catalog"
 	"ctunnel/pkg/crypto"
@@ -21,29 +27,48 @@ import (
 )
 
 const (
-	revPoolStreams = 8                // parallel TCP streams kharej keeps open
-	revMaxConns    = 64               // iran never holds more than this many streams
-	revQueueLen    = 2048             // packets queued per stream before tail drop
+	revPoolStreams = 8                // default (TURBO) parallel TCP streams
+	revMaxConns    = 128              // passive side caps concurrent streams (accommodates HYPER + reconnect overlap)
+	revQueueLen    = 2048             // default (TURBO) packets queued per stream before tail drop
 	revDialRetry   = 2 * time.Second  //
 	revHeartbeat   = 10 * time.Second // empty frame on an idle stream
 	revIdleTimeout = 35 * time.Second // no frame at all for this long = dead stream
 	revStreamIDLen = 16               // random stream ID carried in the handshake
 )
 
-// revCarrier implements an FRP-style reverse TCP carrier for kernel L2/L3 tunnels:
-//   - Iran only listens on TCP :port and never dials out.
-//   - Kharej dials revPoolStreams parallel encrypted streams to iran_ip:port.
-//   - The kernel tunnel (GRE, IPIP, VXLAN...) runs over the carrier TUN ct-<name>-r.
+func carrierProfileTuning(profile string) (streams, bufSize, queueLen int, busyPoll bool) {
+	switch p, _ := catalog.NormalizeProfile(profile); p {
+	case catalog.ProfileHyper:
+		return 16, 512 << 10, 4096, true
+	case catalog.ProfileTurbo:
+		return 8, 256 << 10, 2048, false
+	default: // ProfileEco
+		return 4, 128 << 10, 1024, false
+	}
+}
+
+func stealthWSPath(secret string) string {
+	sum := sha256.Sum256([]byte("ctunnel-stealth-ws|" + secret))
+	return "/" + hex.EncodeToString(sum[:8])
+}
+
+// revCarrier implements the encrypted multi-stream carrier used by:
+//   - Reverse frp+ and Direct TURBO/HYPER kernel tunnels (over ct-<name>-r)
+//   - Stealth TCP (stealth-tcp) and Stealth WebSocket (stealth-ws) L3 TUN tunnels (directly over ct-<name>)
 //
 // Each inner flow is pinned to one stream by a hash of its inner 5-tuple, so a TCP
 // connection inside the tunnel is never reordered across streams (reordering makes
 // the inner TCP fall back to fast retransmit and collapses throughput). Every stream
 // has its own queue and writer goroutine, so one slow stream never stalls the others.
 type revCarrier struct {
-	cfg    config
-	tx, rx *crypto.FastAEAD
-	dev    io.ReadWriteCloser
-	l2     bool // carrier device is a TAP (EoIP/EtherIP): frames start with Ethernet
+	cfg      config
+	tx, rx   *crypto.FastAEAD
+	dev      io.ReadWriteCloser
+	l2       bool // carrier device is a TAP (EoIP/EtherIP): frames start with Ethernet
+	streams  int
+	bufSize  int
+	queueLen int
+	busyPoll bool
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -139,11 +164,19 @@ func newRevCarrier(cfg config) (*revCarrier, error) {
 	if err != nil {
 		return nil, err
 	}
+	streams, bufSize, queueLen, busyPoll := carrierProfileTuning(cfg.profile)
 	ctx, cancel := context.WithCancel(context.Background())
-	return &revCarrier{cfg: cfg, tx: tx, rx: rx, ctx: ctx, cancel: cancel, fatal: make(chan error, 1)}, nil
+	return &revCarrier{
+		cfg: cfg, tx: tx, rx: rx,
+		streams: streams, bufSize: bufSize, queueLen: queueLen, busyPoll: busyPoll,
+		ctx: ctx, cancel: cancel, fatal: make(chan error, 1),
+	}, nil
 }
 
-func tuneTCP(c net.Conn) {
+func tuneTCP(c net.Conn, busyPoll bool) {
+	if wc, ok := c.(*stealthWSConn); ok {
+		c = wc.c.UnderlyingConn()
+	}
 	if tc, ok := c.(*net.TCPConn); ok {
 		_ = tc.SetNoDelay(true)
 		_ = tc.SetKeepAliveConfig(net.KeepAliveConfig{
@@ -154,6 +187,9 @@ func tuneTCP(c net.Conn) {
 		})
 		setTCPUserTimeout(tc, 20*time.Second)
 		tcpmss.ApplyBBR(tc)
+		if busyPoll {
+			setTCPBusyPoll(tc, 50)
+		}
 		// Leave TCP buffers to kernel autotuning; fixed SO_RCVBUF locks receive growth.
 	}
 }
@@ -193,7 +229,11 @@ func (r *revCarrier) openStream(c net.Conn) (tx, rx *crypto.FastAEAD, err error)
 }
 
 func (r *revCarrier) addConn(c net.Conn, tx *crypto.FastAEAD) *revStream {
-	st := &revStream{c: c, tx: tx, q: make(chan *[]byte, revQueueLen), done: make(chan struct{})}
+	qLen := r.queueLen
+	if qLen <= 0 {
+		qLen = revQueueLen
+	}
+	st := &revStream{c: c, tx: tx, q: make(chan *[]byte, qLen), done: make(chan struct{})}
 	r.mu.Lock()
 	if len(r.conns) >= revMaxConns { // drop the oldest stream, it is the most likely stale one
 		r.conns[0].close()
@@ -266,7 +306,12 @@ func (r *revCarrier) writer(st *revStream) {
 			}
 		}
 	}()
-	bw := bufio.NewWriterSize(st.c, 256<<10)
+	bufSize := r.bufSize
+	if bufSize <= 0 {
+		bufSize = 256 << 10
+	}
+	flushAt := bufSize * 3 / 4
+	bw := bufio.NewWriterSize(st.c, bufSize)
 	sealBuf := make([]byte, 0, maxPacket+256)
 	wireBuf := make([]byte, 5+maxPacket+256)
 	hb := time.NewTicker(revHeartbeat)
@@ -291,7 +336,7 @@ func (r *revCarrier) writer(st *revStream) {
 			p := *bp
 			ok := send(p)
 			revPktPool.Put(bp)
-			for ok && len(st.q) > 0 && bw.Buffered() < 192<<10 {
+			for ok && len(st.q) > 0 && bw.Buffered() < flushAt {
 				bp = <-st.q
 				ok = send(*bp)
 				revPktPool.Put(bp)
@@ -370,8 +415,12 @@ func (r *revCarrier) deviceToStreams() error {
 func (r *revCarrier) serveConn(c net.Conn, tx, rx *crypto.FastAEAD) {
 	stopClose := context.AfterFunc(r.ctx, func() { _ = c.Close() })
 	defer stopClose()
-	tuneTCP(c)
-	br := bufio.NewReaderSize(c, 256<<10)
+	tuneTCP(c, r.busyPoll)
+	bufSize := r.bufSize
+	if bufSize <= 0 {
+		bufSize = 256 << 10
+	}
+	br := bufio.NewReaderSize(c, bufSize)
 	hdr := make([]byte, 5)
 	body := make([]byte, maxPacket+256)
 	plainBuf := make([]byte, maxPacket)
@@ -418,13 +467,169 @@ func (r *revCarrier) serveConn(c net.Conn, tx, rx *crypto.FastAEAD) {
 }
 
 func (r *revCarrier) serveIran() error {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", r.cfg.port))
+	ln, err := tcpmss.Listen(fmt.Sprintf(":%d", r.cfg.port))
 	if err != nil {
-		return fmt.Errorf("listen reverse tcp :%d: %w", r.cfg.port, err)
+		return fmt.Errorf("listen %s tcp :%d: %w", r.cfg.kind, r.cfg.port, err)
 	}
-	log.Printf("reverse carrier listening on tcp :%d (waiting for kharej to dial in)", r.cfg.port)
+	if r.cfg.kind == "stealth-ws" {
+		log.Printf("stealth-ws [%s] listening on :%d (waiting for peer WebSocket streams)", catalog.ProfileLabel(r.cfg.profile), r.cfg.port)
+		return r.serveWSListener(ln, 2*revMaxConns)
+	}
+	log.Printf("%s [%s] carrier listening on tcp :%d (waiting for peer to dial in)", r.cfg.kind, catalog.ProfileLabel(r.cfg.profile), r.cfg.port)
 	return r.serveListener(ln, 2*revMaxConns)
 }
+
+func (r *revCarrier) serveWSListener(ln net.Listener, limit int) error {
+	defer ln.Close()
+	path := stealthWSPath(r.cfg.secret)
+	slots := make(chan struct{}, limit)
+	bufSize := r.bufSize
+	if bufSize <= 0 {
+		bufSize = 256 << 10
+	}
+	up := websocket.Upgrader{
+		ReadBufferSize:  bufSize,
+		WriteBufferSize: bufSize,
+		CheckOrigin:     func(*http.Request) bool { return true },
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
+		if subtle.ConstantTimeCompare([]byte(req.URL.Path), []byte(path)) != 1 || !websocket.IsWebSocketUpgrade(req) {
+			http.NotFound(rw, req)
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			http.Error(rw, "too many streams", http.StatusServiceUnavailable)
+			return
+		}
+		defer func() { <-slots }()
+		ws, err := up.Upgrade(rw, req, nil)
+		if err != nil {
+			return
+		}
+		r.serveConn(newStealthWSConn(ws), nil, nil)
+	})
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    8 << 10,
+	}
+	stopClose := context.AfterFunc(r.ctx, func() { _ = srv.Close() })
+	defer stopClose()
+	err := srv.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return net.ErrClosed
+	}
+	return err
+}
+
+func (r *revCarrier) dialStream(target string) (net.Conn, error) {
+	if r.cfg.kind == "stealth-ws" {
+		host := r.cfg.sni
+		if host == "" {
+			host = r.cfg.remoteIP
+		}
+		bufSize := r.bufSize
+		if bufSize <= 0 {
+			bufSize = 256 << 10
+		}
+		d := websocket.Dialer{
+			HandshakeTimeout: 10 * time.Second,
+			ReadBufferSize:   bufSize,
+			WriteBufferSize:  bufSize,
+			NetDialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				nd := net.Dialer{Timeout: 5 * time.Second, Control: tcpmss.Control}
+				return nd.DialContext(ctx, network, target)
+			},
+		}
+		u := "ws://" + net.JoinHostPort(host, strconv.Itoa(r.cfg.port)) + stealthWSPath(r.cfg.secret)
+		ws, resp, err := d.DialContext(r.ctx, u, nil)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			return nil, err
+		}
+		return newStealthWSConn(ws), nil
+	}
+	nd := net.Dialer{Timeout: 5 * time.Second, Control: tcpmss.Control}
+	return nd.DialContext(r.ctx, "tcp", target)
+}
+
+// stealthWSConn adapts a gorilla/websocket connection to net.Conn for revCarrier.
+type stealthWSConn struct {
+	c         *websocket.Conn
+	r         io.Reader
+	wmu       sync.Mutex
+	closeOnce sync.Once
+}
+
+func newStealthWSConn(c *websocket.Conn) *stealthWSConn {
+	c.SetReadLimit(1 << 20)
+	return &stealthWSConn{c: c}
+}
+
+func (w *stealthWSConn) Read(p []byte) (int, error) {
+	for {
+		if w.r == nil {
+			typ, rd, err := w.c.NextReader()
+			if err != nil {
+				if websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+					return 0, io.EOF
+				}
+				return 0, err
+			}
+			if typ != websocket.BinaryMessage {
+				continue
+			}
+			w.r = rd
+		}
+		n, err := w.r.Read(p)
+		if err == io.EOF {
+			w.r = nil
+			if n > 0 {
+				return n, nil
+			}
+			continue
+		}
+		return n, err
+	}
+}
+
+func (w *stealthWSConn) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	w.wmu.Lock()
+	defer w.wmu.Unlock()
+	if err := w.c.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (w *stealthWSConn) Close() error {
+	var err error
+	w.closeOnce.Do(func() {
+		w.wmu.Lock()
+		_ = w.c.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(100*time.Millisecond))
+		w.wmu.Unlock()
+		err = w.c.Close()
+	})
+	return err
+}
+
+func (w *stealthWSConn) LocalAddr() net.Addr  { return w.c.LocalAddr() }
+func (w *stealthWSConn) RemoteAddr() net.Addr { return w.c.RemoteAddr() }
+func (w *stealthWSConn) SetDeadline(t time.Time) error {
+	_ = w.c.SetReadDeadline(t)
+	return w.c.SetWriteDeadline(t)
+}
+func (w *stealthWSConn) SetReadDeadline(t time.Time) error  { return w.c.SetReadDeadline(t) }
+func (w *stealthWSConn) SetWriteDeadline(t time.Time) error { return w.c.SetWriteDeadline(t) }
 
 func (r *revCarrier) serveListener(ln net.Listener, limit int) error {
 	defer ln.Close()
@@ -482,16 +687,19 @@ func waitRetry(ctx context.Context, attempt int) bool {
 
 func (r *revCarrier) dialKharej() error {
 	target := net.JoinHostPort(r.cfg.remoteIP, fmt.Sprint(r.cfg.port))
-	log.Printf("reverse carrier dialing iran %s with %d parallel streams", target, revPoolStreams)
+	streams := r.streams
+	if streams <= 0 {
+		streams = revPoolStreams
+	}
+	log.Printf("%s [%s] dialing %s with %d parallel streams", r.cfg.kind, catalog.ProfileLabel(r.cfg.profile), target, streams)
 	var wg sync.WaitGroup
-	for i := 0; i < revPoolStreams; i++ {
+	for i := 0; i < streams; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			attempt := 0
-			dialer := net.Dialer{Timeout: 5 * time.Second}
 			for r.ctx.Err() == nil {
-				c, err := dialer.DialContext(r.ctx, "tcp", target)
+				c, err := r.dialStream(target)
 				if err != nil {
 					if !waitRetry(r.ctx, attempt) {
 						return
@@ -511,7 +719,7 @@ func (r *revCarrier) dialKharej() error {
 				}
 				attempt = 0
 				r.serveConn(c, tx, rx)
-				log.Printf("reverse stream to %s closed, redialing", target)
+				log.Printf("%s stream to %s closed, redialing", r.cfg.kind, target)
 				if !waitRetry(r.ctx, attempt) {
 					return
 				}

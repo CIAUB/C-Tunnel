@@ -63,16 +63,13 @@ func HumanBytes(n uint64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
-// MethodLabel names the transport as the menus show it: frp+, rev+, turbo+ or direct+ for carrier/L4 tunnels.
+// MethodLabel names the transport as the menus show it: frp+, rev+ or direct+ for carrier/L4 tunnels.
 func MethodLabel(t catalog.TunnelConfig) string {
 	if catalog.IsL4(t.Method) {
 		if t.DirectL4 {
 			return "direct+" + t.Method
 		}
 		return t.Method
-	}
-	if t.Carrier && !t.Reverse {
-		return "turbo+" + t.Method
 	}
 	if !t.Reverse {
 		return t.Method
@@ -291,18 +288,18 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		}
 	}
 
-	// A passive side (reverse iran, direct L4/carrier kharej, or direct kernel/engine) must hold its port.
+	// A passive side (reverse iran, direct L4/carrier/stream-stealth kharej, or direct kernel/engine) must hold its port.
 	if m, ok := catalog.LookupMethod(t.Method); ok && t.Port > 0 && s.Service == "active" {
 		network := "udp"
-		if ((t.Reverse || t.Carrier) && !m.Crypt() && m.Name != "wireguard") || m.L4() || t.Method == "faketcp" {
+		if ((t.Reverse || t.Carrier) && !m.Crypt() && m.Name != "wireguard") || m.L4() || t.Method == "faketcp" || m.StreamStealth() {
 			network = "tcp"
 		}
 		if t.Method == "udp" || t.Method == "udpmux" || t.Method == "game-kcp" {
 			network = "udp" // layer 4 over KCP
 		}
 		ports := strconv.Itoa(t.Port)
-		passive := (t.Reverse && t.Role == "iran") || ((t.DirectL4 || t.Carrier) && t.Role == "kharej")
-		shouldListen := passive || (!t.Reverse && !t.DirectL4 && !t.Carrier)
+		passive := tunnel.IsPassivePeer(t)
+		shouldListen := passive || (!t.Reverse && !t.DirectL4 && !t.Carrier && !m.StreamStealth())
 		// pck and faketcp read their segments off the wire; no socket listens.
 		if shouldListen && t.Method != "pck" && t.Method != "faketcp" {
 			if listening(t.Port, network) {
@@ -313,7 +310,7 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 		}
 		if t.Role == "iran" && t.Reverse {
 			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("kharej dials in: %s/%s must be open here", ports, network)})
-		} else if t.Role == "kharej" && (t.DirectL4 || t.Carrier) {
+		} else if t.Role == "kharej" && (t.DirectL4 || t.Carrier || (m.StreamStealth() && !t.Reverse)) {
 			out = append(out, Check{Group: g, Name: "Firewall", Level: Info, Detail: fmt.Sprintf("iran dials in: %s/%s must be open here", ports, network)})
 		}
 	}

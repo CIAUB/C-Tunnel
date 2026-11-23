@@ -4,4 +4,5 @@ package main
 
 import "net"
 
-func applyGamingQoS(*net.UDPConn) {}
+func applyGamingQoS(*net.UDPConn)   {}
+func applyUDPBusyPoll(*net.UDPConn) {}

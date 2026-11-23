@@ -438,7 +438,20 @@ func (b *Bot) Answer(ctx context.Context, id, text string) error {
 }
 
 // SendDocument uploads a file (e.g., backup JSON) to chat with an optional HTML caption.
+// Automatically strips custom emojis from caption and retries if Telegram rejects them.
 func (b *Bot) SendDocument(ctx context.Context, chat, filename string, data []byte, caption string) error {
+	if b.customEmojiBlocked.Load() {
+		caption = stripCustomEmojiHTML(caption)
+	}
+	err := b.sendDocumentRaw(ctx, chat, filename, data, caption)
+	if err != nil && isCustomEmojiAPIError(err) && hasCustomEmoji(caption, nil) {
+		b.customEmojiBlocked.Store(true)
+		return b.sendDocumentRaw(ctx, chat, filename, data, stripCustomEmojiHTML(caption))
+	}
+	return err
+}
+
+func (b *Bot) sendDocumentRaw(ctx context.Context, chat, filename string, data []byte, caption string) error {
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	_ = w.WriteField("chat_id", chat)

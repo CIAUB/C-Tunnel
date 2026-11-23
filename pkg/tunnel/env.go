@@ -58,6 +58,7 @@ func Env(tc catalog.TunnelConfig) string {
 	if tc.DirectL4 {
 		put("DIRECT_L4", 1)
 	}
+	put("PROFILE", catalog.EffectiveProfile(tc))
 	put("FORWARDS", strings.Join(tc.Ports, " "))
 	if tc.SNI != "" {
 		put("SNI", tc.SNI)

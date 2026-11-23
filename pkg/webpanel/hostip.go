@@ -21,7 +21,7 @@ func usableForTunnels(ifc net.Interface) bool { return hostip.UsableForTunnels(i
 // reachable address.
 func defaultLocalIP(tc catalog.TunnelConfig) string {
 	loc := localIPv4()
-	if m, ok := catalog.LookupMethod(tc.Method); ok && (m.L4() || tc.Reverse || tc.Carrier) {
+	if m, ok := catalog.LookupMethod(tc.Method); ok && (m.L4() || tc.Reverse || tc.Carrier || m.StreamStealth()) {
 		if ip := net.ParseIP(loc); ip == nil || ip.IsPrivate() {
 			if pub := publicIPv4(); pub != "" {
 				return pub

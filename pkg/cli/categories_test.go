@@ -16,12 +16,14 @@ func TestCategorizeAndGroupTunnels(t *testing.T) {
 		{Name: "i-ws", Role: "iran", Method: "ws", Reverse: true},
 		{Name: "i-tcp-dir", Role: "iran", Method: "tcp", DirectL4: true},
 		{Name: "i-dtls", Role: "iran", Method: "dtls-1.3", Reverse: true},
+		{Name: "i-wgst", Role: "iran", Method: "wg-stealth", Reverse: true},
 		{Name: "i-icmp", Role: "iran", Method: "icmp"},
 		{Name: "i-eoip", Role: "iran", Method: "eoip"},
 	}
 	statuses := []tunnel.Status{
 		{Service: "active", LinkUp: true},
 		{Service: "inactive"},
+		{Service: "active", LinkUp: true},
 		{Service: "active", LinkUp: true},
 		{Service: "active", LinkUp: true},
 		{Service: "active", LinkUp: true},
@@ -33,7 +35,7 @@ func TestCategorizeAndGroupTunnels(t *testing.T) {
 	groups := GroupTunnels(entries)
 
 	wantOrder := []string{
-		CatL4Reverse.Code, CatL4Direct.Code, CatUDPCrypt.Code, CatStealth.Code,
+		CatGamingReverse.Code, CatL4Reverse.Code, CatL4Direct.Code, CatUDPCrypt.Code, CatStealth.Code,
 		CatL3Reverse.Code, CatL3Direct.Code, CatL2Kernel.Code,
 	}
 	if len(groups) != len(wantOrder) {
@@ -45,7 +47,7 @@ func TestCategorizeAndGroupTunnels(t *testing.T) {
 		}
 	}
 	// Inside CatL3Direct, iran sorts before kharej.
-	l3d := groups[5]
+	l3d := groups[6]
 	if len(l3d.Items) != 2 || l3d.Items[0].Tunnel.Role != "iran" || l3d.Items[1].Tunnel.Role != "kharej" {
 		t.Fatalf("unexpected L3Direct ordering: %+v", l3d.Items)
 	}

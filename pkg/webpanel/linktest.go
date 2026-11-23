@@ -407,11 +407,16 @@ func (s *Server) runLinkTestJob(job *linkTestJob, ctx context.Context, link conn
 		}
 		base := stripTestMethodPrefix(result.Method)
 		m, _ := catalog.LookupMethod(base)
+		prof := catalog.ProfileEco
+		if result.Mode == "DIRECT" && strings.HasPrefix(result.Method, "turbo+") {
+			prof = catalog.ProfileTurbo
+		}
 		tc := catalog.TunnelConfig{
 			Role: req.Role, Method: base,
 			Reverse:  result.Mode == "REVERSE",
 			Carrier:  result.Mode == "DIRECT" && strings.HasPrefix(result.Method, "turbo+"),
 			DirectL4: result.Mode == "DIRECT" && m.L4(),
+			Profile:  prof,
 			LocalIP:  localIP, RemoteIP: link.Host,
 			Token: req.Token, Ports: req.Ports,
 		}

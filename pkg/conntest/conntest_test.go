@@ -23,18 +23,47 @@ func TestLinkRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEveryIPv4MethodHasAProbe(t *testing.T) {
+func TestEveryActiveIPv4MethodHasAProbeAndLegacyExcluded(t *testing.T) {
 	have := map[string]bool{}
 	for _, p := range probes() {
 		have[p.method] = true
+		if m, ok := catalog.LookupMethod(p.method); !ok || m.Legacy {
+			t.Fatalf("legacy or unknown method %q leaked into probes()", p.method)
+		}
 		if len(p.header()) == 0 && p.method != "" {
 			t.Fatalf("%s: empty header", p.method)
 		}
 	}
 	for _, m := range catalog.Methods {
-		if !m.IPv6Underlay && !m.L4() && !untested(m) && !have[m.Name] {
-			t.Errorf("no probe for %s", m.Name)
+		if m.Legacy {
+			if have[m.Name] {
+				t.Errorf("legacy method %s should not have a probe", m.Name)
+			}
+			continue
 		}
+		if !m.IPv6Underlay && !m.L4() && !untested(m) && !have[m.Name] {
+			t.Errorf("no probe for active method %s", m.Name)
+		}
+	}
+	rows, _, _ := newRows(probes(), func(int) bool { return true })
+	for _, r := range rows {
+		if strings.HasPrefix(r.Method, "turbo+") {
+			t.Fatalf("separate turbo+ row should not exist: %+v", r)
+		}
+		base := stripMethodPrefix(r.Method)
+		m, ok := catalog.LookupMethod(base)
+		if !ok || m.Legacy {
+			t.Fatalf("legacy/unknown method in newRows: %+v", r)
+		}
+		if strings.HasPrefix(r.Method, "frp+") && !m.SupportsFRP {
+			t.Fatalf("non-SupportsFRP method has frp+ row: %+v", r)
+		}
+	}
+	if err := CheckOnly([]string{"wireguard"}); err == nil {
+		t.Fatal("CheckOnly accepted legacy method wireguard")
+	}
+	if err := CheckOnly([]string{"game-dtls", "stealth-tcp", "stealth-ws"}); err != nil {
+		t.Fatalf("CheckOnly rejected active methods: %v", err)
 	}
 }
 
@@ -83,13 +112,13 @@ func TestIranResponderReceivesFinalReportFromKharej(t *testing.T) {
 		}
 	})
 
-	rows := []Result{{Method: "dtls-1.3", Family: "UDP-Crypt", Sent: 10, Received: 10, DownMbps: 420, UpMbps: 380}}
+	rows := []Result{{Method: "game-dtls", Family: "Gaming", Sent: 10, Received: 10, DownMbps: 420, UpMbps: 380}}
 	best := BestSettings(rows, 1500)
 	SendReport(ctx, Link{Host: "127.0.0.1", UDPPort: udpPort, TokenHex: tok}, rows, best)
 
 	select {
 	case rep := <-repCh:
-		if len(rep.Rows) != 1 || rep.Rows[0].Method != "dtls-1.3" || rep.Best.Method != "dtls-1.3" {
+		if len(rep.Rows) != 1 || rep.Rows[0].Method != "game-dtls" || rep.Best.Method != "game-dtls" {
 			t.Fatalf("unexpected report received on Iran responder: %+v", rep)
 		}
 	case <-ctx.Done():
@@ -136,15 +165,15 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 	snapshot := append([]Result(nil), iranRows...)
 	iranMu.Unlock()
 	for _, r := range snapshot {
-		if r.Method == "dtls-1.3" && (r.DownMbps <= 0 || r.UpMbps <= 0) {
-			t.Fatalf("iran board has no speed for dtls-1.3: %+v", r)
+		if r.Method == "game-dtls" && (r.DownMbps <= 0 || r.UpMbps <= 0) {
+			t.Fatalf("iran board has no speed for game-dtls: %+v", r)
 		}
 	}
 	seen := map[string]Result{}
 	for _, r := range rows {
 		seen[r.Method] = r
 	}
-	for _, m := range []string{"dtls-1.3", "gre", "wireguard"} {
+	for _, m := range []string{"game-dtls", "gre", "wg-stealth", "stealth-tcp"} {
 		r := seen[m]
 		if r.Skipped != "" {
 			continue // raw protocols (gre) need root; CI runs without it
@@ -153,8 +182,11 @@ func TestIranSideGetsSpeedsAndReport(t *testing.T) {
 			t.Fatalf("DIRECT %s (iran starts) not measured: %+v", m, r)
 		}
 	}
-	if r := seen["rev+dtls-1.3"]; r.Mode != "REVERSE" || r.Status() != "ok" || r.DownMbps <= 0 {
-		t.Fatalf("rev+dtls-1.3 row not measured: %+v", r)
+	if r := seen["rev+game-dtls"]; r.Mode != "REVERSE" || r.Status() != "ok" || r.DownMbps <= 0 {
+		t.Fatalf("rev+game-dtls row not measured: %+v", r)
+	}
+	if r := seen["rev+stealth-tcp"]; r.Mode != "REVERSE" || r.Status() != "ok" || r.DownMbps <= 0 {
+		t.Fatalf("rev+stealth-tcp row not measured: %+v", r)
 	}
 	for _, m := range catalog.Methods {
 		if !frpMethod(m) {
@@ -256,7 +288,7 @@ func TestClosedUDPPortSkipsUDPAndStillTestsTCP(t *testing.T) {
 	}
 	var frp int
 	for _, r := range rows {
-		if strings.HasPrefix(r.Method, "frp+") || strings.HasPrefix(r.Method, "turbo+") {
+		if strings.HasPrefix(r.Method, "frp+") || r.Method == "stealth-tcp" || r.Method == "rev+stealth-tcp" {
 			if r.Status() != "ok" || r.DownMbps <= 0 {
 				t.Fatalf("TCP row not measured with UDP closed: %+v", r)
 			}
@@ -271,8 +303,8 @@ func TestClosedUDPPortSkipsUDPAndStillTestsTCP(t *testing.T) {
 			t.Fatalf("row left in testing: %+v", r)
 		}
 	}
-	if frp == 0 {
-		t.Fatal("no frp+ rows")
+	if frp != 7 { // 5 frp+ core L3 methods + stealth-tcp + rev+stealth-tcp
+		t.Fatalf("expected 7 TCP carrier rows, got %d", frp)
 	}
 }
 
@@ -302,7 +334,7 @@ func TestRunOnlyLimitsTheRows(t *testing.T) {
 	l.UDPPort = atoi(port)
 
 	start := time.Now()
-	rows, err := RunOnly(ctx, l, nil, []string{"stun-turn", "udp"})
+	rows, err := RunOnly(ctx, l, nil, []string{"game-dtls", "udp"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,12 +343,12 @@ func TestRunOnlyLimitsTheRows(t *testing.T) {
 		got[r.Method] = r
 	}
 	if len(got) != 4 {
-		t.Fatalf("rows %v, want stun-turn, rev+stun-turn, udp and direct+udp", got)
+		t.Fatalf("rows %v, want game-dtls, rev+game-dtls, udp and direct+udp", got)
 	}
-	for _, m := range []string{"stun-turn", "rev+stun-turn", "udp", "direct+udp"} {
+	for _, m := range []string{"game-dtls", "rev+game-dtls", "udp", "direct+udp"} {
 		if r, ok := got[m]; !ok || r.Status() != "ok" || r.DownMbps <= 0 {
 			t.Fatalf("%s: %+v", m, r)
 		}
 	}
-	t.Logf("three rows in %v", time.Since(start).Round(time.Second))
+	t.Logf("four rows in %v", time.Since(start).Round(time.Second))
 }

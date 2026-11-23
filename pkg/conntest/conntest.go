@@ -205,7 +205,7 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 		return i, ok && row.Skipped == ""
 	}
 	for _, m := range catalog.Methods {
-		if m.L4() {
+		if m.Legacy || m.L4() {
 			continue
 		}
 		if i, ok := add(m, m.Name, "DIRECT"); ok {
@@ -215,35 +215,44 @@ func newRows(ps []probe, usable func(i int) bool) (rows []Result, dir, rev []int
 	// Layer-4 rows: a real layer-4 tunnel per transport, in both REVERSE (Kharej dials Iran)
 	// and DIRECT (Iran dials Kharej with zero-copy splice).
 	for _, m := range catalog.Methods {
+		if m.Legacy {
+			continue
+		}
 		if m.L4() {
 			rows = append(rows, Result{Method: m.Name, Family: string(m.Family), Mode: "REVERSE", Phase: "wait"})
 			rows = append(rows, Result{Method: "direct+" + m.Name, Family: string(m.Family), Mode: "DIRECT", Phase: "wait"})
 		}
 	}
 	for _, m := range catalog.Methods {
-		if (m.Crypt() && !untested(m)) || m.Name == "wireguard" {
+		if m.Legacy {
+			continue
+		}
+		if m.Crypt() && !untested(m) {
 			if i, ok := add(m, "rev+"+m.Name, "REVERSE"); ok {
 				rev[i] = len(rows) - 1
 			}
+		} else if m.StreamStealth() {
+			rows = append(rows, Result{Method: "rev+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Phase: "wait"})
 		}
 	}
 	for _, m := range catalog.Methods {
 		if frpMethod(m) {
 			rows = append(rows, Result{Method: "frp+" + m.Name, Family: string(m.Family), Mode: "REVERSE", Phase: "wait"})
-			rows = append(rows, Result{Method: "turbo+" + m.Name, Family: string(m.Family), Mode: "DIRECT", Phase: "wait"})
 		}
 	}
 	return rows, dir, rev
 }
 
 func frpMethod(m catalog.MethodSpec) bool {
-	return !m.IPv6Underlay && !m.Crypt() && m.Name != "wireguard" && !m.L4()
+	return !m.Legacy && m.SupportsFRP
 }
 
-// untested methods have no packet probe: faketcp needs a raw TCP flow and icmp
-// the kernel's own echo, neither of which the responder's UDP socket can stand
-// in for. They are measured apart, after the probes (measuredApart).
-func untested(m catalog.MethodSpec) bool { return m.Name == "faketcp" || m.Name == "icmp" }
+// untested methods have no packet probe: faketcp needs a raw TCP flow, icmp
+// the kernel's own echo, and stealth-tcp/stealth-ws use stream carriers.
+// They are measured apart, after the probes (measuredApart).
+func untested(m catalog.MethodSpec) bool {
+	return m.Name == "faketcp" || m.Name == "icmp" || m.StreamStealth()
+}
 
 // measuredApart are the rows without a packet probe that are still measured:
 // icmp by pinging the Iran server, faketcp on the pck carrier, whose
@@ -695,11 +704,11 @@ func stripMethodPrefix(method string) string {
 func validResult(r Result) bool {
 	base := stripMethodPrefix(r.Method)
 	m, ok := catalog.LookupMethod(base)
-	if !ok || base != m.Name ||
+	if !ok || m.Legacy || base != m.Name ||
 		(strings.HasPrefix(r.Method, "frp+") && !frpMethod(m)) ||
-		(strings.HasPrefix(r.Method, "turbo+") && !frpMethod(m)) ||
+		strings.HasPrefix(r.Method, "turbo+") ||
 		(strings.HasPrefix(r.Method, "direct+") && !m.L4()) ||
-		(strings.HasPrefix(r.Method, "rev+") && !m.Crypt() && m.Name != "wireguard") {
+		(strings.HasPrefix(r.Method, "rev+") && !m.Crypt()) {
 		return false
 	}
 	if r.Sent < 0 || r.Sent > Probes || r.Received < 0 || r.Received > r.Sent {
@@ -801,12 +810,12 @@ func greKeyHeader(proto uint16, key uint32) []byte {
 	return h
 }
 
-// probes returns one probe per testable method, keyed by the catalog order.
+// probes returns one probe per testable active method, keyed by the catalog order.
 func probes() []probe {
 	var out []probe
 	for _, m := range catalog.Methods {
 		m := m
-		if m.L4() {
+		if m.Legacy || m.L4() {
 			continue
 		}
 		var p probe
@@ -969,16 +978,23 @@ func Run(ctx context.Context, l Link, progress Progress) ([]Result, error) {
 	return RunOnly(ctx, l, progress, nil)
 }
 
-// NewMethods are the methods new in C-Tunnel 2.0, for testing just them.
-var NewMethods = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux",
-	"faketcp", "icmp", "stun-turn", "gtp-u", "esp-udp", "bareudp", "xgre", "xgre-ip",
-	"game-udp", "game-fec", "game-dup", "game-kcp"}
+// NewMethods are the flagship 2.0+ methods for quick focused testing.
+var NewMethods = []string{
+	"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux", "udp", "udpmux",
+	"faketcp", "icmp", "stealth-tcp", "stealth-ws",
+	"xgre", "xgre-ip",
+	"game-udp", "game-fec", "game-dup", "game-kcp", "game-dtls",
+}
 
-// CheckOnly reports a name in only that is not a method.
+// CheckOnly reports a name in only that is not an active testable method.
 func CheckOnly(only []string) error {
 	for _, n := range only {
-		if _, ok := catalog.LookupMethod(n); !ok {
+		m, ok := catalog.LookupMethod(n)
+		if !ok {
 			return fmt.Errorf("unknown method %q (see: ctunnel catalog)", n)
+		}
+		if m.Legacy {
+			return fmt.Errorf("method %q is deprecated and removed from connection test", m.Name)
 		}
 	}
 	return nil
@@ -994,10 +1010,17 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 	}
 	want := map[string]bool{}
 	for _, n := range only {
-		want[n] = true
+		if m, ok := catalog.LookupMethod(n); ok {
+			want[m.Name] = true
+		} else {
+			want[n] = true
+		}
 	}
 	if want["faketcp"] {
 		want["pck"] = true // faketcp takes the pck carrier's result
+	}
+	if want["stealth-ws"] {
+		want["ws"] = true // stealth-ws rides WebSocket over TCP, measured by the ws carrier
 	}
 	wanted := func(method string) bool {
 		if len(want) == 0 {
@@ -1171,7 +1194,9 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		udpOpen = false
 		why := "UDP " + strconv.Itoa(l.UDPPort) + " closed on the iran server"
 		for i := range rows {
-			if !strings.HasPrefix(rows[i].Method, "frp+") && !strings.HasPrefix(rows[i].Method, "turbo+") && rows[i].Skipped == "" {
+			mName := rows[i].Method
+			isTCPCarrier := strings.HasPrefix(mName, "frp+") || mName == "stealth-tcp" || mName == "rev+stealth-tcp"
+			if !isTCPCarrier && rows[i].Skipped == "" {
 				set(i, func(r *Result) { r.Skipped, r.Phase = why, "" })
 			}
 		}
@@ -1329,36 +1354,31 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 	}
 
-	// Phase 4: each frp+ (REVERSE) and turbo+ (DIRECT) method gets fresh TCP streams,
-	// its own method-specific payload, verified echoes and bidirectional throughput.
-	turboRows := map[string]int{}
+	// Phase 4: each frp+ (REVERSE) method and stealth-tcp (DIRECT & REVERSE) gets
+	// fresh TLS-shaped TCP streams, verified echoes and bidirectional throughput.
+	revStealthTCPRow := -1
 	for ci := range rows {
-		if strings.HasPrefix(rows[ci].Method, "turbo+") {
-			turboRows[strings.TrimPrefix(rows[ci].Method, "turbo+")] = ci
+		if rows[ci].Method == "rev+stealth-tcp" {
+			revStealthTCPRow = ci
 		}
 	}
 	for ci := range rows {
-		if !strings.HasPrefix(rows[ci].Method, "frp+") || !wanted(rows[ci].Method) {
+		mName := rows[ci].Method
+		isFRP := strings.HasPrefix(mName, "frp+")
+		isStealthTCP := mName == "stealth-tcp"
+		if (!isFRP && !isStealthTCP) || !wanted(mName) {
 			continue
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		base := strings.TrimPrefix(rows[ci].Method, "frp+")
-		tci, hasTurbo := turboRows[base]
 		set(ci, func(r *Result) { r.Phase = "echo" })
-		if hasTurbo {
-			set(tci, func(r *Result) { r.Phase = "echo" })
+		if isStealthTCP && revStealthTCPRow >= 0 {
+			set(revStealthTCPRow, func(r *Result) { r.Phase = "echo" })
 		}
-		focusIdx := ci
-		if hasTurbo && wanted(rows[tci].Method) {
-			// When both share a probe, keep focus unambiguous: show frp+ during echo/download
-			// or turbo+ when only Direct is emphasized; switch deterministically.
-			focusIdx = tci
-		}
-		emitLive(focusIdx, "echo", 0, 0)
+		emitLive(ci, "echo", 0, 0)
 		var carUpPeak, carDownPeak float64
-		measured := measureCarrierLive(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), rows[ci].Method, func(phase string, sent, recv int, rtt, jit, rx, tx float64) {
+		measured := measureCarrierLive(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), mName, func(phase string, sent, recv int, rtt, jit, rx, tx float64) {
 			if rx > carDownPeak {
 				carDownPeak = rx
 			}
@@ -1377,35 +1397,38 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					r.UpPeakMbps = carUpPeak
 				}
 			}
-			set(ci, func(r *Result) { apply(r, "REVERSE", "frp+"+base) })
-			if hasTurbo {
-				set(tci, func(r *Result) { apply(r, "DIRECT", "turbo+"+base) })
+			if isStealthTCP {
+				set(ci, func(r *Result) { apply(r, "DIRECT", "stealth-tcp") })
+				if revStealthTCPRow >= 0 {
+					set(revStealthTCPRow, func(r *Result) { apply(r, "REVERSE", "rev+stealth-tcp") })
+				}
+			} else {
+				set(ci, func(r *Result) { apply(r, "REVERSE", mName) })
 			}
-			emitLive(focusIdx, phase, rx, tx)
+			emitLive(ci, phase, rx, tx)
 		})
 		measured.DownPeakMbps = max(measured.DownMbps, carDownPeak)
 		measured.UpPeakMbps = max(measured.UpMbps, carUpPeak)
 		set(ci, func(r *Result) { *r = measured })
-		if hasTurbo {
-			tm := measured
-			tm.Method = "turbo+" + base
-			tm.Mode = "DIRECT"
-			set(tci, func(r *Result) { *r = tm })
-			push(tci)
+		if isStealthTCP && revStealthTCPRow >= 0 {
+			rm := measured
+			rm.Method = "rev+stealth-tcp"
+			rm.Mode = "REVERSE"
+			set(revStealthTCPRow, func(r *Result) { *r = rm })
+			push(revStealthTCPRow)
 		}
 		notify()
 		push(ci)
 	}
 
-	// Phase 5: a real layer-4 tunnel per transport. Their tunnel port is TCP
-	// for most and UDP for udp and udpmux, so a closed test UDP port does not
-	// skip them; but the commands travel over that UDP port.
+	// Phase 5: a real layer-4 tunnel per transport (including game-kcp). Their
+	// tunnel port is TCP for most and UDP for udp, udpmux and game-kcp.
 	// pck goes first: it binds the tunnel port without SO_REUSEADDR, which a
 	// TIME_WAIT left by an earlier TCP transport would refuse.
 	var l4Rows []int
 	directL4Rows := map[string]int{}
 	for ci := range rows {
-		if rows[ci].Family != string(catalog.FamilyReverseL4) || !wanted(rows[ci].Method) {
+		if !catalog.IsL4(stripMethodPrefix(rows[ci].Method)) || !wanted(rows[ci].Method) {
 			continue
 		}
 		if strings.HasPrefix(rows[ci].Method, "direct+") {
@@ -1418,7 +1441,7 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			l4Rows = append(l4Rows, ci)
 		}
 	}
-	var pckRow *Result
+	var pckRow, wsRow *Result
 	for _, ci := range l4Rows {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -1493,10 +1516,13 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		if rows[ci].Method == "pck" {
 			pr := rows[ci]
 			pckRow = &pr
+		} else if rows[ci].Method == "ws" {
+			wr := rows[ci]
+			wsRow = &wr
 		}
 	}
 
-	// Phase 6: icmp and faketcp, which have no packet probe.
+	// Phase 6: icmp, faketcp, and stealth-ws, which have no raw/UDP packet probe.
 	for ci := range rows {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -1527,6 +1553,21 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					r.UpMbps, r.DownMbps, r.Error = pckRow.UpMbps, pckRow.DownMbps, pckRow.Error
 				}
 			})
+		case "stealth-ws", "rev+stealth-ws":
+			set(ci, func(r *Result) {
+				r.Phase = ""
+				switch {
+				case wsRow == nil || wsRow.Skipped != "":
+					if wsRow != nil && wsRow.Skipped != "" {
+						r.Skipped = wsRow.Skipped
+					} else {
+						r.Skipped = "measured on the ws carrier, which was not tested"
+					}
+				default:
+					r.Sent, r.Received, r.RTTms, r.JitterMs = wsRow.Sent, wsRow.Received, wsRow.RTTms, wsRow.JitterMs
+					r.UpMbps, r.DownMbps, r.Error = wsRow.UpMbps, wsRow.DownMbps, wsRow.Error
+				}
+			})
 		default:
 			continue
 		}
@@ -1553,18 +1594,26 @@ func measureCarrier(ctx context.Context, addr, method string) Result {
 }
 
 func measureCarrierLive(ctx context.Context, addr, method string, onLive func(phase string, sent, recv int, rtt, jit, rx, tx float64)) Result {
-	base := strings.TrimPrefix(method, "frp+")
+	base := stripMethodPrefix(method)
 	spec, ok := catalog.LookupMethod(base)
-	r := Result{Method: method, Family: string(spec.Family), Mode: "REVERSE", Sent: 0}
-	if !ok || !frpMethod(spec) {
-		r.Skipped = "unsupported frp method"
+	mode := "REVERSE"
+	if method == "stealth-tcp" {
+		mode = "DIRECT"
+	}
+	r := Result{Method: method, Family: string(spec.Family), Mode: mode, Sent: 0}
+	if !ok || (!frpMethod(spec) && spec.Name != "stealth-tcp") {
+		r.Skipped = "unsupported carrier method"
 		return r
 	}
 	var prefix []byte
-	for _, p := range probes() {
-		if p.method == base {
-			prefix = append([]byte(method+"\x00"), p.header()...)
-			break
+	if spec.Name == "stealth-tcp" {
+		prefix = []byte("stealth-tcp\x00\x17\x03\x03\x00\x20")
+	} else {
+		for _, p := range probes() {
+			if p.method == base {
+				prefix = append([]byte(method+"\x00"), p.header()...)
+				break
+			}
 		}
 	}
 	if len(prefix) == 0 {

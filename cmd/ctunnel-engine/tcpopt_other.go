@@ -8,3 +8,4 @@ import (
 )
 
 func setTCPUserTimeout(*net.TCPConn, time.Duration) {}
+func setTCPBusyPoll(*net.TCPConn, int)              {}

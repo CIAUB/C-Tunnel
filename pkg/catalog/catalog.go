@@ -25,17 +25,67 @@ const (
 	FamilyKernelL2 Family = "L2-Direct"
 	FamilyUDPCrypt Family = "UDP-Crypt"
 	// FamilyStealth are encrypted layer-3 tunnels like UDP-Crypt whose packets
-	// do not travel as plain UDP: hand-built TCP segments (faketcp) or ICMP echo
-	// (icmp).
+	// do not travel as plain UDP: hand-built TCP segments (faketcp), ICMP echo
+	// (icmp), TLS-shaped multi-stream TCP (stealth-tcp), or WebSocket (stealth-ws).
 	FamilyStealth Family = "Stealth"
 	// FamilyReverseL4 tunnels forward ports, not packets: Kharej dials Iran and
 	// each user connection rides its own stream (pkg/l4). No tunnel interface.
 	FamilyReverseL4 Family = "Reverse-L4"
 	// FamilyGaming are low-latency, QoS-marked transports tuned for competitive
 	// online gaming (ultra-low ping UDP, 0-RTT XOR-FEC, redundant dual-send UDP,
-	// and 5ms low-latency L4 KCP), available in both Direct and Reverse modes.
+	// encrypted anti-DPI DTLS 1.3, and fast NoDelay L4 KCP), available in both
+	// Direct and Reverse modes.
 	FamilyGaming Family = "Gaming"
 )
+
+// Performance profile tiers supported on every tunnel.
+const (
+	ProfileEco   = "eco"   // Lowest CPU/RAM footprint · standard speed (default for existing tunnels)
+	ProfileTurbo = "turbo" // Balanced resources · high speed (auto-enables 8-stream BBR carrier on Direct core L3)
+	ProfileHyper = "hyper" // Max resources · ultra speed (16-stream BBR carrier, max pools/buffers, SO_BUSY_POLL)
+)
+
+// NormalizeProfile parses a user-supplied performance profile name.
+// Empty string maps to ProfileEco for backward compatibility.
+func NormalizeProfile(s string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "eco", "standard", "std", "low":
+		return ProfileEco, true
+	case "turbo", "fast", "balanced", "high":
+		return ProfileTurbo, true
+	case "hyper", "ultra", "max", "extreme":
+		return ProfileHyper, true
+	default:
+		return "", false
+	}
+}
+
+// EffectiveProfile returns the active performance profile for tc, defaulting
+// legacy tunnels without an explicit Profile to ProfileEco (or ProfileTurbo
+// when they were previously created as a Direct TCP Carrier turbo+ tunnel).
+func EffectiveProfile(tc TunnelConfig) string {
+	if strings.TrimSpace(tc.Profile) != "" {
+		if p, ok := NormalizeProfile(tc.Profile); ok {
+			return p
+		}
+	}
+	if tc.Carrier && !tc.Reverse {
+		return ProfileTurbo
+	}
+	return ProfileEco
+}
+
+// ProfileLabel returns the uppercase display tag for a profile.
+func ProfileLabel(profile string) string {
+	switch p, _ := NormalizeProfile(profile); p {
+	case ProfileTurbo:
+		return "TURBO"
+	case ProfileHyper:
+		return "HYPER"
+	default:
+		return "ECO"
+	}
+}
 
 type MethodSpec struct {
 	ID            int
@@ -45,53 +95,56 @@ type MethodSpec struct {
 	Family        Family
 	Overhead      int  // bytes added on top of the inner packet (IPv4 underlay)
 	SupportsFOU   bool // optional UDP (FOU) wrapping with a port
-	NeedsPort     bool // always uses a UDP port
+	SupportsFRP   bool // supports Reverse frp+ TCP carrier and Direct TURBO/HYPER TCP carrier
+	NeedsPort     bool // always uses a UDP or TCP port
 	SupportsLanes bool // parallel ECMP lanes
 	IPv6Underlay  bool // LOCAL_IP / REMOTE_IP must be IPv6
 	Userspace     bool // carried by ctunnel-engine instead of a kernel driver
 	MikroTik      bool // RouterOS commands can be generated for the peer
+	Legacy        bool // deprecated for new tunnels; existing tunnels remain manageable
 }
 
 var Methods = []MethodSpec{
-	{ID: 1, Name: "6to4", Title: "6to4 (SIT carrier + IPIP6 inside)", Family: FamilyKernelL3, Overhead: 60, SupportsFOU: true, MikroTik: true},
-	{ID: 2, Name: "6to4-gre", Title: "6to4-GRE (SIT carrier + IP6GRE inside)", Family: FamilyKernelL3, Overhead: 64, SupportsFOU: true},
-	{ID: 3, Name: "sit", Title: "SIT (IPv6-in-IPv4, proto 41, IPv6 inside only)", Family: FamilyKernelL3, Overhead: 20, SupportsFOU: true},
-	{ID: 4, Name: "ipip", Title: "IPIP (IPv4-in-IPv4, proto 4)", Family: FamilyKernelL3, Overhead: 20, SupportsFOU: true, MikroTik: true},
-	{ID: 5, Name: "gre", Title: "GRE (proto 47)", Family: FamilyKernelL3, Overhead: 24, SupportsFOU: true, SupportsLanes: true, MikroTik: true},
-	{ID: 6, Name: "ip6gre", Title: "IP6GRE (GRE over IPv6)", Family: FamilyKernelL3, Overhead: 44, SupportsLanes: true, IPv6Underlay: true},
-	{ID: 7, Name: "ipip6", Title: "IPIP6 (IPv4 over IPv6)", Family: FamilyKernelL3, Overhead: 40, IPv6Underlay: true},
-	{ID: 8, Name: "ip6ip6", Title: "IP6IP6 (IPv6 over IPv6, IPv6 inside only)", Family: FamilyKernelL3, Overhead: 40, IPv6Underlay: true},
-	{ID: 9, Name: "wireguard", Title: "WireGuard (kernel, ChaCha20-Poly1305)", Family: FamilyKernelL3, Overhead: 60, NeedsPort: true, MikroTik: true},
-	{ID: 10, Name: "xfrm-ipsec", Title: "GRE + kernel IPsec ESP (AES-GCM-256)", Family: FamilyKernelL3, Overhead: 62},
-	{ID: 11, Name: "fou-gre", Title: "FOU-GRE (GRE inside UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true},
-	{ID: 12, Name: "gue-ipip", Title: "GUE-IPIP (IPIP inside GUE/UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true},
-	{ID: 13, Name: "ecmp-lanes", Title: "ECMP-Lanes (2-8 parallel keyed GRE)", Family: FamilyKernelL3, Overhead: 28, SupportsLanes: true},
-	{ID: 41, Name: "bareudp", Title: "BareUDP (IPv4 straight inside UDP, kernel 5.7+)", Family: FamilyKernelL3, Overhead: 28, NeedsPort: true},
-	{ID: 44, Name: "xgre", Title: "xGRE (eXtended multi-lane keyed GRE, ignore-df, FOU-ready)", Family: FamilyKernelL3, Overhead: 28, SupportsFOU: true, SupportsLanes: true, MikroTik: true},
-	{ID: 45, Name: "xgre-ip", Title: "xGRE-IP (IPIP inside multi-lane keyed xGRE carrier)", Family: FamilyKernelL3, Overhead: 48, SupportsFOU: true, SupportsLanes: true},
+	{ID: 1, Name: "6to4", Title: "6to4 (SIT carrier + IPIP6 inside)", Summary: "IPv6-in-IPv4 carrier with IPv4 inside. Supports raw Direct (MikroTik-ready), TURBO/HYPER BBR TCP carrier, and Reverse frp+.", Family: FamilyKernelL3, Overhead: 60, SupportsFOU: true, SupportsFRP: true, MikroTik: true},
+	{ID: 2, Name: "6to4-gre", Title: "6to4-GRE (SIT carrier + IP6GRE inside)", Family: FamilyKernelL3, Overhead: 64, SupportsFOU: true, Legacy: true},
+	{ID: 3, Name: "sit", Title: "SIT (IPv6-in-IPv4, proto 41, IPv6 inside only)", Family: FamilyKernelL3, Overhead: 20, SupportsFOU: true, Legacy: true},
+	{ID: 4, Name: "ipip", Title: "IPIP (IPv4-in-IPv4, proto 4)", Summary: "Minimal 20B overhead kernel IPv4 tunnel. Supports raw Direct (MikroTik-ready), TURBO/HYPER BBR TCP carrier, and Reverse frp+.", Family: FamilyKernelL3, Overhead: 20, SupportsFOU: true, SupportsFRP: true, MikroTik: true},
+	{ID: 5, Name: "gre", Title: "GRE (proto 47)", Summary: "Classic kernel GRE with optional FOU and ECMP lanes. Supports raw Direct (MikroTik-ready), TURBO/HYPER BBR TCP carrier, and Reverse frp+.", Family: FamilyKernelL3, Overhead: 24, SupportsFOU: true, SupportsFRP: true, SupportsLanes: true, MikroTik: true},
+	{ID: 6, Name: "ip6gre", Title: "IP6GRE (GRE over IPv6)", Summary: "Native GRE over IPv6 underlay when IPv4 paths are congested or throttled. Direct mode only.", Family: FamilyKernelL3, Overhead: 44, SupportsLanes: true, IPv6Underlay: true},
+	{ID: 7, Name: "ipip6", Title: "IPIP6 (IPv4 over IPv6)", Family: FamilyKernelL3, Overhead: 40, IPv6Underlay: true, Legacy: true},
+	{ID: 8, Name: "ip6ip6", Title: "IP6IP6 (IPv6 over IPv6, IPv6 inside only)", Family: FamilyKernelL3, Overhead: 40, IPv6Underlay: true, Legacy: true},
+	{ID: 9, Name: "wireguard", Title: "WireGuard (kernel, ChaCha20-Poly1305)", Family: FamilyKernelL3, Overhead: 60, NeedsPort: true, MikroTik: true, Legacy: true},
+	{ID: 10, Name: "xfrm-ipsec", Title: "GRE + kernel IPsec ESP (AES-GCM-256)", Family: FamilyKernelL3, Overhead: 62, Legacy: true},
+	{ID: 11, Name: "fou-gre", Title: "FOU-GRE (GRE inside UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true, Legacy: true},
+	{ID: 12, Name: "gue-ipip", Title: "GUE-IPIP (IPIP inside GUE/UDP)", Family: FamilyKernelL3, Overhead: 32, NeedsPort: true, Legacy: true},
+	{ID: 13, Name: "ecmp-lanes", Title: "ECMP-Lanes (2-8 parallel keyed GRE)", Family: FamilyKernelL3, Overhead: 28, SupportsLanes: true, Legacy: true},
+	{ID: 41, Name: "bareudp", Title: "BareUDP (IPv4 straight inside UDP, kernel 5.7+)", Family: FamilyKernelL3, Overhead: 28, NeedsPort: true, Legacy: true},
+	{ID: 44, Name: "xgre", Title: "xGRE (eXtended multi-lane keyed GRE, ignore-df, FOU-ready)", Summary: "High-throughput multi-lane keyed GRE with ignore-df. Supports raw Direct (MikroTik-ready), TURBO/HYPER BBR TCP carrier, and Reverse frp+.", Family: FamilyKernelL3, Overhead: 28, SupportsFOU: true, SupportsFRP: true, SupportsLanes: true, MikroTik: true},
+	{ID: 45, Name: "xgre-ip", Title: "xGRE-IP (IPIP inside multi-lane keyed xGRE carrier)", Summary: "Double-encapsulated IPIP over multi-lane xGRE carrier. Supports raw Direct, TURBO/HYPER BBR TCP carrier, and Reverse frp+.", Family: FamilyKernelL3, Overhead: 48, SupportsFOU: true, SupportsFRP: true, SupportsLanes: true},
 
-	{ID: 14, Name: "eoip", Title: "EoIP (MikroTik-compatible, raw GRE)", Family: FamilyKernelL2, Overhead: 42, Userspace: true, MikroTik: true},
-	{ID: 15, Name: "gretap", Title: "GRETAP (Ethernet over GRE)", Family: FamilyKernelL2, Overhead: 38, SupportsFOU: true},
-	{ID: 16, Name: "ip6gretap", Title: "IP6GRETAP (Ethernet over IPv6 GRE)", Family: FamilyKernelL2, Overhead: 58, IPv6Underlay: true},
-	{ID: 17, Name: "vxlan", Title: "VXLAN (Ethernet over UDP)", Family: FamilyKernelL2, Overhead: 50, NeedsPort: true, MikroTik: true},
-	{ID: 18, Name: "geneve", Title: "GENEVE (Ethernet over UDP)", Family: FamilyKernelL2, Overhead: 50, NeedsPort: true},
-	{ID: 19, Name: "l2tpv3", Title: "L2TPv3 static pseudowire (IP 115 or UDP)", Family: FamilyKernelL2, Overhead: 50, SupportsFOU: true},
-	{ID: 20, Name: "etherip", Title: "EtherIP (RFC 3378, proto 97)", Family: FamilyKernelL2, Overhead: 36, Userspace: true},
+	{ID: 14, Name: "eoip", Title: "EoIP (MikroTik-compatible, raw GRE)", Summary: "MikroTik RouterOS Layer-2 bridge over raw GRE (Direct mode).", Family: FamilyKernelL2, Overhead: 42, Userspace: true, MikroTik: true},
+	{ID: 15, Name: "gretap", Title: "GRETAP (Ethernet over GRE)", Family: FamilyKernelL2, Overhead: 38, SupportsFOU: true, Legacy: true},
+	{ID: 16, Name: "ip6gretap", Title: "IP6GRETAP (Ethernet over IPv6 GRE)", Family: FamilyKernelL2, Overhead: 58, IPv6Underlay: true, Legacy: true},
+	{ID: 17, Name: "vxlan", Title: "VXLAN (Ethernet over UDP)", Summary: "MikroTik-compatible Layer-2 Ethernet over UDP (Direct mode).", Family: FamilyKernelL2, Overhead: 50, NeedsPort: true, MikroTik: true},
+	{ID: 18, Name: "geneve", Title: "GENEVE (Ethernet over UDP)", Family: FamilyKernelL2, Overhead: 50, NeedsPort: true, Legacy: true},
+	{ID: 19, Name: "l2tpv3", Title: "L2TPv3 static pseudowire (IP 115 or UDP)", Family: FamilyKernelL2, Overhead: 50, SupportsFOU: true, Legacy: true},
+	{ID: 20, Name: "etherip", Title: "EtherIP (RFC 3378, proto 97)", Family: FamilyKernelL2, Overhead: 36, Userspace: true, Legacy: true},
 
-	{ID: 21, Name: "dtls-1.3", Title: "DTLS record framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 66, NeedsPort: true, Userspace: true},
-	{ID: 22, Name: "quic-v1", Title: "QUIC short-header framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 64, NeedsPort: true, Userspace: true},
-	{ID: 23, Name: "srtp-direct", Title: "RTP media framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true},
-	{ID: 24, Name: "wg-stealth", Title: "Random-magic header + junk burst + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
-	{ID: 25, Name: "rudp-fec", Title: "XOR-FEC 2+1 parity + AES-256-GCM (lossy links)", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true},
-	{ID: 26, Name: "dnscrypt-udp", Title: "DNS response framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true},
-	{ID: 27, Name: "ntp-direct", Title: "NTPv4 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
-	{ID: 28, Name: "openvpn-dco", Title: "OpenVPN P_DATA_V2 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
-	{ID: 36, Name: "stun-turn", Title: "TURN ChannelData framing (WebRTC calls) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 57, NeedsPort: true, Userspace: true},
-	{ID: 39, Name: "gtp-u", Title: "GTP-U G-PDU framing (mobile core) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
-	{ID: 40, Name: "esp-udp", Title: "IPsec ESP-in-UDP framing (NAT-T) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
+	{ID: 22, Name: "quic-v1", Title: "QUIC short-header framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 64, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 23, Name: "srtp-direct", Title: "RTP media framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 24, Name: "wg-stealth", Title: "Random-magic header + junk burst + AES-256-GCM", Summary: "DPI-evasive encrypted UDP with per-key rotating header mask and startup junk burst.", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true},
+	{ID: 25, Name: "rudp-fec", Title: "XOR-FEC 2+1 parity + AES-256-GCM (lossy links)", Summary: "Encrypted UDP with 0-RTT 2+1 XOR parity recovery for heavy packet-loss paths.", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true},
+	{ID: 26, Name: "dnscrypt-udp", Title: "DNS response framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 65, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 27, Name: "ntp-direct", Title: "NTPv4 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 28, Name: "openvpn-dco", Title: "OpenVPN P_DATA_V2 framing + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 36, Name: "stun-turn", Title: "TURN ChannelData framing (WebRTC calls) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 57, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 39, Name: "gtp-u", Title: "GTP-U G-PDU framing (mobile core) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true, Legacy: true},
+	{ID: 40, Name: "esp-udp", Title: "IPsec ESP-in-UDP framing (NAT-T) + AES-256-GCM", Family: FamilyUDPCrypt, Overhead: 61, NeedsPort: true, Userspace: true, Legacy: true},
 
-	{ID: 37, Name: "faketcp", Title: "Hand-built TCP segments with TLS records + AES-256-GCM", Family: FamilyStealth, Overhead: 82, NeedsPort: true, Userspace: true},
-	{ID: 38, Name: "icmp", Title: "ICMP echo (ping) + AES-256-GCM", Family: FamilyStealth, Overhead: 53, Userspace: true},
+	{ID: 37, Name: "faketcp", Title: "Hand-built TCP segments with TLS records + AES-256-GCM", Summary: "Bypasses UDP blocks using stateless hand-built TCP segments carrying TLS records.", Family: FamilyStealth, Overhead: 82, NeedsPort: true, Userspace: true},
+	{ID: 38, Name: "icmp", Title: "ICMP echo (ping) + AES-256-GCM", Summary: "Emergency stealth tunnel inside ICMP ping packets when TCP and UDP are blocked.", Family: FamilyStealth, Overhead: 53, Userspace: true},
+	{ID: 50, Name: "stealth-tcp", Title: "Stealth TCP (TLS 1.3 record framing + AES-256-GCM · Multi-Stream L3)", Summary: "Encrypted multi-stream L3 TUN tunnel shaped like TLS 1.3 ApplicationData over BBR TCP. Works in Direct and Reverse modes.", Family: FamilyStealth, Overhead: 61, NeedsPort: true, Userspace: true},
+	{ID: 51, Name: "stealth-ws", Title: "Stealth WebSocket (Encrypted WS + AES-256-GCM · Multi-Stream L3)", Summary: "Encrypted multi-stream L3 TUN tunnel over WebSocket with secret path and optional Host/SNI. Works in Direct and Reverse modes.", Family: FamilyStealth, Overhead: 72, NeedsPort: true, Userspace: true},
 
 	{ID: 29, Name: "tcp", Title: "TCP (a pooled connection per user connection)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
 	{ID: 30, Name: "tcpmux", Title: "TCP + MUX (streams over a few connections)", Family: FamilyReverseL4, NeedsPort: true, Userspace: true},
@@ -106,12 +159,23 @@ var Methods = []MethodSpec{
 	{ID: 46, Name: "game-udp", Title: "Gaming UDP (Ultra-Low Ping · 4B header, DSCP EF, zero-batch)", Summary: "Best for lowest possible ping & jitter on clean links (FPS / competitive). Immediate UDP flush, DSCP EF QoS, no head-of-line blocking.", Family: FamilyGaming, Overhead: 48, NeedsPort: true, Userspace: true},
 	{ID: 47, Name: "game-fec", Title: "Gaming FEC (Packet-Loss Shield · 2+1 XOR-FEC + DSCP EF)", Summary: "Best for unstable or lossy links (2-15% packet loss). Recovers dropped packets in 0-RTT without retransmission ping spikes.", Family: FamilyGaming, Overhead: 56, NeedsPort: true, Userspace: true},
 	{ID: 48, Name: "game-dup", Title: "Gaming Dual-Send (Zero-Spike Redundant UDP + Dedup)", Summary: "Best for severe bursty packet loss. Duplicates small game packets (<=300B) and delivers the first arriving copy with zero FEC grouping wait.", Family: FamilyGaming, Overhead: 52, NeedsPort: true, Userspace: true},
-	{ID: 49, Name: "game-kcp", Title: "Gaming Fast-KCP L4 (5ms NoDelay Port-Forward · No TUN)", Summary: "Best for Direct/Reverse game port forwarding without TUN interfaces on lossy paths. Tuned 5ms KCP + fast UDP forwarding + DSCP EF.", Family: FamilyGaming, NeedsPort: true, Userspace: true},
+	{ID: 49, Name: "game-kcp", Title: "Gaming Fast-KCP L4 (NoDelay Port-Forward · No TUN)", Summary: "Best for Direct/Reverse game port forwarding without TUN interfaces on lossy paths. Tuned NoDelay KCP + fast UDP forwarding + DSCP EF.", Family: FamilyGaming, NeedsPort: true, Userspace: true},
+	{ID: 21, Name: "game-dtls", Title: "Gaming DTLS 1.3 (Encrypted Stealth UDP · Anti-DPI Low-Jitter)", Summary: "Best when plain game UDP is throttled by DPI. Real DTLS 1.3 ciphertext framing + AES-256-GCM + DSCP EF QoS with zero batching.", Family: FamilyGaming, Overhead: 66, NeedsPort: true, Userspace: true},
 }
 
 // L4 reports whether m is a layer-4 port-forwarding transport (no tunnel
 // interface or tunnel IP; forwarded ports served by the engine itself).
 func (m MethodSpec) L4() bool { return m.Family == FamilyReverseL4 || m.Name == "game-kcp" }
+
+// StreamStealth reports whether m is a multi-stream TCP/WebSocket encrypted L3
+// Stealth tunnel (stealth-tcp or stealth-ws).
+func (m MethodSpec) StreamStealth() bool { return m.Name == "stealth-tcp" || m.Name == "stealth-ws" }
+
+// IsStreamStealth reports whether method names a stream-based Stealth transport.
+func IsStreamStealth(method string) bool {
+	m, ok := LookupMethod(method)
+	return ok && m.StreamStealth()
+}
 
 // Crypt reports whether m is an encrypted layer-3 tunnel run by the engine
 // with the tunnel secret: UDP-Crypt, Stealth, and L3 Gaming transports.
@@ -139,6 +203,12 @@ func LookupMethod(nameOrID string) (MethodSpec, bool) {
 	switch q {
 	case "xgre ip", "xgre_ip", "xgreip":
 		q = "xgre-ip"
+	case "dtls-1.3", "dtls1.3", "dtls", "game_dtls", "gamedtls":
+		q = "game-dtls"
+	case "stealth_tcp", "stealthtcp":
+		q = "stealth-tcp"
+	case "stealth_ws", "stealthws":
+		q = "stealth-ws"
 	}
 	for _, m := range Methods {
 		if m.Name == q || strconv.Itoa(m.ID) == q {
@@ -170,8 +240,9 @@ type TunnelConfig struct {
 	RateMbps       int      `json:"rate_mbps,omitempty"`
 	Padding        int      `json:"padding,omitempty"`
 	Reverse        bool     `json:"reverse,omitempty"`   // kharej initiates the connection to iran
-	Carrier        bool     `json:"carrier,omitempty"`   // 8-stream BBR TCP carrier in Direct mode
+	Carrier        bool     `json:"carrier,omitempty"`   // multi-stream BBR TCP carrier in Direct mode (enabled by TURBO/HYPER on core L3)
 	DirectL4       bool     `json:"direct_l4,omitempty"` // Layer-4 in Direct mode (iran dials kharej)
+	Profile        string   `json:"profile,omitempty"`   // performance profile: "eco", "turbo", or "hyper"
 	Ports          []string `json:"ports,omitempty"`     // forwarded on the iran side: "443" or "2053=8443"
 	// SNI is the TLS server name and WebSocket Host of the ws/wss transports;
 	// empty means the Iran IP.
@@ -258,12 +329,58 @@ func DecodeSetupLink(link string) (TunnelConfig, error) {
 	if tc.Name == "" || tc.Method == "" || tc.Token == "" {
 		return TunnelConfig{}, errors.New("setup link missing required fields")
 	}
+	migrateTunnel(&tc)
 	return tc, nil
+}
+
+const DefaultInstallScriptURL = "https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh"
+
+// ValidSetupLink reports whether link has the strict ctunnel://<base64url>
+// shape safe to embed inside single quotes in a shell one-liner.
+func ValidSetupLink(link string) bool {
+	if !strings.HasPrefix(link, "ctunnel://") || len(link) <= len("ctunnel://") || len(link) > 8192 {
+		return false
+	}
+	for _, r := range link[len("ctunnel://"):] {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// OneLineInstallCommand returns a copy-pasteable shell command for the peer
+// server that downloads/installs C-Tunnel from GitHub and automatically applies
+// the setup link. Returns "" if link fails strict syntax validation.
+func OneLineInstallCommand(link string) string {
+	link = strings.TrimSpace(link)
+	if !ValidSetupLink(link) {
+		return ""
+	}
+	return "curl -fsSL " + DefaultInstallScriptURL + " | sudo bash -s -- --apply-link '" + link + "'"
+}
+
+// migrateTunnel upgrades renamed protocol identifiers (dtls-1.3 -> game-dtls)
+// and assigns the backward-compatible default performance profile without
+// altering wire behavior of existing tunnels.
+func migrateTunnel(tc *TunnelConfig) {
+	if strings.EqualFold(strings.TrimSpace(tc.Method), "dtls-1.3") {
+		tc.Method = "game-dtls"
+	}
+	if strings.EqualFold(strings.TrimSpace(tc.BackupMethod), "dtls-1.3") {
+		tc.BackupMethod = "game-dtls"
+	}
+	tc.Profile = EffectiveProfile(*tc)
 }
 
 // MikroTikCommands returns RouterOS v7 commands for the peer when that peer is a MikroTik.
 // wgPeerPrivate / wgLocalPublic are only used for WireGuard.
 func MikroTikCommands(tc TunnelConfig, wgPeerPrivate, wgLocalPublic string) string {
+	if tc.Carrier || tc.Reverse {
+		if tc.Method != "wireguard" {
+			return ""
+		}
+	}
 	n := tc.Name
 	switch tc.Method {
 	case "eoip":
@@ -340,6 +457,9 @@ func LoadStore(dir string) (*Store, error) {
 		return nil, fmt.Errorf("%s/state.json is corrupt: %w", dir, err)
 	}
 	st.Dir = dir
+	for i := range st.Tunnels {
+		migrateTunnel(&st.Tunnels[i])
+	}
 	if st.GitHubRepo == "" {
 		st.GitHubRepo = DefaultGitHubRepo
 	}

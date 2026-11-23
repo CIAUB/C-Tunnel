@@ -143,24 +143,34 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	} else {
 		tc.DirectL4 = false
 	}
+	if strings.TrimSpace(tc.Profile) == "" {
+		tc.Profile = catalog.EffectiveProfile(*tc)
+	} else {
+		prof, ok := catalog.NormalizeProfile(tc.Profile)
+		if !ok {
+			return fmt.Errorf("unknown performance profile %q (use eco, turbo, or hyper)", tc.Profile)
+		}
+		tc.Profile = prof
+	}
 	if tc.Reverse {
 		tc.Carrier = false
-	}
-	if tc.Carrier && (m.Crypt() || m.Name == "wireguard" || m.L4() || m.IPv6Underlay) {
+	} else if m.SupportsFRP {
+		// On Direct core L3 tunnels (xgre, xgre-ip, 6to4, ipip, gre), TURBO and
+		// HYPER automatically activate the multi-stream BBR TCP Carrier; ECO
+		// runs pure raw kernel encapsulation with minimum resource usage.
+		tc.Carrier = tc.Profile == catalog.ProfileTurbo || tc.Profile == catalog.ProfileHyper
+	} else if tc.Carrier && (m.Crypt() || m.Name == "wireguard" || m.L4() || m.IPv6Underlay || tc.Profile == catalog.ProfileEco) {
 		tc.Carrier = false
 	}
 	if tc.Reverse && m.IPv6Underlay {
-		return fmt.Errorf("%s needs an IPv6 path; REVERSE mode works with the IPv4 methods (gre, ipip, vxlan, UDP-Crypt...)", m.Name)
+		return fmt.Errorf("%s needs an IPv6 path; REVERSE mode works with the IPv4 methods (gre, ipip, xgre, stealth-tcp...)", m.Name)
 	}
-	if tc.Reverse && tc.Role == "iran" && strings.TrimSpace(tc.RemoteIP) == "" {
+	if IsPassivePeer(*tc) && strings.TrimSpace(tc.RemoteIP) == "" {
 		if m.IPv6Underlay {
 			tc.RemoteIP = "::"
 		} else {
 			tc.RemoteIP = "0.0.0.0"
 		}
-	}
-	if (tc.DirectL4 || tc.Carrier) && tc.Role == "kharej" && strings.TrimSpace(tc.RemoteIP) == "" {
-		tc.RemoteIP = "0.0.0.0"
 	}
 	if err := checkIP("remote server IP", tc.RemoteIP, m.IPv6Underlay); err != nil {
 		return err
@@ -284,6 +294,10 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 			tc.SNI = ""
 		}
 		tc.MTU, tc.Lanes = 0, 1
+	} else if tc.Method == "stealth-ws" {
+		if tc.SNI != "" && !sniRe.MatchString(tc.SNI) {
+			return fmt.Errorf("SNI %q is not a host name", tc.SNI)
+		}
 	} else {
 		tc.SNI = ""
 	}

@@ -22,3 +22,5 @@ func tuneCarrierTCP(c net.Conn) {
 	_ = tc.SetNoDelay(true)
 	_ = tc.SetKeepAliveConfig(carrierKeepAlive)
 }
+
+func applyBusyPoll(net.Conn) {}

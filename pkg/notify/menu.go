@@ -129,7 +129,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 				}
 			}
 			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "bk:")}})
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 
@@ -138,7 +138,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			tc, ok := n.tunnel(name)
 			if !ok {
 				v := n.statusView()
-				_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+				_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 				_ = bot.Answer(ctx, c.ID, tr(lang, "tunnel.gone"))
 				return
 			}
@@ -156,7 +156,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			}
 			msg := n.em("quota") + " " + tr(lang, "quota.ask", esc(tc.Name), capTxt, bytesStr(rx+tx))
 			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "qa-cancel:"+tc.Name)}})
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 
@@ -164,7 +164,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			name := strings.TrimPrefix(c.Data, "qa-cancel:")
 			n.clearPrompts(actor)
 			v := n.tunnelView(name)
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 
@@ -178,14 +178,14 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			n.mu.Unlock()
 			msg := n.em("add") + " " + tr(lang, "admin.ask")
 			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "ad-cancel:")}})
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 
 		case c.Data == "ad-cancel:":
 			n.clearPrompts(actor)
 			v := n.adminsView()
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 
@@ -200,7 +200,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 					}
 				}
 				v := n.emojiView()
-				_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+				_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 				_ = bot.Answer(ctx, c.ID, toast)
 				return
 			}
@@ -215,21 +215,21 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			n.mu.Unlock()
 			msg := n.em("emoji") + " " + tr(lang, "emoji.askPack")
 			v := plainView(msg, [][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "em-cancel:")}})
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 
 		case c.Data == "em-cancel:":
 			n.clearPrompts(actor)
 			v := n.emojiView()
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 			_ = bot.Answer(ctx, c.ID, "")
 			return
 		}
 
 		v, toast := n.press(c.Data, fromID)
 		if v.Text != "" || v.RichHTML != "" {
-			_ = bot.EditView(ctx, targetChat, c.Message.MessageID, v)
+			_ = n.botEditView(ctx, bot, targetChat, c.Message.MessageID, v)
 		}
 		_ = bot.Answer(ctx, c.ID, toast)
 		return
@@ -292,25 +292,25 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 	switch cmd {
 	case "/start", "/help", "/menu":
 		v := n.mainView(fromID)
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/panel":
 		v := n.panelDirectView(fromID)
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/status":
 		v := n.statusView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/report":
 		v := n.reportView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/manage":
 		v := n.manageView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/backup":
 		v := n.backupView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/admins":
 		v := n.adminsView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/addadmin":
 		id, err := strconv.ParseInt(normalizeDigits(arg), 10, 64)
 		if err != nil || id <= 0 {
@@ -318,7 +318,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			if lang == "fa" {
 				msg = "فرمت صحیح: <code>/addadmin 123456789</code> (شناسه عددی تلگرام کاربر)"
 			}
-			_, _ = bot.Send(ctx, chat, msg, [][]Button{{n.btn("admins", tr(lang, "l.admins"), "primary", "ad:")}})
+			_, _ = n.botSend(ctx, bot, chat, msg, [][]Button{{n.btn("admins", tr(lang, "l.admins"), "primary", "ad:")}})
 			return
 		}
 		var addErr error
@@ -327,7 +327,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			res = tr(lang, "fail", esc(addErr.Error()))
 		}
 		v := prependBanner(n.adminsView(), res)
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/deladmin":
 		id, err := strconv.ParseInt(normalizeDigits(arg), 10, 64)
 		if err != nil || id <= 0 {
@@ -335,7 +335,7 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			if lang == "fa" {
 				msg = "فرمت صحیح: <code>/deladmin 123456789</code>"
 			}
-			_, _ = bot.Send(ctx, chat, msg, [][]Button{{n.btn("admins", tr(lang, "l.admins"), "primary", "ad:")}})
+			_, _ = n.botSend(ctx, bot, chat, msg, [][]Button{{n.btn("admins", tr(lang, "l.admins"), "primary", "ad:")}})
 			return
 		}
 		var rmErr error
@@ -344,13 +344,13 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 			res = tr(lang, "fail", esc(rmErr.Error()))
 		}
 		v := prependBanner(n.adminsView(), res)
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/settings", "/alerts":
 		v := n.alertsView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	case "/server":
 		v := n.serverView()
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 	}
 }
 
@@ -371,7 +371,7 @@ func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat st
 		clean = strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.ToLower(clean), "gb"), "g"))
 		gb, err := strconv.ParseFloat(clean, 64)
 		if err != nil || math.IsNaN(gb) || math.IsInf(gb, 0) || gb <= 0 || gb > 1_000_000 {
-			_, _ = bot.Send(ctx, chat, n.em("warn")+" "+tr(lang, "quota.badNum"),
+			_, _ = n.botSend(ctx, bot, chat, n.em("warn")+" "+tr(lang, "quota.badNum"),
 				[][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "qa-cancel:"+qp.tunnel)}})
 			return true
 		}
@@ -391,7 +391,7 @@ func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat st
 			banner = tr(lang, "quota.added", esc(tc.Name), tc.QuotaGB, resWord)
 		}
 		v := prependBanner(n.tunnelView(qp.tunnel), banner)
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 		return true
 	}
 
@@ -406,7 +406,7 @@ func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat st
 	if waitAdmin {
 		id, err := strconv.ParseInt(normalizeDigits(input), 10, 64)
 		if err != nil || id <= 0 {
-			_, _ = bot.Send(ctx, chat, n.em("warn")+" "+tr(lang, "admin.badID"),
+			_, _ = n.botSend(ctx, bot, chat, n.em("warn")+" "+tr(lang, "admin.badID"),
 				[][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "ad-cancel:")}})
 			return true
 		}
@@ -419,7 +419,7 @@ func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat st
 			res = tr(lang, "fail", esc(addErr.Error()))
 		}
 		v := prependBanner(n.adminsView(), res)
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 		return true
 	}
 
@@ -434,7 +434,7 @@ func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat st
 	if waitPack {
 		pack := ParseEmojiPackName(input)
 		if pack == "" || !emojiPackRE.MatchString(pack) {
-			_, _ = bot.Send(ctx, chat, n.em("warn")+" "+tr(lang, "emoji.badPack"),
+			_, _ = n.botSend(ctx, bot, chat, n.em("warn")+" "+tr(lang, "emoji.badPack"),
 				[][]Button{{n.btn("cancel", tr(lang, "l.no"), "danger", "em-cancel:")}})
 			return true
 		}
@@ -449,7 +449,7 @@ func (n *Notifier) handlePendingTextReply(ctx context.Context, bot *Bot, chat st
 		cnt := len(n.emoji.keyToID)
 		n.mu.Unlock()
 		v := prependBanner(n.emojiView(), n.em("ok")+" "+tr(lang, "emoji.packSaved", esc(pack), cnt))
-		_, _ = bot.SendView(ctx, chat, v)
+		_, _ = n.botSendView(ctx, bot, chat, v)
 		return true
 	}
 
@@ -462,12 +462,12 @@ func (n *Notifier) handleRestoreUpload(ctx context.Context, bot *Bot, chat strin
 	raw, err := bot.DownloadFile(dctx, doc.FileID, tunnel.MaxBackupBytes)
 	cancel()
 	if err != nil {
-		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{n.btn("backup", tr(lang, "l.backup"), "primary", "bk:")}})
+		_, _ = n.botSend(ctx, bot, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{n.btn("backup", tr(lang, "l.backup"), "primary", "bk:")}})
 		return
 	}
 	res, err := tunnel.RestoreBackup(n.StoreDir, raw, overwrite)
 	if err != nil {
-		_, _ = bot.Send(ctx, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{n.btn("backup", tr(lang, "l.backup"), "primary", "bk:")}})
+		_, _ = n.botSend(ctx, bot, chat, tr(lang, "fail", esc(err.Error())), [][]Button{{n.btn("backup", tr(lang, "l.backup"), "primary", "bk:")}})
 		return
 	}
 	title := "Restore Complete"
@@ -501,7 +501,7 @@ func (n *Notifier) handleRestoreUpload(ctx context.Context, bot *Bot, chat strin
 		n.btn("tunnels", tr(lang, "l.status"), "success", "st:"),
 		n.btn("home", tr(lang, "l.home"), "", "m:"),
 	}}
-	_, _ = bot.SendView(ctx, chat, View{RichHTML: rh.String(), Text: fb.String(), Rows: rows})
+	_, _ = n.botSendView(ctx, bot, chat, View{RichHTML: rh.String(), Text: fb.String(), Rows: rows})
 }
 
 func (n *Notifier) press(data string, fromID int64) (v View, toast string) {
@@ -1250,11 +1250,12 @@ func (n *Notifier) statusView() View {
 	for _, tc := range tcs {
 		icon, word := n.state(lang, tc)
 		iconKey := "down"
+		stShort := "DN "
 		btnStyle := "danger"
 		switch {
 		case tc.QuotaStopped:
-			icon = "⛔"
 			iconKey = "exhausted"
+			stShort = "QTA"
 			btnStyle = "danger"
 			if lang == "fa" {
 				word = "سهمیه"
@@ -1263,9 +1264,11 @@ func (n *Notifier) statusView() View {
 			}
 		case icon == "🟢":
 			iconKey = "up"
+			stShort = "UP "
 			btnStyle = "success"
 		case icon == "⏸":
 			iconKey = "paused"
+			stShort = "OFF"
 			btnStyle = ""
 		}
 		meth := tc.Method
@@ -1286,7 +1289,7 @@ func (n *Notifier) statusView() View {
 		}
 		fmt.Fprintf(&rh, "<tr><td><code>%s</code></td><td><code>%s</code></td><td>%s %s</td><td>%s</td><td>%s</td></tr>",
 			esc(tc.Name), esc(meth), n.em(iconKey), esc(word), esc(qStr), esc(rStr))
-		fb.WriteString(esc(pad(tc.Name, 10)) + esc(pad(meth, 9)) + icon + " " + esc(pad(qStr, 9)) + esc(rStr) + "\n")
+		fb.WriteString(esc(pad(tc.Name, 10)) + esc(pad(meth, 9)) + stShort + " " + esc(pad(qStr, 9)) + esc(rStr) + "\n")
 
 		pair = append(pair, n.btn(iconKey, tc.Name, btnStyle, "tn:"+tc.Name))
 		if len(pair) == 2 {
@@ -1473,7 +1476,10 @@ func (n *Notifier) backupView() View {
 			}
 		}
 		style := ""
-		iconKey := ""
+		iconKey := "clock"
+		if h == 0 {
+			iconKey = "off"
+		}
 		if cfg.AutoBackupHours == h {
 			style = "primary"
 			iconKey = "ok"
@@ -1622,7 +1628,7 @@ func (n *Notifier) timeView() View {
 	var rows [][]Button
 	var pair []Button
 	for _, h := range reportHours {
-		iconKey, style := "", ""
+		iconKey, style := "time", ""
 		if cfg.DailyAt == h {
 			iconKey, style = "ok", "primary"
 		}

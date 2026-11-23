@@ -13,6 +13,12 @@ import (
 // IsPassivePeer reports whether tc listens for incoming connections and may
 // leave RemoteIP unspecified ("0.0.0.0" or "::") to accept any peer.
 func IsPassivePeer(tc catalog.TunnelConfig) bool {
+	if catalog.IsStreamStealth(tc.Method) {
+		if tc.Reverse {
+			return tc.Role == "iran"
+		}
+		return tc.Role == "kharej"
+	}
 	return (tc.Reverse && tc.Role == "iran") || ((tc.DirectL4 || tc.Carrier) && tc.Role == "kharej")
 }
 
