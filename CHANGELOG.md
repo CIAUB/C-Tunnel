@@ -1,5 +1,46 @@
 # Changelog
 
+## [2.1.0]
+
+### Added — 3-Tier Performance Profiles (`ECO` / `TURBO` / `HYPER`)
+- **Universal Per-Tunnel Performance Profiles (`pkg/catalog`, `pkg/tunnel`, `pkg/l4`, `cmd/ctunnel-engine`, `scripts/ctunnel-kernel.sh`):**
+  - Replaced standalone `turbo+` protocol entries with a unified 3-tier Performance Profile selectable on **every tunnel** at creation time (CLI wizard & Web Panel) and changeable anytime via `ctunnel set-profile <name> <eco|turbo|hyper>`, CLI Edit menu, or Web Panel Edit modal.
+  - **`ECO` (Standard):** Lowest CPU/RAM footprint (`L4 Pool: 8`, `Conns: 2/1`, `smux: 16 MiB / 4 MiB`, `KCP window: 2048`, `revCarrier: 4 streams / 128 KiB bufio / 1024 queue`, `UDP buf: 4 MiB`, `txqueuelen: 4000`; Direct core L3 runs raw kernel encapsulation).
+  - **`TURBO` (High Speed):** Balanced resource usage & higher throughput (`L4 Pool: 16`, `Conns: 4/2`, `smux: 64 MiB / 16 MiB`, `KCP window: 4096`, `revCarrier: 8 streams / 256 KiB bufio / 2048 queue`, `UDP buf: 16 MiB`, `txqueuelen: 10000`; Direct core L3 auto-enables 8-stream BBR TCP carrier).
+  - **`HYPER` (Ultra Speed):** Maximum resources & peak throughput (`L4 Pool: 32`, `Conns: 8/4`, `smux: 128 MiB / 32 MiB`, `KCP window: 8192`, `revCarrier: 16 streams / 512 KiB bufio / 4096 queue`, `UDP buf: 32 MiB`, `txqueuelen: 20000`, Linux `SO_BUSY_POLL=50` on TCP/KCP/carrier sockets; Direct core L3 auto-enables 16-stream BBR TCP carrier).
+  - **Seamless Backward Compatibility:** Existing tunnels from v2.0.x automatically default to `ECO` (and legacy `Carrier: true` Direct tunnels default to `TURBO`) with zero breakage.
+
+### Added — New Stealth Transports (`stealth-tcp`, `stealth-ws`) & One-Line Peer Setup
+- **`stealth-tcp` & `stealth-ws` (`FamilyStealth`, Direct & Reverse):**
+  - `stealth-tcp`: Multi-stream AES-256-GCM encrypted Layer-3 TUN tunnel framed in TLS 1.3-shaped application-data records (`0x17 0x03 0x03`), with flow-pinned 5-tuple hashing, BBR pacing, and profile-scaled stream pools.
+  - `stealth-ws`: Multi-stream AES-256-GCM encrypted Layer-3 TUN tunnel over WebSocket with secret-derived URL path (`SHA-256`, constant-time verification, `404 Not Found` on unauthorized probes), optional custom `Host` / SNI, `1 MiB` WebSocket read-limit & `8 KiB` header-cap hardening, and clean `sync.Once` shutdown.
+- **One-Line GitHub Install & Auto-Connect (`install.sh`, `pkg/catalog`, `pkg/cli`, `cmd/ctunnel`, `pkg/webpanel`):**
+  - Added `--apply-link 'ctunnel://...'` (and `CTUNNEL_APPLY_LINK`) to `install.sh` with strict regex & length validation (`^ctunnel://[A-Za-z0-9_-]{1,8192}$`), automatically running `ctunnel apply-link` right after installation and skipping the interactive menu.
+  - Added `catalog.OneLineInstallCommand()` and displayed the copy-pasteable one-liner alongside the raw `ctunnel://` link in CLI (`showLink`, `ctunnel link <name>`) and Web Panel (`#dlg-link` with dedicated **Copy install command** button).
+  - Improved `ctunnel apply-link` output to print accurate port/peer details and performance profile for both Layer-4 and Layer-3 tunnels.
+
+### Changed & Optimized — Gaming Engine, Protocol Lineup & Legacy Gating
+- **DTLS 1.3 Promoted to Gaming as `game-dtls` (`pkg/catalog`, `pkg/dpi`, `cmd/ctunnel-engine`):**
+  - Renamed `dtls-1.3` to `game-dtls` and moved it into `FamilyGaming` alongside `game-udp`, `game-fec`, `game-dup`, and `game-kcp`.
+  - Automatic migration (`LoadStore` & `DecodeSetupLink`) upgrades existing `dtls-1.3` tunnels and backup methods transparently while keeping 100% identical wire framing and key derivation (`"udp-crypt-framer|dtls-1.3"`).
+  - Enabled full Gaming QoS (`DSCP EF`, `SO_PRIORITY=6`, `IP_PMTUDISC_DO`, `SO_BUSY_POLL=50`) on `game-dtls` and zero-allocation `WriteToUDPAddrPort` writes in `udpcrypt.go`.
+- **Gaming Engine Optimizations (`cmd/ctunnel-engine`, `pkg/l4`):**
+  - Fixed `game-fec` multi-worker XOR group collision by pinning `game-fec` to `worker=1` (matching `rudp-fec`) so 0-RTT parity reconstruction stays lossless under load.
+  - Enabled `IP_PMTUDISC_DO` and `SO_BUSY_POLL=50` (on `HYPER`) for `game-kcp` sockets.
+- **Scoped `frp+` & Curated Active Protocol Lineup (`pkg/catalog`, `pkg/tunnel`, `pkg/conntest`, `pkg/cli`, `pkg/webpanel`):**
+  - Scoped `frp+` reverse/carrier support strictly to core IPv4 L3 methods (`xgre`, `xgre-ip`, `6to4`, `ipip`, `gre`).
+  - Kept all essential L4 transports (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`, `udp`, `udpmux`) active.
+  - Marked 23 deprecated/weak legacy methods (`Legacy: true`): blocked from new tunnel creation and removed from Connection Test, while keeping all existing legacy tunnels 100% manageable, editable, startable, stoppable, and deletable (tagged `[LEGACY]` in CLI & Web Panel).
+- **Connection Test Layer-4 Stability (`pkg/conntest/layer4.go`):**
+  - Configured Connection Test L4 probes to run with `ProfileTurbo` and tuned `ProfileEco` KCP burst/interval parameters so `udp` / `udpmux` benchmarks pass reliably without burst stalls.
+
+### Fixed & Improved — Telegram Bot 100% Premium Custom Emojis (`pkg/notify`)
+- **Complete Premium Coverage Across Messages, Alerts, Captions & Inline Buttons:**
+  - Fixed `ensureEmojiPack` stopping early after 12 resolved icons; now scans all fallback packs (`RestrictedEmoji`, `AnimatedEmojies`, `EmojiIcons`, `TelegramEmoji`, `IconsEmoji`) with deterministic animated-first priority, semantic synonym fallback (`iconAliases`), and pack-wide universal fallback so all 50 UI icon keys resolve to real `custom_emoji_id`s.
+  - Added `upgradeHTML`, `upgradeButtons`, and `upgradeView` across every outgoing bot message, callback edit, async alert (`up`, `down`, `back`, `Failover`, `QuotaAlert`), daily/manual traffic report, `SendTest`, and backup document caption (`SendDocument` now also strips custom emojis and retries cleanly if rejected by Telegram).
+  - Assigned semantic icon keys to every inline keyboard button (including Auto-Backup interval presets and Daily Report hour pickers) so 100% of buttons display animated `icon_custom_emoji_id` when Premium is active, while gracefully falling back to standard Unicode emojis for non-Premium accounts.
+  - Fixed `observeUserPremium` so manually forced `PremiumEmoji: "on"` still loads the emoji pack even when update `From` metadata is absent.
+
 ## [2.0.1]
 
 ### Fixed — Layer-4 TCP & Direct/Reverse TCP Tunnel Reliability
