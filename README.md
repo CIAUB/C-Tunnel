@@ -33,7 +33,7 @@
 
 ## Contents
 
-- [Changelog (v2.0.0)](#changelog-v200)
+- [What's new in v2.1.0](#whats-new-in-v210)
 - [How it works](#how-it-works)
 - [Features](#features)
 - [Requirements](#requirements)
@@ -49,42 +49,36 @@
 - [License](#license)
 - [Community](#community)
 
-## Changelog (v2.0.0)
+## What's new in v2.1.0
 
-Complete list of every new protocol, subsystem, optimization, security hardening, and fix added in **C-Tunnel v2.0.0** compared to `v1.1.1` (full release notes in [CHANGELOG.md](CHANGELOG.md)):
+Full release notes for every version are in [CHANGELOG.md](CHANGELOG.md).
 
-- **21 New Transports (28 → 49 Methods Across 6 Families) & 3 Operating Modes:**
-  - **3 Operating Modes:** **Reverse** (Kharej dials Iran; zero outbound connections from Iran), **Direct** (Iran dials Kharej), and **8× BBR Turbo Direct** (8 parallel BBR-paced TCP streams).
-  - **9 Layer-4 Direct & Reverse Tunnels (`pkg/l4`):** `tcp` (16-connection pool + kernel `splice`), `tcpmux` (`smux` v2 over 4 TCP connections), `pck` (KCP inside hand-built raw-socket TCP segments with BPF filter & AES), `ws` (WebSocket + optional `Host`/SNI), `wsmux`, `wss` (TLS WebSocket), `wssmux`, `udp` (pooled AES KCP-over-UDP with explicit FIN framing), and `udpmux`. Forwards both TCP & UDP ports with no tunnel IP, no TCP-in-TCP, manual or `ctunnel://` setup on Kharej, and automatic L4-to-L4 Failover.
-  - **4 Dedicated Gaming Protocols (Direct & Reverse):** `game-udp` (ultra-low ping UDP with `DSCP EF` / `SO_PRIORITY 6`, `IP_MTU_DISCOVER=DO`, zero head-of-line blocking), `game-fec` (**0-RTT XOR-FEC** parity recovery without retransmission wait), `game-dup` (dual-send redundancy for small packets `<= 320 B`), and `game-kcp` (5 ms nodelay KCP L4 port forwarding).
-  - **2 Stealth Layer-3 Transports (Direct & Reverse):** `faketcp` (TLS records inside hand-built raw-socket TCP segments via `pck` carrier at UDP speed) and `icmp` (AES-256-GCM inside ICMP Echo ping with automatic kernel echo-reply suppression).
-  - **3 New UDP-Crypt Look-Alikes (Direct & Reverse):** `stun-turn` (WebRTC TURN ChannelData, default UDP `3478`), `gtp-u` (3GPP mobile core GTP-U G-PDU, default UDP `2152`), and `esp-udp` (IPsec NAT-T ESP-in-UDP, default UDP `4500`).
-  - **3 New High-Speed Kernel L3 Carriers:** `bareudp` (Linux 5.7+ IPv4-in-UDP with zero tunnel header, default UDP `6635`), `xgre` (eXtended multi-lane keyed GRE with `ignore-df`, FOU, ECMP lanes, and MikroTik support), and `xgre-ip` (IPIP over multi-lane `xGRE`).
-- **Engine, Kernel & Network Performance Optimizations (Up to 2.5× Faster):**
-  - **Go 1.26.10 Toolchain:** Upgraded from Go 1.22 to Go 1.26.10 and `golang.org/x/net v0.62.0`, eliminating all 37 standard-library `govulncheck` CVEs.
-  - **Zero-Copy Kernel TCP `splice`:** Layer-4 `tcp` splices payload bytes directly between sockets in the Linux kernel.
-  - **10 ms Batched KCP ACKs & 4096 Window:** KCP flushes ACKs once per `10 ms` tick and `pck` scales its window from `1024 → 4096` segments (`1.6×–2.5×` faster between namespaces, `~25%` faster at `50 ms` RTT, `10–20%` faster at `150 ms` RTT).
-  - **16 MiB `smux` Stream Window & 64 KiB Frames:** 4× larger per-stream window (`4 MiB → 16 MiB`) for long-RTT international links.
-  - **Vectorized Batch I/O & Kernel Offloads:** `sendmmsg`/`recvmmsg` packet batching, UDP GSO/GRO, TUN segmentation/receive offload, multi-CPU RPS tunnel decapsulation, adaptive FEC path controller (`pkg/pathctl`), userspace TCP SYN MSS clamping (`pkg/tcpmss`), and Linux `TCP_INFO` `Bytes_acked` speedtest metering over a 1s rolling window.
-- **Telegram Bot v2, Multi-Admin, Iran Tunnel Relay & Passwordless Web Panel:**
-  - **Active on Both Kharej and Iran Servers (`pkg/tgrelay`):** Iran servers automatically relay Bot API traffic and media downloads through active Kharej tunnels.
-  - **Bot API 10.1+ Native Rich Tables & Live `/start` Health Probe:** `/start` runs a concurrent live ping/loss test across all tunnels and renders a native Telegram `<table>` (with automatic `<pre>` box-table fallback).
-  - **Bot API 9.4+ Semantic Colored Buttons & `⚙️ Manage` Submenu:** Color-coded buttons (`primary` blue, `success` green, `danger` red, neutral) and a dedicated `Manage` submenu (`Backup & Restore`, `Admins`, `Alerts`, `Server Resources`, `Premium Emojis`, `Language FA/EN`, `Restart All`).
-  - **Telegram Premium Animated Custom Emojis (`pkg/notify/emoji.go`):** Auto-detects `User.is_premium` on the bot owner, loads animated `.tgs` custom emoji IDs via `getStickerSet` (`RestrictedEmoji` or custom pack), and transparently falls back to standard Unicode emojis if non-Premium or rejected by API.
-  - **Multi-Admin & Passwordless Web Panel Login:** Up to 32 numeric Telegram User IDs; `/start` provides a 1-tap passwordless HTTP Web Panel login button (`#tgToken` 30-min HMAC-SHA256) by default and upgrades automatically to a native HTTPS Telegram Mini App (`web_app` `initData` HMAC-SHA256).
-  - **Expanded Traffic Report:** Includes per-tunnel RX/TX/Δ/Quota, archived traffic, **Server Total Consumed Volume (`Σ`)**, and configured **Bot Admins**.
-- **Backup, Restore & Auto-Backup with Persistent Cumulative Traffic:**
-  - `ctunnel-backup/2` archives store every tunnel's cumulative RX/TX bytes (`TrafficSeedRx`/`TrafficSeedTx`) plus `ArchivedRx`/`ArchivedTx` so restored or migrated servers preserve accurate running totals.
-  - 1-tap manual Backup, Safe/Overwrite Restore via file upload, and scheduled Auto-Backup (`6h`, `12h`, `24h`, `48h`, `7d`, or `1–720h`) in Telegram Bot, Web Panel, and CLI.
-- **Per-Tunnel Traffic Quotas & Bandwidth Rate Limits:**
-  - Optional per-tunnel **Traffic Quota (`GB`)**, **Bandwidth Limit (`Mbps`)**, **both**, or **Unlimited** (enforced via kernel `tc` on L3/L2 and token-bucket limiter on L4).
-  - Automatic tunnel stop + Telegram alert upon quota exhaustion with 3 recovery options: **Manual Override Start**, **Reset Usage**, and **Interactive Add Quota** (accepting English & Persian digits).
-- **Web Panel v2, Connection Test v2, Security & Multi-Format Sponsor Space:**
-  - **In-Place Change Peer IP (`pkg/tunnel/peer.go`):** Update any tunnel's remote server IP in CLI or Web Panel without deleting or recreating the tunnel.
-  - **Active Data Probe (`pkg/tunnel/probe.go`) & Real ICMP Ping Cards:** Prevents false-down alerts on idle tunnels and shows genuine ICMP RTT, jitter, and loss on tunnel cards.
-  - **Connection Test v2 (`pkg/conntest`):** Tests real L4 tunnels, `icmp`, `faketcp`, `rev+`, and `frp+`; supports `-new`, `-only`, binary-search `DF=1` Path MTU discovery, automatic free-port selection, and an Ookla-style animated arc gauge.
-  - **Security & UX:** TOTP 2FA, IP/CIDR allowlist, L4 handshake flood cap (64/IP, 1024 global, 60s WS idle timeout), `/64` IPv6 login rate limiting, live SSE telemetry console, Light/Dark/Auto themes, CSS skeleton shimmer loaders, runtime asset minification, transient-systemd one-click self-update, smart host IP selector, and 4-step categorized CLI menu.
-  - **Multi-Format Sponsor Space (`pkg/sponsor`):** Supports `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.mp4`, `.webm`, `.mov` with magic-byte/ISOBMFF validation, case-insensitive `sponser*`/`sponsor*` discovery, non-repeating random rotation, embedded `136 KiB` looping promo video, ETag/304 caching, Iran→Kharej tunnel relay, and Friday `12:00 Asia/Tehran` Telegram delivery with `spontext.txt` & `sponlink.txt`.
+- **3-Tier Performance Profiles (`ECO` / `TURBO` / `HYPER`) on Every Tunnel:**
+  - Replaces standalone `turbo+` entries with a unified profile selectable on creation (CLI & Web Panel) and changeable anytime via `ctunnel set-profile <name> <eco|turbo|hyper>`, CLI Edit, or Web Panel Edit.
+  - Real runtime scaling of L4 connection pools (`8/16/32`), `smux` buffers (`16M/64M/128M`), KCP windows (`2048/4096/8192`), `revCarrier` BBR streams (`4/8/16`), UDP socket buffers (`4M/16M/32M`), kernel `txqueuelen` (`4000/10000/20000`), and Linux `SO_BUSY_POLL=50` on `HYPER`.
+  - Existing tunnels from earlier versions automatically default to `ECO` (legacy Direct `Carrier: true` tunnels default to `TURBO`).
+- **2 New Stealth Layer-3 Transports (`stealth-tcp`, `stealth-ws`):**
+  - `stealth-tcp`: Multi-stream AES-256-GCM L3 TUN tunnel framed as TLS 1.3 application-data records with 5-tuple flow pinning and BBR pacing.
+  - `stealth-ws`: Multi-stream AES-256-GCM L3 TUN tunnel over WebSocket with a secret SHA-256 path (constant-time check, `404` on unauthorized probes) and optional custom `Host` / SNI.
+- **5 Dedicated Gaming Protocols & Engine Optimizations:**
+  - Promoted `dtls-1.3` into `FamilyGaming` as **`game-dtls`** with seamless state/link migration, wire compatibility, full Gaming QoS (`DSCP EF`, `SO_PRIORITY=6`, `IP_PMTUDISC_DO`), and zero-alloc `WriteToUDPAddrPort` writes.
+  - Optimized `game-udp`, `game-fec` (fixed XOR-FEC group worker pinning), `game-dup`, and `game-kcp` (`IP_PMTUDISC_DO` + `SO_BUSY_POLL=50` on `HYPER`).
+- **Curated Active Protocol Lineup & Scoped `frp+`:**
+  - Scoped `frp+` reverse/carrier strictly to core IPv4 L3 methods (`xgre`, `xgre-ip`, `6to4`, `ipip`, `gre`).
+  - Kept all essential Layer-4 transports (`tcp`, `tcpmux`, `pck`, `ws`, `wsmux`, `wss`, `wssmux`, `udp`, `udpmux`) active.
+  - Deprecated 23 weak/redundant legacy protocols from new creation and Connection Test while keeping existing tunnels 100% manageable, editable, and runnable. (To create legacy protocols, install `v2.0.1` via the versioned install command below.)
+- **One-Line GitHub Install & Auto-Connect (`--apply-link`):**
+  - CLI (`showLink`, `ctunnel link <name>`) and Web Panel (`#dlg-link`) now generate a single copy-pasteable `sudo bash -c "$(curl -sL ...)" -- --apply-link 'ctunnel://...'` command that installs C-Tunnel from GitHub and connects the peer server automatically with a colored status card.
+- **100% Telegram Premium Custom Emojis (`pkg/notify`):**
+  - Full multi-pack + synonym resolution across all 50 UI icon keys so every bot screen, alert, traffic report, backup caption, and inline button uses animated `<tg-emoji>` / `icon_custom_emoji_id` when Premium is active, with automatic clean Unicode fallback for non-Premium accounts.
+
+<details>
+<summary><b>Previous v2.0.0 / v2.0.1 highlights</b> (TCP reliability, Telegram Bot v2, Quotas, Backup/Restore, TOTP 2FA)</summary>
+
+- **v2.0.1:** Fixed pooled TCP blackholes (`TCP_USER_TIMEOUT=20s`, `TCP_INFO` dead-socket eviction), keepalive pool starvation, Reverse/Direct TCP connection storms, Kharej IPv6/LocalIP backend fallback, and 1:1 NAT setup links.
+- **v2.0.0:** Go 1.26.10 (0 reachable CVEs), 9 Layer-4 Direct/Reverse transports with zero-copy kernel `splice`, Telegram Bot v2 with Iran tunnel relay (`pkg/tgrelay`), Bot API 10.1+ native tables, Multi-Admin, passwordless Web Panel login (`#tgToken` & HTTPS Mini App), per-tunnel GB Quotas & Mbps Rate Limits, `ctunnel-backup/2` with persistent traffic, in-place Change Peer IP, TOTP 2FA, IP/CIDR allowlist, and Connection Test v2.
+
+</details>
 
 ## How it works
 
@@ -106,7 +100,8 @@ Every tunnel gets its own `10.77.N.0/30` subnet, network interface and UDP port,
 
 | | |
 |---|---|
-| **49+ methods** | Kernel L3 and L2 tunnels, encrypted UDP transports, Stealth carriers, layer-4 Direct/Reverse transports, and **4 dedicated Gaming protocols** (`game-udp`, `game-fec`, `game-dup`, `game-kcp`) |
+| **28 active methods (+23 legacy manageable)** | Curated Kernel L3/L2 tunnels, encrypted UDP-Crypt, **4 Stealth carriers** (`faketcp`, `icmp`, `stealth-tcp`, `stealth-ws`), **9 Layer-4 Direct/Reverse transports**, and **5 dedicated Gaming protocols** (`game-udp`, `game-fec`, `game-dup`, `game-kcp`, `game-dtls`) |
+| **3-Tier Performance Profiles** | `ECO` (lowest footprint), `TURBO` (high speed), and `HYPER` (ultra speed + `SO_BUSY_POLL`) on every tunnel, changeable live from CLI & Web Panel |
 | **One Iran, many kharej** | Subnets, ports and tunnel IDs are allocated automatically, conflicts are refused, and peer IPs can be changed in place without recreating tunnels |
 | **Port forwarding** | `443`, or `2053=8443` to forward to a different port. Rules are tagged per tunnel and removed cleanly. |
 | **Traffic Quotas & Rate Limits** | Optional per-tunnel GB quota (auto-stop + Telegram alert with Override / Reset / Add GB recovery) and Mbps bandwidth cap |
@@ -148,13 +143,19 @@ sudo ctunnel
 ```
 
 To update, choose **Update** in the menu or run the install command again. Running tunnels are kept.
-Without a version, the installer selects the latest stable GitHub release and excludes drafts and pre-releases. To install a specific version:
+Without a version, the installer selects the latest stable GitHub release and excludes drafts and pre-releases. To install a specific version (for example `v2.0.1` if you want to create deprecated legacy protocols):
 
 ```bash
-sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" v0.2.1
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" v2.0.1
 ```
 
-`bash install.sh v0.2.1` and `CTUNNEL_VERSION=v0.2.1` are also supported. An explicit version argument takes precedence over the environment variable.
+To install C-Tunnel on a peer (Kharej) server **and** immediately connect a tunnel from a setup link in one command:
+
+```bash
+sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" -- --apply-link 'ctunnel://...'
+```
+
+`bash install.sh v2.0.1` and `CTUNNEL_VERSION=v2.0.1` are also supported. An explicit version argument takes precedence over the environment variable.
 
 ## Quick start
 
@@ -259,12 +260,14 @@ Every inner connection stays on one TCP stream, so it is never reordered, and ea
 
 ### Stealth methods
 
-Two layer-3 tunnels encrypted like UDP-Crypt (AES-256-GCM, a key per direction, random padding) whose packets do not travel as UDP. They work in DIRECT mode (Iran sends first) and in REVERSE mode (Kharej sends first).
+Four layer-3 tunnels encrypted with AES-256-GCM (a key per direction, random padding) whose packets do not travel as plain UDP. They work in DIRECT mode (Iran dials first) and in REVERSE mode (Kharej dials first).
 
 | Method | Between the servers | Use when |
 |---|---|---|
 | `faketcp` | TLS records inside TCP segments built by hand and read through a packet socket (`pck` carrier). Middleboxes see one TCP connection with consistent sequence numbers; nothing is retransmitted inside it, so there is no TCP-in-TCP and the tunnel runs at UDP speed | UDP is blocked or shaped and TCP is not |
 | `icmp` | ICMP echo: requests one way, replies the other, with an identifier from the secret. The answering server's kernel would reply to each request itself; an iptables rule drops those replies and keeps the tunnel's own | only ping gets through |
+| `stealth-tcp` | Multi-stream AES-256-GCM TCP carrier framed as TLS 1.3 application-data records (`0x17 0x03 0x03`) with 5-tuple flow pinning and BBR pacing | TCP passes and you want a clean multi-stream encrypted L3 TUN |
+| `stealth-ws` | Multi-stream AES-256-GCM WebSocket carrier with a secret SHA-256 URL path (`404` on unauthorized probes) and optional custom `Host` / SNI | HTTP/WebSocket traffic passes best across DPI |
 
 `faketcp` and `icmp` need root and iptables, as `pck` does. `icmp` has no port. The connection test pings the Iran server with tunnel-sized echo requests for `icmp`, and gives `faketcp` the result of the `pck` carrier it rides on.
 
@@ -357,12 +360,14 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 </details>
 
 <details>
-<summary><b>Stealth</b>: 2 methods, AES-256-GCM</summary>
+<summary><b>Stealth</b>: 4 methods, AES-256-GCM</summary>
 
 | Method | Packets travel as |
 |---|---|
 | `faketcp` | TLS records in hand-built TCP segments (no TCP state, no retransmission) |
 | `icmp` | ICMP echo requests and replies |
+| `stealth-tcp` | Multi-stream TLS 1.3-shaped encrypted TCP over TUN |
+| `stealth-ws` | Multi-stream encrypted WebSocket with secret path &amp; optional Host/SNI |
 
 </details>
 
@@ -372,19 +377,19 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 | Method | Description |
 |---|---|
 | `tcp` | TCP, a pooled connection per user connection (kernel `splice`) |
-| `tcpmux` | TCP + MUX (`smux` v2 streams over 4 TCP connections) |
+| `tcpmux` | TCP + MUX (`smux` v2 streams over parallel TCP connections) |
 | `pck` | TCP + PCK: KCP in hand-built TCP segments, raw socket, AES |
 | `ws` | WebSocket |
 | `wsmux` | WebSocket + MUX |
 | `wss` | WebSocket in TLS |
 | `wssmux` | WebSocket in TLS + MUX |
 | `udp` | UDP: a KCP session per user connection, AES |
-| `udpmux` | UDP + MUX: streams over a few KCP sessions, AES |
+| `udpmux` | UDP + MUX: streams over parallel KCP sessions, AES |
 
 </details>
 
 <details>
-<summary><b>Dedicated Gaming (Direct &amp; Reverse)</b>: 4 methods</summary>
+<summary><b>Dedicated Gaming (Direct &amp; Reverse)</b>: 5 methods</summary>
 
 | Method | Best for |
 |---|---|
@@ -392,6 +397,7 @@ Over a simulated long path (500 Mbit/s, 100 ms round trip, 0.3% loss each way; i
 | `game-fec` | 0-RTT XOR-FEC packet-loss recovery without retransmission delay |
 | `game-dup` | Dual-send redundancy for small latency-critical game packets (`&lt;= 320 B`) |
 | `game-kcp` | Tuned `5 ms` nodelay KCP Layer-4 port forwarding for unstable routes |
+| `game-dtls` | Anti-DPI DTLS 1.3-shaped AES-256-GCM UDP with Gaming QoS (auto-migrates `dtls-1.3`) |
 
 </details>
 
@@ -447,7 +453,9 @@ The screenshots use synthetic demonstration data and are generated from the actu
 | `ctunnel` | Interactive menu |
 | `ctunnel status` | Tunnels with state and traffic |
 | `ctunnel up\|restart\|down NAME` | Control one tunnel |
-| `ctunnel link NAME` | Setup link and MikroTik commands for the other side |
+| `ctunnel set-peer NAME NEW_IP` | Change peer IP in place (`-all OLD NEW` updates all matching tunnels) |
+| `ctunnel set-profile NAME eco\|turbo\|hyper` | Switch performance profile and restart |
+| `ctunnel link NAME` | Setup link, one-line install command, and MikroTik commands for the other side |
 | `ctunnel apply-link 'ctunnel://…'` | Create and start a tunnel from a link |
 | `ctunnel conntest-server` | Iran side of the connection test, prints a link |
 | `ctunnel conntest 'ctunnel-test://…'` | Kharej side: which methods pass, speed, recommendation |
