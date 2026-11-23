@@ -62,6 +62,44 @@ func TestLayer4RowsCarryRealTunnels(t *testing.T) {
 	}
 }
 
+// Direct layer-4 rows test the opposite initiation direction: Kharej listens on
+// a fresh port, Iran dials Kharej, and Iran measures through that direct tunnel.
+func TestDirectL4RowsCarryRealTunnels(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	tok := NewToken()
+	r, err := Serve(ctx, 0, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l4Port := FreeL4Port()
+	r.SetL4Port(l4Port)
+	_, port, _ := net.SplitHostPort(r.UDPAddr)
+	l := Link{Host: "127.0.0.1", TokenHex: tok, L4Port: l4Port, UDPPort: atoiOr(port)}
+
+	s := &session{host: net.ParseIP("127.0.0.1"), ctl: make(chan []byte, 16), token: r.token}
+	s.udpDst = &net.UDPAddr{IP: s.host, Port: l.UDPPort}
+	if s.udp, err = net.ListenUDP("udp4", nil); err != nil {
+		t.Fatal(err)
+	}
+	defer s.udp.Close()
+	go s.receive(s.udp)
+
+	for _, tr := range []string{"tcp", "ws", "udp"} {
+		row := s.measureL4Direct(ctx, l, tr)
+		if row.Method != "direct+"+tr || row.Mode != "DIRECT" || row.Skipped != "" || row.Error != "" || row.Received < Probes-1 || row.DownMbps <= 0 || row.UpMbps <= 0 {
+			t.Fatalf("direct+%s: %+v", tr, row)
+		}
+		t.Logf("direct+%-6s rtt %.1f ms, down %.0f, up %.0f Mbit/s", tr, row.RTTms, row.DownMbps, row.UpMbps)
+	}
+
+	carrierRow, supported := s.measureCarrierDirectLive(ctx, "stealth-tcp", nil)
+	if !supported || carrierRow.Mode != "DIRECT" || carrierRow.Error != "" || carrierRow.Received < Probes-1 || carrierRow.DownMbps <= 0 || carrierRow.UpMbps <= 0 {
+		t.Fatalf("direct stealth-tcp: supported=%v %+v", supported, carrierRow)
+	}
+	t.Logf("stealth-tcp(DIRECT) rtt %.1f ms, down %.0f, up %.0f Mbit/s", carrierRow.RTTms, carrierRow.DownMbps, carrierRow.UpMbps)
+}
+
 // Without a layer-4 port the responder refuses, and the row says why.
 func TestLayer4RowWithoutAPort(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

@@ -411,8 +411,8 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	}
 	body := pkt[o+8 : len(pkt)-tokenLen]
 	switch cmd {
-	case ctlL4Start, ctlL4Measure, ctlL4Read, ctlL4ReadV2, ctlL4Stop:
-		v := r.controlL4(cmd, binary.BigEndian.Uint16(pkt[o+2:o+4]), nonce, body)
+	case ctlL4Start, ctlL4StartDirect, ctlCarrierDirect, ctlL4Measure, ctlL4Read, ctlL4ReadV2, ctlL4Stop:
+		v := r.controlL4(cmd, binary.BigEndian.Uint16(pkt[o+2:o+4]), nonce, body, from.IP.String())
 		reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
 		reply = append(reply, pkt[:o+8]...)
 		reply = binary.BigEndian.AppendUint64(reply, v)
@@ -545,6 +545,10 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 			conn := net.PacketConn(r.udp)
 			if p.proto != 0 {
 				dst, conn = &net.IPAddr{IP: from.IP}, r.raw[p.proto]
+			} else if len(body) == 2 {
+				if pp := int(binary.BigEndian.Uint16(body)); pp > 0 {
+					dst = &net.UDPAddr{IP: from.IP, Port: pp}
+				}
 			}
 			if conn != nil {
 				// What arrives is counted by kharej and synced back with ctlRow;
@@ -1059,6 +1063,8 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			return nil, err
 		}
 	}
+	_ = s.ping.SetReadBuffer(8 << 20)
+	_ = s.ping.SetWriteBuffer(8 << 20)
 	go s.receive(s.ping)
 
 	usable := func(i int) bool { return s.ps[i].proto == 0 || s.raw[s.ps[i].proto] != nil }
@@ -1289,28 +1295,25 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 	}
 	notify()
 
-	// Phase 3: speed, once per method that passed in either direction. The packets
-	// are the same both ways, so the speed goes to every row of the method that passed.
+	// Phase 3: speed, measured separately for every passing DIRECT and REVERSE row
+	// (DIRECT uses the Iran-initiated ping port; REVERSE uses the Kharej-initiated UDP port).
 	for i := range s.ps {
-		if !udpOpen {
-			break
-		}
-		var targets []int
-		for _, ri := range []int{dirRow[i], revRow[i]} {
-			if usable(i) && ri >= 0 && rows[ri].Skipped == "" && rows[ri].Status() == "ok" && wanted(rows[ri].Method) {
-				targets = append(targets, ri)
-			}
-		}
-		if len(targets) == 0 {
+		if !udpOpen || !usable(i) {
 			continue
 		}
-		for _, ri := range targets {
-			set(ri, func(r *Result) { r.Phase = "upload" })
+		type speedTarget struct {
+			rowIdx int
+			direct bool
 		}
-		emitLive(targets[0], "upload", 0, 0)
-		var upPeak, downPeak float64
-		up, down := s.throughputLive(ctx, i, func(phase string, rateMbps float64) {
-			for _, ri := range targets {
+		for _, tgt := range []speedTarget{{dirRow[i], true}, {revRow[i], false}} {
+			ri := tgt.rowIdx
+			if ri < 0 || rows[ri].Skipped != "" || rows[ri].Status() != "ok" || !wanted(rows[ri].Method) {
+				continue
+			}
+			set(ri, func(r *Result) { r.Phase = "upload" })
+			emitLive(ri, "upload", 0, 0)
+			var upPeak, downPeak float64
+			up, down := s.throughputLiveDir(ctx, i, tgt.direct, func(phase string, rateMbps float64) {
 				set(ri, func(r *Result) {
 					r.Phase = phase
 					if phase == "upload" {
@@ -1327,66 +1330,61 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 						r.DownPeakMbps = downPeak
 					}
 				})
+				rx, tx := 0.0, 0.0
+				if phase == "download" {
+					rx = rateMbps
+				} else {
+					tx = rateMbps
+				}
+				emitLive(ri, phase, rx, tx)
+			})
+			if upPeak < up {
+				upPeak = up
 			}
-			rx, tx := 0.0, 0.0
-			if phase == "download" {
-				rx = rateMbps
-			} else {
-				tx = rateMbps
+			if downPeak < down {
+				downPeak = down
 			}
-			emitLive(targets[0], phase, rx, tx)
-		})
-		if upPeak < up {
-			upPeak = up
-		}
-		if downPeak < down {
-			downPeak = down
-		}
-		for _, ri := range targets {
 			set(ri, func(r *Result) {
 				r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Phase = up, down, upPeak, downPeak, ""
 			})
 			push(ri)
-		}
-		notify()
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			notify()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 		}
 	}
 
-	// Phase 4: each frp+ (REVERSE) method and stealth-tcp (DIRECT & REVERSE) gets
-	// fresh TLS-shaped TCP streams, verified echoes and bidirectional throughput.
-	revStealthTCPRow := -1
-	for ci := range rows {
-		if rows[ci].Method == "rev+stealth-tcp" {
-			revStealthTCPRow = ci
-		}
-	}
+	// Phase 4: each frp+ (REVERSE), rev+stealth-tcp (REVERSE), and stealth-tcp (DIRECT)
+	// gets its own independent TLS-shaped TCP carrier test. When UDP control is open,
+	// stealth-tcp (DIRECT) has Iran dial Kharej's listener; rev+stealth-tcp has Kharej dial Iran.
 	for ci := range rows {
 		mName := rows[ci].Method
 		isFRP := strings.HasPrefix(mName, "frp+")
-		isStealthTCP := mName == "stealth-tcp"
-		if (!isFRP && !isStealthTCP) || !wanted(mName) {
+		isStealthTCPDirect := mName == "stealth-tcp"
+		isStealthTCPRev := mName == "rev+stealth-tcp"
+		if (!isFRP && !isStealthTCPDirect && !isStealthTCPRev) || !wanted(mName) {
 			continue
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		set(ci, func(r *Result) { r.Phase = "echo" })
-		if isStealthTCP && revStealthTCPRow >= 0 {
-			set(revStealthTCPRow, func(r *Result) { r.Phase = "echo" })
+		mode := "REVERSE"
+		if isStealthTCPDirect {
+			mode = "DIRECT"
 		}
+		set(ci, func(r *Result) { r.Phase = "echo" })
 		emitLive(ci, "echo", 0, 0)
 		var carUpPeak, carDownPeak float64
-		measured := measureCarrierLive(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), mName, func(phase string, sent, recv int, rtt, jit, rx, tx float64) {
+		onCarrierLive := func(phase string, sent, recv int, rtt, jit, rx, tx float64) {
 			if rx > carDownPeak {
 				carDownPeak = rx
 			}
 			if tx > carUpPeak {
 				carUpPeak = tx
 			}
-			apply := func(r *Result, mode, name string) {
-				r.Method, r.Mode, r.Phase = name, mode, phase
+			set(ci, func(r *Result) {
+				r.Method, r.Mode, r.Phase = mName, mode, phase
 				r.Sent, r.Received, r.RTTms, r.JitterMs = sent, recv, rtt, jit
 				if rx > 0 {
 					r.DownMbps = rx
@@ -1396,43 +1394,33 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					r.UpMbps = tx
 					r.UpPeakMbps = carUpPeak
 				}
-			}
-			if isStealthTCP {
-				set(ci, func(r *Result) { apply(r, "DIRECT", "stealth-tcp") })
-				if revStealthTCPRow >= 0 {
-					set(revStealthTCPRow, func(r *Result) { apply(r, "REVERSE", "rev+stealth-tcp") })
-				}
-			} else {
-				set(ci, func(r *Result) { apply(r, "REVERSE", mName) })
-			}
+			})
 			emitLive(ci, phase, rx, tx)
-		})
+		}
+		var measured Result
+		var ranDirect bool
+		if isStealthTCPDirect && udpOpen {
+			measured, ranDirect = s.measureCarrierDirectLive(ctx, mName, onCarrierLive)
+		}
+		if !ranDirect {
+			carUpPeak, carDownPeak = 0, 0
+			measured = measureCarrierLive(ctx, net.JoinHostPort(l.Host, strconv.Itoa(l.TCPPort)), mName, onCarrierLive)
+		}
+		measured.Mode = mode
 		measured.DownPeakMbps = max(measured.DownMbps, carDownPeak)
 		measured.UpPeakMbps = max(measured.UpMbps, carUpPeak)
 		set(ci, func(r *Result) { *r = measured })
-		if isStealthTCP && revStealthTCPRow >= 0 {
-			rm := measured
-			rm.Method = "rev+stealth-tcp"
-			rm.Mode = "REVERSE"
-			set(revStealthTCPRow, func(r *Result) { *r = rm })
-			push(revStealthTCPRow)
-		}
 		notify()
 		push(ci)
 	}
 
-	// Phase 5: a real layer-4 tunnel per transport (including game-kcp). Their
-	// tunnel port is TCP for most and UDP for udp, udpmux and game-kcp.
-	// pck goes first: it binds the tunnel port without SO_REUSEADDR, which a
-	// TIME_WAIT left by an earlier TCP transport would refuse.
+	// Phase 5: a real layer-4 tunnel per transport AND per direction (REVERSE: Kharej
+	// dials Iran; DIRECT: Iran dials Kharej). Reverse pck goes first because it binds
+	// Iran's L4Port without SO_REUSEADDR, which a TIME_WAIT from an earlier TCP
+	// reverse test would refuse.
 	var l4Rows []int
-	directL4Rows := map[string]int{}
 	for ci := range rows {
 		if !catalog.IsL4(stripMethodPrefix(rows[ci].Method)) || !wanted(rows[ci].Method) {
-			continue
-		}
-		if strings.HasPrefix(rows[ci].Method, "direct+") {
-			directL4Rows[strings.TrimPrefix(rows[ci].Method, "direct+")] = ci
 			continue
 		}
 		if rows[ci].Method == "pck" {
@@ -1441,36 +1429,26 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			l4Rows = append(l4Rows, ci)
 		}
 	}
-	var pckRow, wsRow *Result
+	var pckRow, wsRow, directWsRow *Result
 	for _, ci := range l4Rows {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		base := rows[ci].Method
-		dci, hasDir := directL4Rows[base]
+		mName := rows[ci].Method
+		isDirect := strings.HasPrefix(mName, "direct+")
+		base := strings.TrimPrefix(mName, "direct+")
 		switch {
 		case l.L4Port == 0:
 			set(ci, func(r *Result) {
 				r.Skipped, r.Phase = "the Iran server runs an older C-Tunnel; update it to test layer 4", ""
 			})
-			if hasDir {
-				set(dci, func(r *Result) {
-					r.Skipped, r.Phase = "the Iran server runs an older C-Tunnel; update it to test layer 4", ""
-				})
-			}
 		case !udpOpen:
 			set(ci, func(r *Result) { r.Skipped, r.Phase = "UDP "+strconv.Itoa(l.UDPPort)+" closed on the iran server", "" })
-			if hasDir {
-				set(dci, func(r *Result) { r.Skipped, r.Phase = "UDP "+strconv.Itoa(l.UDPPort)+" closed on the iran server", "" })
-			}
 		default:
 			set(ci, func(r *Result) { r.Phase = "echo" })
-			if hasDir {
-				set(dci, func(r *Result) { r.Phase = "echo" })
-			}
 			emitLive(ci, "echo", 0, 0)
 			var l4UpPeak, l4DownPeak float64
-			measured := s.measureL4Live(ctx, l, base, func(phase string, r *Result) {
+			measured := s.measureL4Live(ctx, l, base, isDirect, func(phase string, r *Result) {
 				if r.UpMbps > l4UpPeak {
 					l4UpPeak = r.UpMbps
 				}
@@ -1491,49 +1469,28 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					}
 					dst.UpPeakMbps, dst.DownPeakMbps = l4UpPeak, l4DownPeak
 				})
-				if hasDir {
-					set(dci, func(dst *Result) {
-						dst.Phase = phase
-						if r.Sent > 0 {
-							dst.Sent = r.Sent
-						}
-						dst.Received, dst.RTTms, dst.JitterMs = r.Received, r.RTTms, r.JitterMs
-						if r.DownMbps > 0 {
-							dst.DownMbps = r.DownMbps
-						}
-						if r.UpMbps > 0 {
-							dst.UpMbps = r.UpMbps
-						}
-						dst.UpPeakMbps, dst.DownPeakMbps = l4UpPeak, l4DownPeak
-					})
-				}
 				emitLive(ci, phase, r.DownMbps, r.UpMbps)
 			})
 			measured.UpPeakMbps = max(measured.UpMbps, l4UpPeak)
 			measured.DownPeakMbps = max(measured.DownMbps, l4DownPeak)
 			set(ci, func(r *Result) { *r = measured })
-			if hasDir {
-				dm := measured
-				dm.Method = "direct+" + base
-				dm.Mode = "DIRECT"
-				set(dci, func(r *Result) { *r = dm })
-			}
 		}
 		notify()
 		push(ci)
-		if hasDir {
-			push(dci)
-		}
-		if rows[ci].Method == "pck" {
+		switch rows[ci].Method {
+		case "pck":
 			pr := rows[ci]
 			pckRow = &pr
-		} else if rows[ci].Method == "ws" {
+		case "ws":
 			wr := rows[ci]
 			wsRow = &wr
+		case "direct+ws":
+			dwr := rows[ci]
+			directWsRow = &dwr
 		}
 	}
 
-	// Phase 6: icmp, faketcp, and stealth-ws, which have no raw/UDP packet probe.
+	// Phase 6: icmp, faketcp, and stealth-ws (DIRECT from direct+ws, REVERSE from ws).
 	for ci := range rows {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -1561,10 +1518,25 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					r.Skipped = "measured on the pck carrier, which was not tested"
 				default:
 					r.Sent, r.Received, r.RTTms, r.JitterMs = pckRow.Sent, pckRow.Received, pckRow.RTTms, pckRow.JitterMs
-					r.UpMbps, r.DownMbps, r.Error = pckRow.UpMbps, pckRow.DownMbps, pckRow.Error
+					r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Error = pckRow.UpMbps, pckRow.DownMbps, pckRow.UpPeakMbps, pckRow.DownPeakMbps, pckRow.Error
 				}
 			})
-		case "stealth-ws", "rev+stealth-ws":
+		case "stealth-ws":
+			set(ci, func(r *Result) {
+				r.Phase = ""
+				switch {
+				case directWsRow == nil || directWsRow.Skipped != "":
+					if directWsRow != nil && directWsRow.Skipped != "" {
+						r.Skipped = directWsRow.Skipped
+					} else {
+						r.Skipped = "measured on the direct+ws carrier, which was not tested"
+					}
+				default:
+					r.Sent, r.Received, r.RTTms, r.JitterMs = directWsRow.Sent, directWsRow.Received, directWsRow.RTTms, directWsRow.JitterMs
+					r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Error = directWsRow.UpMbps, directWsRow.DownMbps, directWsRow.UpPeakMbps, directWsRow.DownPeakMbps, directWsRow.Error
+				}
+			})
+		case "rev+stealth-ws":
 			set(ci, func(r *Result) {
 				r.Phase = ""
 				switch {
@@ -1576,7 +1548,7 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					}
 				default:
 					r.Sent, r.Received, r.RTTms, r.JitterMs = wsRow.Sent, wsRow.Received, wsRow.RTTms, wsRow.JitterMs
-					r.UpMbps, r.DownMbps, r.Error = wsRow.UpMbps, wsRow.DownMbps, wsRow.Error
+					r.UpMbps, r.DownMbps, r.UpPeakMbps, r.DownPeakMbps, r.Error = wsRow.UpMbps, wsRow.DownMbps, wsRow.UpPeakMbps, wsRow.DownPeakMbps, wsRow.Error
 				}
 			})
 		default:
@@ -1744,6 +1716,10 @@ func (w *rateWindow) push(cur int64, now time.Time) (float64, bool) {
 }
 
 func (s *session) throughputLive(ctx context.Context, idx int, onSample func(phase string, mbps float64)) (up, down float64) {
+	return s.throughputLiveDir(ctx, idx, false, onSample)
+}
+
+func (s *session) throughputLiveDir(ctx context.Context, idx int, direct bool, onSample func(phase string, mbps float64)) (up, down float64) {
 	p := s.ps[idx]
 	toMbps := func(b int64) float64 { return float64(b) * 8 / speedDuration.Seconds() / 1e6 }
 
@@ -1753,6 +1729,8 @@ func (s *session) throughputLive(ctx context.Context, idx int, onSample func(pha
 		conn, dst := net.PacketConn(s.udp), net.Addr(s.udpDst)
 		if p.proto != 0 {
 			conn, dst = s.raw[p.proto], &net.IPAddr{IP: s.host}
+		} else if direct && s.ping != nil {
+			conn = s.ping
 		}
 		txDone := make(chan struct{})
 		go func() {
@@ -1803,7 +1781,15 @@ func (s *session) throughputLive(ctx context.Context, idx int, onSample func(pha
 		}
 	})
 	defer s.setHandler(nil)
-	if _, ok := s.control(ctx, ctlSend, idx, speedDuration); ok {
+	var sendPayload []byte
+	if direct && p.proto == 0 && s.ping != nil {
+		if ua, ok := s.ping.LocalAddr().(*net.UDPAddr); ok && ua.Port > 0 {
+			sendPayload = binary.BigEndian.AppendUint16(nil, uint16(ua.Port))
+		}
+	}
+	var sendNonce [4]byte
+	_, _ = rand.Read(sendNonce[:])
+	if _, ok := s.controlMsg(ctx, ctlSend, idx, uint16(speedDuration/time.Millisecond), sendNonce, sendPayload); ok {
 		win := newRateWindow()
 		end := time.Now().Add(speedDuration)
 		tick := time.NewTicker(200 * time.Millisecond)
