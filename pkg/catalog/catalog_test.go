@@ -172,7 +172,7 @@ func TestOneLineInstallCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := OneLineInstallCommand(link)
-	want := "curl -fsSL " + DefaultInstallScriptURL + " | sudo bash -s -- --apply-link '" + link + "'"
+	want := `sudo bash -c "$(curl -sL ` + DefaultInstallScriptURL + `)" -- --apply-link '` + link + `'`
 	if cmd != want {
 		t.Fatalf("OneLineInstallCommand = %q, want %q", cmd, want)
 	}

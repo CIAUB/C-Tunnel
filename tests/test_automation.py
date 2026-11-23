@@ -112,8 +112,11 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
         base_env = dict(self.env, INSTALLER_SOURCE='')
         base_env.pop('CTUNNEL_VERSION', None)
         base_env.pop('CTUNNEL_APPLY_LINK', None)
-        # Valid forms: --apply-link <val>, --apply-link=<val>, combined with version, and env var.
-        r = subprocess.run(['bash', '-c', code, 'bash', '--apply-link', 'ctunnel://AbC_123-xyZ'], env=base_env, capture_output=True, text=True)
+        # Valid forms: --apply-link <val>, --apply-link=<val>, bash -c $0 form, combined with version, and env var.
+        r = subprocess.run(['bash', '-c', code, '--', '--apply-link', 'ctunnel://AbC_123-xyZ'], env=base_env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'latest|ctunnel://AbC_123-xyZ')
+        r = subprocess.run(['bash', '-c', code, '--apply-link', 'ctunnel://AbC_123-xyZ'], env=base_env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), 'latest|ctunnel://AbC_123-xyZ')
         r = subprocess.run(['bash', '-c', code, 'bash', 'v2.0.1', '--apply-link=ctunnel://AbC_123'], env=base_env, capture_output=True, text=True)

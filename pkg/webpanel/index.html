@@ -2422,7 +2422,7 @@ $("peer-form").addEventListener("submit", async e => {
 function buildInstallCmd(link, setupCmd) {
   if (setupCmd) return setupCmd;
   if (typeof link === "string" && /^ctunnel:\/\/[A-Za-z0-9_-]{1,8192}$/.test(link)) {
-    return "curl -fsSL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh | sudo bash -s -- --apply-link '" + link + "'";
+    return 'sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" -- --apply-link \'' + link + "'";
   }
   return "";
 }

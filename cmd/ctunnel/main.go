@@ -292,10 +292,5 @@ func applyLink(link string) {
 	if err := tunnel.Apply(tc); err != nil {
 		log.Fatal(err)
 	}
-	prof := catalog.ProfileLabel(catalog.EffectiveProfile(tc))
-	if catalog.IsL4(tc.Method) {
-		fmt.Printf("tunnel %s (%s, %s) up: port %d -> %s\n", tc.Name, tc.Method, prof, tc.Port, tc.RemoteIP)
-		return
-	}
-	fmt.Printf("tunnel %s (%s, %s) up: %s -> %s\n", tc.Name, tc.Method, prof, tc.TunLocal4, tc.TunRemote4)
+	cli.PrintTunnelConnected(tc)
 }

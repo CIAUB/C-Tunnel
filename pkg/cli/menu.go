@@ -561,34 +561,61 @@ func setupKharejLink(raw string) {
 	Pause()
 }
 
+// PrintTunnelConnected prints a colorful summary banner once a tunnel starts.
+func PrintTunnelConnected(tc catalog.TunnelConfig) {
+	prof := catalog.ProfileLabel(catalog.EffectiveProfile(tc))
+	mode := "DIRECT"
+	if tc.Reverse {
+		mode = "REVERSE"
+	}
+	profColor := White
+	switch catalog.EffectiveProfile(tc) {
+	case catalog.ProfileTurbo:
+		profColor = Green
+	case catalog.ProfileHyper:
+		profColor = Yellow
+	}
+	fmt.Printf("\n %s%s%s\n", Green, strings.Repeat("═", RuleWidth), Reset)
+	fmt.Printf(" %s%s✓ TUNNEL CONNECTED & RUNNING%s\n", Bold, Green, Reset)
+	fmt.Printf(" %s%s%s\n", Green, strings.Repeat("─", RuleWidth), Reset)
+	KV("Tunnel", tc.Name)
+	KV("Role", strings.ToUpper(tc.Role)+" · "+mode)
+	KV("Protocol", methodLabel(tc))
+	fmt.Printf("  %s%-20s%s %s%s%s%s\n", Gray, "Performance", Reset, Bold, profColor, prof, Reset)
+	if tc.RemoteIP != "" {
+		KV("Peer IP", tc.RemoteIP)
+	}
+	if catalog.IsL4(tc.Method) {
+		KV("Tunnel Port", strconv.Itoa(tc.Port))
+	} else if tc.TunLocal4 != "" {
+		KV("Tunnel IPv4", tc.TunLocal4+" -> "+tc.TunRemote4)
+	}
+	fmt.Printf("  %s%-20s%s %s%s%s %s(active · enabled)%s\n", Gray, "Service", Reset, White, tunnel.Unit(tc), Reset, Green, Reset)
+	if catalog.IsL4(tc.Method) && tc.Role == "iran" && len(tc.Ports) == 0 {
+		Warn("No forwarded ports set — add ports in Manage -> Edit -> Forwarded Ports so user traffic can pass.")
+	}
+	for _, p := range tc.Ports {
+		src, dst, _ := strings.Cut(p, "=")
+		if dst == "" {
+			dst = src
+		}
+		if catalog.IsL4(tc.Method) {
+			Subtle(fmt.Sprintf("Forward: port %s -> 127.0.0.1:%s (kharej)", src, dst))
+		} else {
+			Subtle(fmt.Sprintf("Forward: port %s -> %s:%s (kharej)", src, tc.TunRemote4, dst))
+		}
+	}
+	fmt.Printf(" %s%s%s\n", Green, strings.Repeat("═", RuleWidth), Reset)
+	fmt.Printf(" %sManage: %ssudo ctunnel%s  ·  %sStatus: %sctunnel status%s\n\n", Gray, White, Gray, Gray, White, Reset)
+}
+
 func applyAndReport(tc catalog.TunnelConfig) {
 	if err := tunnel.Apply(tc); err != nil {
 		Err("Saved, but starting failed: " + err.Error())
 		Subtle("Details: journalctl -u " + tunnel.Unit(tc) + " -n 30")
 		return
 	}
-	if catalog.IsL4(tc.Method) {
-		Ok(fmt.Sprintf("Tunnel %s (%s) is running on port %d", tc.Name, methodLabel(tc), tc.Port))
-		if tc.Role == "iran" && len(tc.Ports) == 0 {
-			Warn("No forwarded ports set — add ports in Manage -> Edit -> Forwarded Ports so user traffic can pass.")
-		}
-		for _, p := range tc.Ports {
-			src, dst, _ := strings.Cut(p, "=")
-			if dst == "" {
-				dst = src
-			}
-			Subtle(fmt.Sprintf("port %s on this server -> 127.0.0.1:%s on the kharej server", src, dst))
-		}
-		return
-	}
-	Ok(fmt.Sprintf("Tunnel %s (%s) is running: %s -> %s", tc.Name, tc.Method, tc.TunLocal4, tc.TunRemote4))
-	for _, p := range tc.Ports {
-		src, dst, _ := strings.Cut(p, "=")
-		if dst == "" {
-			dst = src
-		}
-		Subtle(fmt.Sprintf("port %s on this server -> %s:%s on the kharej server", src, tc.TunRemote4, dst))
-	}
+	PrintTunnelConnected(tc)
 }
 
 func showLink(tc catalog.TunnelConfig) {

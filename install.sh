@@ -6,7 +6,7 @@
 # A trailing version also works with bash -c (where it becomes $0):
 #   sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" v0.2.1
 # To install and immediately apply a setup link on a peer server:
-#   curl -fsSL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh | sudo bash -s -- --apply-link 'ctunnel://...'
+#   sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/install.sh)" -- --apply-link 'ctunnel://...'
 # Downloads the latest stable GitHub Release by default and verifies SHA256SUMS.
 # Explicit arguments override CTUNNEL_VERSION; source mode uses CTUNNEL_LOCAL=1.
 # From a git checkout (sudo bash install.sh) it installs the local files instead.
@@ -25,6 +25,14 @@ resolve_installer_version() {
     shift 2
     local positional=()
     APPLY_LINK="${CTUNNEL_APPLY_LINK:-}"
+    if [[ -z "$source_path" && "$launch_name" == "--apply-link" ]]; then
+        [[ "$#" -ge 1 && -n "$1" ]] || die "--apply-link requires a ctunnel:// setup link"
+        APPLY_LINK="$1"
+        shift
+    elif [[ -z "$source_path" && "$launch_name" == --apply-link=* ]]; then
+        APPLY_LINK="${launch_name#--apply-link=}"
+        [[ -n "$APPLY_LINK" ]] || die "--apply-link requires a ctunnel:// setup link"
+    fi
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --apply-link)

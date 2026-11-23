@@ -357,7 +357,7 @@ func OneLineInstallCommand(link string) string {
 	if !ValidSetupLink(link) {
 		return ""
 	}
-	return "curl -fsSL " + DefaultInstallScriptURL + " | sudo bash -s -- --apply-link '" + link + "'"
+	return `sudo bash -c "$(curl -sL ` + DefaultInstallScriptURL + `)" -- --apply-link '` + link + `'`
 }
 
 // migrateTunnel upgrades renamed protocol identifiers (dtls-1.3 -> game-dtls)
