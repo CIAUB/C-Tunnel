@@ -259,6 +259,11 @@ func (n *Notifier) Handle(ctx context.Context, bot *Bot, u Update) {
 		}
 		return
 	}
+	if cmd == "/start" && strings.ToLower(strings.TrimSpace(cfg.PremiumEmoji)) != "off" {
+		if (m.From != nil && m.From.IsPremium) || strings.EqualFold(strings.TrimSpace(cfg.PremiumEmoji), "on") {
+			bot.ResetCustomEmojiBlocked()
+		}
+	}
 	n.observeUserPremium(ctx, bot, m.From)
 
 	actor := fromID

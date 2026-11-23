@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"regexp"
@@ -37,22 +38,32 @@ func Conflict(err error) bool {
 	return errors.As(err, &ae) && ae.Code == http.StatusConflict
 }
 
+const customEmojiBlockTTL = 5 * time.Minute
+
 // Bot calls the Telegram Bot API with one token.
 type Bot struct {
-	token              string
-	hc                 *http.Client
-	customEmojiBlocked atomic.Bool
-	richUnsupported    atomic.Bool
+	token                   string
+	hc                      *http.Client
+	customEmojiBlockedUntil atomic.Int64
+	richUnsupported         atomic.Bool
 }
 
-// CustomEmojiBlocked reports whether Telegram previously rejected custom emojis
-// for this bot (e.g. bot owner does not have Telegram Premium).
-func (b *Bot) CustomEmojiBlocked() bool { return b != nil && b.customEmojiBlocked.Load() }
+// CustomEmojiBlocked reports whether Telegram recently rejected custom emojis
+// for this bot (temporary 5-minute backoff, auto-cleared on /start).
+func (b *Bot) CustomEmojiBlocked() bool {
+	return b != nil && time.Now().Unix() < b.customEmojiBlockedUntil.Load()
+}
+
+func (b *Bot) blockCustomEmoji() {
+	if b != nil {
+		b.customEmojiBlockedUntil.Store(time.Now().Add(customEmojiBlockTTL).Unix())
+	}
+}
 
 // ResetCustomEmojiBlocked clears the cached custom-emoji rejection flag.
 func (b *Bot) ResetCustomEmojiBlocked() {
 	if b != nil {
-		b.customEmojiBlocked.Store(false)
+		b.customEmojiBlockedUntil.Store(0)
 	}
 }
 
@@ -276,13 +287,38 @@ func isNotModifiedError(err error) bool {
 		strings.Contains(strings.ToLower(ae.Description), "message is not modified")
 }
 
+func isButtonIconAPIError(err error) bool {
+	var ae *APIError
+	if !errors.As(err, &ae) || ae.Code != http.StatusBadRequest {
+		return false
+	}
+	d := strings.ToLower(ae.Description)
+	return strings.Contains(d, "button_icon") || strings.Contains(d, "icon_custom")
+}
+
+func hasCustomEmojiText(text string) bool {
+	return strings.Contains(text, "<tg-emoji")
+}
+
+func hasCustomEmojiButtons(rows [][]Button) bool {
+	for _, row := range rows {
+		for _, btn := range row {
+			if btn.IconCustomEmojiID != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SendView delivers a View using Bot API 10.1+ sendRichMessage (native tables)
 // when RichHTML is provided, transparently stripping custom emojis if the bot
 // owner does not have Telegram Premium and falling back to standard sendMessage
 // HTML if rich messages are unsupported.
 func (b *Bot) SendView(ctx context.Context, chat string, v View) (int, error) {
+	origText, origRows := v.Text, v.Rows
 	rich, text, rows := v.RichHTML, v.Text, v.Rows
-	if b.customEmojiBlocked.Load() {
+	if b.CustomEmojiBlocked() {
 		rich = stripCustomEmojiHTML(rich)
 		text = stripCustomEmojiHTML(text)
 		rows = stripCustomEmojiButtons(rows)
@@ -293,12 +329,10 @@ func (b *Bot) SendView(ctx context.Context, chat string, v View) (int, error) {
 			return id, nil
 		}
 		if isCustomEmojiAPIError(err) && hasCustomEmoji(rich, rows) {
-			b.customEmojiBlocked.Store(true)
-			rich = stripCustomEmojiHTML(rich)
-			text = stripCustomEmojiHTML(text)
-			rows = stripCustomEmojiButtons(rows)
-			if id, err2 := b.sendRichRaw(ctx, chat, rich, rows); err2 == nil {
-				return id, nil
+			log.Printf("telegram: sendRichMessage rejected custom emoji (%v), retrying", err)
+			if id2, err2 := b.sendRichRaw(ctx, chat, stripCustomEmojiHTML(rich), stripCustomEmojiButtons(rows)); err2 == nil {
+				b.blockCustomEmoji()
+				return id2, nil
 			} else {
 				err = err2
 			}
@@ -308,8 +342,8 @@ func (b *Bot) SendView(ctx context.Context, chat string, v View) (int, error) {
 			if ae.Code == http.StatusNotFound {
 				b.richUnsupported.Store(true)
 			}
-			if text != "" {
-				return b.Send(ctx, chat, text, rows)
+			if origText != "" {
+				return b.Send(ctx, chat, origText, origRows)
 			}
 		}
 		return id, err
@@ -334,8 +368,9 @@ func (b *Bot) sendRichRaw(ctx context.Context, chat, richHTML string, rows [][]B
 // rich_message when RichHTML is set, with automatic custom-emoji and legacy
 // HTML fallbacks.
 func (b *Bot) EditView(ctx context.Context, chat string, id int, v View) error {
+	origText, origRows := v.Text, v.Rows
 	rich, text, rows := v.RichHTML, v.Text, v.Rows
-	if b.customEmojiBlocked.Load() {
+	if b.CustomEmojiBlocked() {
 		rich = stripCustomEmojiHTML(rich)
 		text = stripCustomEmojiHTML(text)
 		rows = stripCustomEmojiButtons(rows)
@@ -346,19 +381,18 @@ func (b *Bot) EditView(ctx context.Context, chat string, id int, v View) error {
 			return nil
 		}
 		if isCustomEmojiAPIError(err) && hasCustomEmoji(rich, rows) {
-			b.customEmojiBlocked.Store(true)
-			rich = stripCustomEmojiHTML(rich)
-			text = stripCustomEmojiHTML(text)
-			rows = stripCustomEmojiButtons(rows)
-			err = b.editRichRaw(ctx, chat, id, rich, rows)
-			if err == nil || isNotModifiedError(err) {
+			log.Printf("telegram: editRichMessage rejected custom emoji (%v), retrying", err)
+			err2 := b.editRichRaw(ctx, chat, id, stripCustomEmojiHTML(rich), stripCustomEmojiButtons(rows))
+			if err2 == nil || isNotModifiedError(err2) {
+				b.blockCustomEmoji()
 				return nil
 			}
+			err = err2
 		}
 		var ae *APIError
 		if errors.As(err, &ae) && (ae.Code == http.StatusNotFound || ae.Code == http.StatusBadRequest) {
-			if text != "" {
-				return b.Edit(ctx, chat, id, text, rows)
+			if origText != "" {
+				return b.Edit(ctx, chat, id, origText, origRows)
 			}
 			return nil
 		}
@@ -380,13 +414,23 @@ func (b *Bot) editRichRaw(ctx context.Context, chat string, id int, richHTML str
 // Send posts an HTML message, with buttons when rows is not empty.
 // Automatically strips custom emojis and retries if Telegram rejects them.
 func (b *Bot) Send(ctx context.Context, chat, text string, rows [][]Button) (int, error) {
-	if b.customEmojiBlocked.Load() {
+	if b.CustomEmojiBlocked() {
 		text = stripCustomEmojiHTML(text)
 		rows = stripCustomEmojiButtons(rows)
 	}
 	id, err := b.sendRaw(ctx, chat, text, rows)
 	if err != nil && isCustomEmojiAPIError(err) && hasCustomEmoji(text, rows) {
-		b.customEmojiBlocked.Store(true)
+		log.Printf("telegram: sendMessage rejected custom emoji (%v), retrying with fallback", err)
+		if isButtonIconAPIError(err) && hasCustomEmojiText(text) && hasCustomEmojiButtons(rows) {
+			if id2, err2 := b.sendRaw(ctx, chat, text, stripCustomEmojiButtons(rows)); err2 == nil {
+				return id2, nil
+			}
+		} else if !isButtonIconAPIError(err) && hasCustomEmojiText(text) && hasCustomEmojiButtons(rows) {
+			if id2, err2 := b.sendRaw(ctx, chat, stripCustomEmojiHTML(text), rows); err2 == nil {
+				return id2, nil
+			}
+		}
+		b.blockCustomEmoji()
 		return b.sendRaw(ctx, chat, stripCustomEmojiHTML(text), stripCustomEmojiButtons(rows))
 	}
 	return id, err
@@ -404,14 +448,26 @@ func (b *Bot) sendRaw(ctx context.Context, chat, text string, rows [][]Button) (
 
 // Edit replaces a message's text and buttons.
 func (b *Bot) Edit(ctx context.Context, chat string, id int, text string, rows [][]Button) error {
-	if b.customEmojiBlocked.Load() {
+	if b.CustomEmojiBlocked() {
 		text = stripCustomEmojiHTML(text)
 		rows = stripCustomEmojiButtons(rows)
 	}
 	p := map[string]any{"chat_id": chat, "message_id": id, "text": text, "parse_mode": "HTML", "reply_markup": keyboard{rows}}
 	err := b.call(ctx, "editMessageText", p, nil)
 	if err != nil && isCustomEmojiAPIError(err) && hasCustomEmoji(text, rows) {
-		b.customEmojiBlocked.Store(true)
+		log.Printf("telegram: editMessageText rejected custom emoji (%v), retrying with fallback", err)
+		if isButtonIconAPIError(err) && hasCustomEmojiText(text) && hasCustomEmojiButtons(rows) {
+			p["reply_markup"] = keyboard{stripCustomEmojiButtons(rows)}
+			if err2 := b.call(ctx, "editMessageText", p, nil); err2 == nil || isNotModifiedError(err2) {
+				return nil
+			}
+		} else if !isButtonIconAPIError(err) && hasCustomEmojiText(text) && hasCustomEmojiButtons(rows) {
+			p["text"] = stripCustomEmojiHTML(text)
+			if err2 := b.call(ctx, "editMessageText", p, nil); err2 == nil || isNotModifiedError(err2) {
+				return nil
+			}
+		}
+		b.blockCustomEmoji()
 		p["text"] = stripCustomEmojiHTML(text)
 		p["reply_markup"] = keyboard{stripCustomEmojiButtons(rows)}
 		err = b.call(ctx, "editMessageText", p, nil)
@@ -440,12 +496,13 @@ func (b *Bot) Answer(ctx context.Context, id, text string) error {
 // SendDocument uploads a file (e.g., backup JSON) to chat with an optional HTML caption.
 // Automatically strips custom emojis from caption and retries if Telegram rejects them.
 func (b *Bot) SendDocument(ctx context.Context, chat, filename string, data []byte, caption string) error {
-	if b.customEmojiBlocked.Load() {
+	if b.CustomEmojiBlocked() {
 		caption = stripCustomEmojiHTML(caption)
 	}
 	err := b.sendDocumentRaw(ctx, chat, filename, data, caption)
 	if err != nil && isCustomEmojiAPIError(err) && hasCustomEmoji(caption, nil) {
-		b.customEmojiBlocked.Store(true)
+		log.Printf("telegram: sendDocument rejected custom emoji (%v), retrying without custom emoji", err)
+		b.blockCustomEmoji()
 		return b.sendDocumentRaw(ctx, chat, filename, data, stripCustomEmojiHTML(caption))
 	}
 	return err

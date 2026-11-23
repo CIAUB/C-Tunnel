@@ -605,4 +605,117 @@ func TestPremiumEmojiFullCoverageMessagesAndButtons(t *testing.T) {
 			}
 		}
 	}
+
+	// 3. Verify <tg-emoji> alt glyph matches the resolved sticker's actual Emoji
+	// (e.g. "role" 🧭 resolved via synonym 🌐 -> inner glyph must be 🌐, not 🧭).
+	if got := n.em("role"); got != `<tg-emoji emoji-id="100002">🌐</tg-emoji>` {
+		t.Fatalf("em(role) = %q, want matching sticker alt <tg-emoji emoji-id=\"100002\">🌐</tg-emoji>", got)
+	}
+}
+
+func TestPremiumEmojiRecoveryAfterStartupFailureAndRegularPackSkip(t *testing.T) {
+	root := t.TempDir()
+	storeDir := filepath.Join(root, "store")
+	origCfg, origState, origStatus, origBase := ConfigPath, StatePath, StatusPath, APIBase
+	t.Cleanup(func() { ConfigPath, StatePath, StatusPath, APIBase = origCfg, origState, origStatus, origBase })
+	ConfigPath = filepath.Join(root, "telegram.json")
+	StatePath = filepath.Join(root, "telegram-state.json")
+	StatusPath = filepath.Join(root, "telegram-status.json")
+
+	var mu sync.Mutex
+	failStickers := true
+	var lastMsg string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getStickerSet"):
+			mu.Lock()
+			fail := failStickers
+			mu.Unlock()
+			if fail {
+				w.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			var req struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(raw, &req)
+			if req.Name == "RestrictedEmoji" {
+				// Simulate regular sticker pack vs real custom_emoji pack.
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok": true,
+					"result": map[string]any{
+						"name":         "RestrictedEmoji",
+						"sticker_type": "custom_emoji",
+						"stickers": []map[string]any{
+							{"file_id": "1", "emoji": "🛡", "custom_emoji_id": "777001", "is_animated": true},
+							{"file_id": "2", "emoji": "✨", "custom_emoji_id": "777002", "is_animated": true},
+						},
+					},
+				})
+				return
+			}
+			// Any other pack returning sticker_type="regular" must be ignored.
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"name":         req.Name,
+					"sticker_type": "regular",
+					"stickers": []map[string]any{
+						{"file_id": "9", "emoji": "📡", "custom_emoji_id": "BAD_REGULAR_ID", "is_animated": true},
+					},
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/sendRichMessage"):
+			// Simulate Telegram rejecting sendRichMessage with 404 -> must fall back to sendMessage WITH custom emojis!
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error_code": 404, "description": "Not Found"})
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			mu.Lock()
+			lastMsg = string(raw)
+			mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{"message_id": 5}})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": true})
+		}
+	}))
+	defer srv.Close()
+	APIBase = srv.URL
+
+	cfg := DefaultConfig()
+	cfg.Token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+	cfg.ChatID = "1001"
+	cfg.Admins = []int64{1001}
+	cfg.PremiumEmoji = "auto"
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	n := New(storeDir, func(catalog.TunnelConfig) bool { return true }, func(catalog.TunnelConfig) bool { return true })
+	n.reload()
+	bot := NewBot(cfg.Token)
+
+	// 1. Startup fetch fails during service restart -> cache is empty.
+	n.SetOwnerPremium(true)
+	n.ensureEmojiPack(context.Background(), bot)
+	if len(n.emoji.keyToID) != 0 {
+		t.Fatalf("expected empty cache on failed startup fetch, got %d", len(n.emoji.keyToID))
+	}
+
+	// 2. Network recovers 1 second later and user sends /start -> MUST retry immediately and send custom emojis!
+	mu.Lock()
+	failStickers = false
+	mu.Unlock()
+	n.Handle(context.Background(), bot, Update{
+		Message: &Message{Chat: Chat{ID: 1001}, From: &User{ID: 1001, IsPremium: true}, Text: "/start"},
+	})
+	mu.Lock()
+	msg := lastMsg
+	mu.Unlock()
+	if !strings.Contains(msg, "777001") || !strings.Contains(msg, "icon_custom_emoji_id") {
+		t.Fatalf("expected Premium emojis to recover immediately on /start, got: %s", msg)
+	}
+	if strings.Contains(msg, "BAD_REGULAR_ID") {
+		t.Fatalf("regular sticker set ID leaked into message/buttons: %s", msg)
+	}
 }

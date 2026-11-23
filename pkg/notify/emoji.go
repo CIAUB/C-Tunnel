@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -13,10 +14,10 @@ const DefaultEmojiPack = "RestrictedEmoji"
 
 var fallbackEmojiPacks = []string{
 	"RestrictedEmoji",
-	"AnimatedEmojies",
-	"EmojiIcons",
 	"TelegramEmoji",
+	"EmojiIcons",
 	"IconsEmoji",
+	"AnimatedEmojies",
 }
 
 // iconFallbacks maps each semantic UI icon key to its standard Unicode fallback.
@@ -182,6 +183,7 @@ type emojiCache struct {
 	packName      string
 	loadedAt      time.Time
 	keyToID       map[string]string
+	keyToAlt      map[string]string // exact sticker.Emoji matching each custom_emoji_id (required by Telegram Bot API)
 	animatedN     int
 }
 
@@ -191,9 +193,13 @@ func (n *Notifier) SetCustomEmojiMap(packName string, ids map[string]string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	cp := make(map[string]string, len(ids))
+	alts := make(map[string]string, len(ids))
 	for k, v := range ids {
 		if v != "" {
 			cp[k] = v
+			if fb := iconFallbacks[k]; fb != "" {
+				alts[k] = fb
+			}
 		}
 	}
 	n.emoji = emojiCache{
@@ -201,6 +207,7 @@ func (n *Notifier) SetCustomEmojiMap(packName string, ids map[string]string) {
 		packName:      packName,
 		loadedAt:      n.Now(),
 		keyToID:       cp,
+		keyToAlt:      alts,
 		animatedN:     len(cp),
 	}
 }
@@ -242,7 +249,7 @@ func (n *Notifier) observeUserPremium(ctx context.Context, bot *Bot, u *User) {
 	}
 
 	if n.premiumEmojiEligible(bot) {
-		n.ensureEmojiPack(ctx, bot)
+		n.loadEmojiPack(ctx, bot, true)
 	}
 }
 
@@ -278,10 +285,14 @@ func (n *Notifier) premiumEmojiEligible(bot *Bot) bool {
 }
 
 // ensureEmojiPack loads animated custom emoji IDs via Bot API getStickerSet
-// from the configured pack and Telegram's official animated packs, resolving
-// every key in iconFallbacks (exact match -> semantic alias -> universal pack
-// fallback) so zero icons fall back to plain Unicode once any pack loads.
+// from the configured pack and Telegram's official custom_emoji packs, resolving
+// every key in iconFallbacks while keeping each sticker's exact st.Emoji as the
+// <tg-emoji> inner fallback (required by Telegram Bot API).
 func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
+	n.loadEmojiPack(ctx, bot, false)
+}
+
+func (n *Notifier) loadEmojiPack(ctx context.Context, bot *Bot, forceRetryOnEmpty bool) {
 	if bot == nil {
 		return
 	}
@@ -298,7 +309,9 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 	if len(cur.keyToID) > 0 && cur.requestedPack == target && now.Sub(cur.loadedAt) < 6*time.Hour {
 		return
 	}
-	if !cur.loadedAt.IsZero() && cur.requestedPack == target && now.Sub(cur.loadedAt) < 10*time.Minute {
+	// Short 15s backoff on transient startup/network failures (and bypassable on
+	// interactive /start) so a restart race never disables Premium emojis for 10m.
+	if !forceRetryOnEmpty && !cur.loadedAt.IsZero() && cur.requestedPack == target && now.Sub(cur.loadedAt) < 15*time.Second {
 		return
 	}
 
@@ -319,18 +332,34 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 		emojiToKeys[norm] = append(emojiToKeys[norm], k)
 	}
 
-	resolved := map[string]string{}
-	resolvedAnim := map[string]bool{}
-	allByEmoji := map[string]string{}
-	allByEmojiAnim := map[string]bool{}
-	var firstCustomID, firstAnimatedID string
+	type stickerMatch struct {
+		id    string
+		emoji string
+		anim  bool
+	}
+	resolved := map[string]stickerMatch{}
+	allByEmoji := map[string]stickerMatch{}
+	var firstCustom, firstAnimated stickerMatch
 	loadedPack := ""
+	budgetDeadline := time.Now().Add(7 * time.Second)
 
 	for _, pack := range candidates {
-		gctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		rem := time.Until(budgetDeadline)
+		if rem <= 200*time.Millisecond && len(allByEmoji) > 0 {
+			break
+		}
+		perPack := 2500 * time.Millisecond
+		if rem > 0 && rem < perPack {
+			perPack = rem
+		}
+		gctx, cancel := context.WithTimeout(ctx, perPack)
 		set, err := bot.GetStickerSet(gctx, pack)
 		cancel()
 		if err != nil || set == nil || len(set.Stickers) == 0 {
+			continue
+		}
+		// Only accept real custom_emoji packs (skip regular sticker sets).
+		if set.StickerType != "" && set.StickerType != "custom_emoji" {
 			continue
 		}
 		packMatched := false
@@ -338,23 +367,23 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 			if st.CustomEmojiID == "" {
 				continue
 			}
+			altEmoji := strings.TrimSpace(st.Emoji)
+			m := stickerMatch{id: st.CustomEmojiID, emoji: altEmoji, anim: st.IsAnimated}
 			packMatched = true
-			if firstCustomID == "" {
-				firstCustomID = st.CustomEmojiID
+			if firstCustom.id == "" {
+				firstCustom = m
 			}
-			if st.IsAnimated && firstAnimatedID == "" {
-				firstAnimatedID = st.CustomEmojiID
+			if st.IsAnimated && firstAnimated.id == "" {
+				firstAnimated = m
 			}
-			norm := normalizeEmoji(st.Emoji)
+			norm := normalizeEmoji(altEmoji)
 			if norm != "" {
-				if _, ok := allByEmoji[norm]; !ok || (st.IsAnimated && !allByEmojiAnim[norm]) {
-					allByEmoji[norm] = st.CustomEmojiID
-					allByEmojiAnim[norm] = st.IsAnimated
+				if prev, ok := allByEmoji[norm]; !ok || (st.IsAnimated && !prev.anim) {
+					allByEmoji[norm] = m
 				}
 				for _, k := range emojiToKeys[norm] {
-					if _, exists := resolved[k]; !exists || (st.IsAnimated && !resolvedAnim[k]) {
-						resolved[k] = st.CustomEmojiID
-						resolvedAnim[k] = st.IsAnimated
+					if prev, exists := resolved[k]; !exists || (st.IsAnimated && !prev.anim) {
+						resolved[k] = m
 					}
 				}
 			}
@@ -372,42 +401,61 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 
 	// Pick a neutral universal animated custom emoji as a last-resort fallback
 	// so no key ever degrades to plain Unicode when at least one pack loaded.
-	universalID := ""
+	var universal stickerMatch
 	for _, hint := range universalEmojiHints {
-		if id := allByEmoji[normalizeEmoji(hint)]; id != "" {
-			universalID = id
+		if m, ok := allByEmoji[normalizeEmoji(hint)]; ok && m.id != "" {
+			universal = m
 			break
 		}
 	}
-	if universalID == "" {
-		if firstAnimatedID != "" {
-			universalID = firstAnimatedID
+	if universal.id == "" {
+		if firstAnimated.id != "" {
+			universal = firstAnimated
 		} else {
-			universalID = firstCustomID
+			universal = firstCustom
 		}
 	}
 
 	// Fill any keys not matched verbatim using ordered semantic aliases, then
-	// universalID as final guarantee of 100% Premium coverage.
-	if universalID != "" {
+	// universal as final guarantee of 100% Premium coverage.
+	if universal.id != "" {
 		for _, k := range sortedIconKeys {
-			if resolved[k] != "" {
+			if resolved[k].id != "" {
 				continue
 			}
 			for _, syn := range iconAliases[k] {
-				if id := allByEmoji[normalizeEmoji(syn)]; id != "" {
-					resolved[k] = id
+				if m, ok := allByEmoji[normalizeEmoji(syn)]; ok && m.id != "" {
+					resolved[k] = m
 					break
 				}
 			}
-			if resolved[k] == "" {
-				resolved[k] = universalID
+			if resolved[k].id == "" {
+				resolved[k] = universal
 			}
+		}
+	}
+
+	keyToID := make(map[string]string, len(resolved))
+	keyToAlt := make(map[string]string, len(resolved))
+	for k, m := range resolved {
+		if m.id == "" {
+			continue
+		}
+		keyToID[k] = m.id
+		if m.emoji != "" {
+			keyToAlt[k] = m.emoji
+		} else {
+			keyToAlt[k] = iconFallbacks[k]
 		}
 	}
 
 	if loadedPack == "" {
 		loadedPack = target
+	}
+	if len(keyToID) == 0 {
+		log.Printf("telegram: emoji pack %q unavailable (will retry shortly)", target)
+	} else {
+		log.Printf("telegram: emoji pack %q loaded (%d/%d custom emojis)", loadedPack, len(keyToID), len(iconFallbacks))
 	}
 
 	n.mu.Lock()
@@ -415,13 +463,19 @@ func (n *Notifier) ensureEmojiPack(ctx context.Context, bot *Bot) {
 		requestedPack: target,
 		packName:      loadedPack,
 		loadedAt:      now,
-		keyToID:       resolved,
-		animatedN:     len(resolved),
+		keyToID:       keyToID,
+		keyToAlt:      keyToAlt,
+		animatedN:     len(keyToID),
 	}
 	n.mu.Unlock()
 }
 
-func (n *Notifier) emojiNormMap() map[string]string {
+type emojiEntry struct {
+	id  string
+	alt string
+}
+
+func (n *Notifier) emojiNormMap() map[string]emojiEntry {
 	if !n.premiumEmojiEligible(nil) {
 		return nil
 	}
@@ -430,12 +484,16 @@ func (n *Notifier) emojiNormMap() map[string]string {
 		n.mu.Unlock()
 		return nil
 	}
-	out := make(map[string]string, len(n.emoji.keyToID))
+	out := make(map[string]emojiEntry, len(n.emoji.keyToID))
 	for _, k := range sortedIconKeys {
 		if id := n.emoji.keyToID[k]; id != "" {
 			norm := normalizeEmoji(iconFallbacks[k])
-			if norm != "" && out[norm] == "" {
-				out[norm] = id
+			if norm != "" && out[norm].id == "" {
+				alt := n.emoji.keyToAlt[k]
+				if alt == "" {
+					alt = iconFallbacks[k]
+				}
+				out[norm] = emojiEntry{id: id, alt: alt}
 			}
 		}
 	}
@@ -519,11 +577,15 @@ func (n *Notifier) upgradeHTML(s string) string {
 		if tokEnd+3 <= len(s) && s[tokEnd] == 0xEF && s[tokEnd+1] == 0xB8 && s[tokEnd+2] == 0x8F {
 			tokEnd += 3
 		}
-		if id := byEmoji[string(r)]; id != "" {
+		if entry := byEmoji[string(r)]; entry.id != "" {
+			alt := entry.alt
+			if alt == "" {
+				alt = s[i:tokEnd]
+			}
 			b.WriteString(`<tg-emoji emoji-id="`)
-			b.WriteString(esc(id))
+			b.WriteString(esc(entry.id))
 			b.WriteString(`">`)
-			b.WriteString(s[i:tokEnd])
+			b.WriteString(alt)
 			b.WriteString(`</tg-emoji>`)
 			i = tokEnd
 			continue
@@ -554,8 +616,8 @@ func (n *Notifier) upgradeButtons(rows [][]Button) [][]Button {
 				if tokEnd+3 <= len(btn.Text) && btn.Text[tokEnd] == 0xEF && btn.Text[tokEnd+1] == 0xB8 && btn.Text[tokEnd+2] == 0x8F {
 					tokEnd += 3
 				}
-				if id := byEmoji[string(r)]; id != "" {
-					btn.IconCustomEmojiID = id
+				if entry := byEmoji[string(r)]; entry.id != "" {
+					btn.IconCustomEmojiID = entry.id
 					btn.fallbackIcon = btn.Text[:tokEnd]
 					btn.Text = strings.TrimSpace(btn.Text[tokEnd:])
 				}
@@ -599,13 +661,19 @@ func (n *Notifier) emojiID(key string) (customID, fallback string) {
 	return id, fallback
 }
 
-// em renders a Telegram HTML emoji: <tg-emoji emoji-id="...">fallback</tg-emoji>
-// when the bot owner has Telegram Premium and the pack is loaded, or the clean
-// standard Unicode fallback emoji otherwise.
+// em renders a Telegram HTML emoji: <tg-emoji emoji-id="...">alt</tg-emoji>
+// using the sticker's exact matching emoji as inner fallback when Premium is
+// active, or the clean standard Unicode fallback emoji otherwise.
 func (n *Notifier) em(key string) string {
 	id, fb := n.emojiID(key)
 	if id != "" && fb != "" {
-		return `<tg-emoji emoji-id="` + esc(id) + `">` + fb + `</tg-emoji>`
+		n.mu.Lock()
+		alt := n.emoji.keyToAlt[key]
+		n.mu.Unlock()
+		if alt == "" {
+			alt = fb
+		}
+		return `<tg-emoji emoji-id="` + esc(id) + `">` + alt + `</tg-emoji>`
 	}
 	return fb
 }
