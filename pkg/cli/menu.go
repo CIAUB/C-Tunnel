@@ -561,8 +561,10 @@ func setupKharejLink(raw string) {
 	Pause()
 }
 
-// PrintTunnelConnected prints a colorful summary banner once a tunnel starts.
+// PrintTunnelConnected prints a modern rounded-box colored status card once a tunnel starts.
 func PrintTunnelConnected(tc catalog.TunnelConfig) {
+	const boxW = 60
+	bar := strings.Repeat("─", boxW)
 	prof := catalog.ProfileLabel(catalog.EffectiveProfile(tc))
 	mode := "DIRECT"
 	if tc.Reverse {
@@ -571,42 +573,56 @@ func PrintTunnelConnected(tc catalog.TunnelConfig) {
 	profColor := White
 	switch catalog.EffectiveProfile(tc) {
 	case catalog.ProfileTurbo:
-		profColor = Green
+		profColor = BGreen
 	case catalog.ProfileHyper:
-		profColor = Yellow
+		profColor = BYellow
 	}
-	fmt.Printf("\n %s%s%s\n", Green, strings.Repeat("═", RuleWidth), Reset)
-	fmt.Printf(" %s%s✓ TUNNEL CONNECTED & RUNNING%s\n", Bold, Green, Reset)
-	fmt.Printf(" %s%s%s\n", Green, strings.Repeat("─", RuleWidth), Reset)
-	KV("Tunnel", tc.Name)
-	KV("Role", strings.ToUpper(tc.Role)+" · "+mode)
-	KV("Protocol", methodLabel(tc))
-	fmt.Printf("  %s%-20s%s %s%s%s%s\n", Gray, "Performance", Reset, Bold, profColor, prof, Reset)
+	unit := tunnel.Unit(tc)
+	row := func(icon, label, val string) {
+		fmt.Printf(" %s│%s  %s%s%s %s%-13s%s %s\n", BCyan, Reset, BCyan, icon, Reset, Gray, label, Reset, val)
+	}
+
+	fmt.Printf("\n %s╭%s╮%s\n", BCyan, bar, Reset)
+	fmt.Printf(" %s│%s  %s%s⚡ C-TUNNEL%s   %s%s● TUNNEL CONNECTED & RUNNING%s\n",
+		BCyan, Reset, Bold, White, Reset, Bold, BGreen, Reset)
+	fmt.Printf(" %s├%s┤%s\n", BCyan, bar, Reset)
+
+	row("◆", "Tunnel", fmt.Sprintf("%s%s%s%s  %s[%s · %s]%s", Bold, White, tc.Name, Reset, BYellow, strings.ToUpper(tc.Role), mode, Reset))
+	row("◆", "Protocol", fmt.Sprintf("%s%s%s%s", Bold, BCyan, methodLabel(tc), Reset))
+	row("◆", "Profile", fmt.Sprintf("%s%s%s%s", Bold, profColor, prof, Reset))
 	if tc.RemoteIP != "" {
-		KV("Peer IP", tc.RemoteIP)
+		row("◆", "Peer Server", fmt.Sprintf("%s%s%s", White, tc.RemoteIP, Reset))
 	}
 	if catalog.IsL4(tc.Method) {
-		KV("Tunnel Port", strconv.Itoa(tc.Port))
+		row("◆", "Tunnel Port", fmt.Sprintf("%s%d%s", White, tc.Port, Reset))
 	} else if tc.TunLocal4 != "" {
-		KV("Tunnel IPv4", tc.TunLocal4+" -> "+tc.TunRemote4)
+		row("◆", "Tunnel IPv4", fmt.Sprintf("%s%s%s %s⇄%s %s%s%s", White, tc.TunLocal4, Reset, BGreen, Reset, White, tc.TunRemote4, Reset))
 	}
-	fmt.Printf("  %s%-20s%s %s%s%s %s(active · enabled)%s\n", Gray, "Service", Reset, White, tunnel.Unit(tc), Reset, Green, Reset)
+	row("◆", "Service", fmt.Sprintf("%s%s%s  %s✓ active · enabled%s", White, unit, Reset, BGreen, Reset))
+	if len(tc.Ports) > 0 {
+		for _, p := range tc.Ports {
+			src, dst, _ := strings.Cut(p, "=")
+			if dst == "" {
+				dst = src
+			}
+			if catalog.IsL4(tc.Method) {
+				row("↳", "Forward", fmt.Sprintf("%s:%s%s %s→%s %s127.0.0.1:%s%s", White, src, Reset, BGreen, Reset, White, dst, Reset))
+			} else {
+				row("↳", "Forward", fmt.Sprintf("%s:%s%s %s→%s %s%s:%s%s", White, src, Reset, BGreen, Reset, White, tc.TunRemote4, dst, Reset))
+			}
+		}
+	}
+
+	fmt.Printf(" %s├%s┤%s\n", BCyan, bar, Reset)
+	fmt.Printf(" %s│%s  %s▸ Menu  :%s %ssudo ctunnel%s    %s▸ Status :%s %sctunnel status%s\n",
+		BCyan, Reset, Gray, Reset, White, Reset, Gray, Reset, White, Reset)
+	fmt.Printf(" %s│%s  %s▸ Logs  :%s %sjournalctl -u %s -f%s\n",
+		BCyan, Reset, Gray, Reset, White, unit, Reset)
+	fmt.Printf(" %s╰%s╯%s\n\n", BCyan, bar, Reset)
+
 	if catalog.IsL4(tc.Method) && tc.Role == "iran" && len(tc.Ports) == 0 {
 		Warn("No forwarded ports set — add ports in Manage -> Edit -> Forwarded Ports so user traffic can pass.")
 	}
-	for _, p := range tc.Ports {
-		src, dst, _ := strings.Cut(p, "=")
-		if dst == "" {
-			dst = src
-		}
-		if catalog.IsL4(tc.Method) {
-			Subtle(fmt.Sprintf("Forward: port %s -> 127.0.0.1:%s (kharej)", src, dst))
-		} else {
-			Subtle(fmt.Sprintf("Forward: port %s -> %s:%s (kharej)", src, tc.TunRemote4, dst))
-		}
-	}
-	fmt.Printf(" %s%s%s\n", Green, strings.Repeat("═", RuleWidth), Reset)
-	fmt.Printf(" %sManage: %ssudo ctunnel%s  ·  %sStatus: %sctunnel status%s\n\n", Gray, White, Gray, Gray, White, Reset)
 }
 
 func applyAndReport(tc catalog.TunnelConfig) {

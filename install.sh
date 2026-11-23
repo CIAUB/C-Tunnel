@@ -16,7 +16,14 @@ REPO="${CTUNNEL_REPO:-CIAUB/C-Tunnel}"
 GO_VERSION="${CTUNNEL_GO_VERSION:-}"
 [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "invalid repository" >&2; exit 1; }
 
-die() { echo "error: $*" >&2; exit 1; }
+die() { echo -e "\033[1;31m✗ error:\033[0m $*" >&2; exit 1; }
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    C_RST='\033[0m'; C_BOLD='\033[1m'; C_CYAN='\033[96m'; C_GREEN='\033[92m'; C_GRAY='\033[90m'
+else
+    C_RST=''; C_BOLD=''; C_CYAN=''; C_GREEN=''; C_GRAY=''
+fi
+step() { printf '%b▸%b %b%s%b\n' "${C_CYAN}" "${C_RST}" "${C_BOLD}" "$*" "${C_RST}"; }
+ok()   { printf '%b✓%b %s\n' "${C_GREEN}" "${C_RST}" "$*"; }
 
 # bash -c SCRIPT VERSION puts VERSION in $0, whereas bash install.sh VERSION
 # and bash -c SCRIPT -- VERSION put it in $1. Never treat a file path as a tag.
@@ -251,16 +258,19 @@ systemctl enable ctunnel-agent.service >/dev/null 2>&1 || die "cannot enable ctu
 systemctl restart ctunnel-agent.service || die "files installed, but ctunnel-agent did not start; inspect journalctl -u ctunnel-agent"
 
 echo
-echo "C-Tunnel $(/usr/local/bin/ctunnel version | awk '{print $2}') installed."
+INSTALLED_VER="$(/usr/local/bin/ctunnel version | awk '{print $2}')"
+ok "C-Tunnel ${INSTALLED_VER} installed."
 
 apply_setup_link() {
     [[ -n "${APPLY_LINK:-}" ]] || return 0
-    echo "Applying tunnel setup link..."
+    step "Connecting tunnel from setup link..."
     /usr/local/bin/ctunnel apply-link "$APPLY_LINK" || die "C-Tunnel installed, but applying the setup link failed"
 }
 apply_setup_link
 
-echo "Run: sudo ctunnel"
+if [[ -z "${APPLY_LINK:-}" ]]; then
+    printf '%bRun:%b sudo ctunnel\n' "${C_GRAY}" "${C_RST}"
+fi
 
 # Only open the interactive menu in a terminal. Never leave the installation lock
 # or temporary release files attached to the menu's long-running process.
