@@ -266,6 +266,24 @@ func MeasureDirection4Live(ctx context.Context, targetAddr string, dir byte, war
 	return avg, err
 }
 
+// MeasureDirectionNLive runs a single direction ('U' or 'D') over numStreams parallel streams.
+func MeasureDirectionNLive(ctx context.Context, targetAddr string, dir byte, numStreams int, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (float64, error) {
+	avg, _, err := runDirectionN(ctx, targetAddr, dir, numStreams, warmup, duration, onSample)
+	return avg, err
+}
+
+func isLoopbackTarget(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func runDirectionN(parent context.Context, targetAddr string, dir byte, numStreams int, warmup, duration time.Duration, onSample func(dir byte, mbps float64)) (avgMbps, peakMbps float64, err error) {
 	if numStreams <= 0 {
 		numStreams = ctSpeedStreams
@@ -302,7 +320,7 @@ func runDirectionN(parent context.Context, targetAddr string, dir byte, numStrea
 			}
 			payload := make([]byte, ctSpeedBlock)
 			_, _ = rand.Read(payload)
-			_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+			_ = c.SetDeadline(time.Now().Add(8 * time.Second))
 			_, err = c.Write(append([]byte(ctSpeedMagic+string(dir)), payload...))
 			ack := make([]byte, len(ctSpeedAck))
 			if err == nil {
@@ -373,17 +391,24 @@ func runDirectionN(parent context.Context, targetAddr string, dir byte, numStrea
 		}()
 	}
 
+	readyOK := 0
+	var lastErr error
 	for i := 0; i < numStreams; i++ {
 		if err := <-ready; err != nil {
-			cancel()
-			wg.Wait()
-			return 0, 0, err
+			lastErr = err
+		} else {
+			readyOK++
 		}
+	}
+	if readyOK == 0 {
+		cancel()
+		wg.Wait()
+		return 0, 0, lastErr
 	}
 	close(start)
 
 	readLive := received.Load
-	if dir == 'U' {
+	if dir == 'U' && !isLoopbackTarget(targetAddr) {
 		connsMu.Lock()
 		snapConns := append([]net.Conn(nil), conns...)
 		connsMu.Unlock()

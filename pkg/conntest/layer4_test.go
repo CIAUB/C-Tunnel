@@ -18,6 +18,11 @@ func TestPackL4RoundTrip(t *testing.T) {
 	if s, _, _, _, _, _ := unpackL4(packL4(l4Failed, 0, -1, -1, 1e9, 0)); s != l4Failed {
 		t.Fatal("state lost on out-of-range values")
 	}
+	v2 := packL4V2(l4Running, l4PhaseUpload, 10, 48.6, 2.3, 0.4, 12.7)
+	st, ph, rec2, rtt2, jit2, down2, up2 := unpackL4V2(v2)
+	if st != l4Running || ph != l4PhaseUpload || rec2 != 10 || rtt2 != 48.6 || jit2 != 2.3 || down2 != 0.4 || up2 != 12.7 {
+		t.Fatalf("v2 got %d %d %d %v %v %v %v", st, ph, rec2, rtt2, jit2, down2, up2)
+	}
 }
 
 // Each layer-4 row is a real tunnel: Iran's responder runs it, Kharej dials,

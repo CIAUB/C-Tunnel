@@ -26,6 +26,7 @@ const (
 	ctlL4Start   = 'L'
 	ctlL4Measure = 'M'
 	ctlL4Read    = 'N'
+	ctlL4ReadV2  = 'O'
 	ctlL4Stop    = 'S'
 )
 
@@ -35,6 +36,11 @@ const (
 	l4Failed  = 3
 	l4Measure = 45 * time.Second
 	l4Idle    = 2 * time.Minute
+
+	l4PhaseEcho     = 0
+	l4PhaseUpload   = 1
+	l4PhaseDownload = 2
+	l4SpeedStreams  = 4
 )
 
 func l4Token(token []byte) string {
@@ -43,7 +49,7 @@ func l4Token(token []byte) string {
 }
 
 // packL4 packs state (2b), received (6b), rtt*10 (12b), jitter*10 (10b),
-// down (17b), and up (17b) into 64 bits.
+// down (17b), and up (17b) into 64 bits (legacy v1 format).
 func packL4(state int, received int, rttMs, jitterMs, down, up float64) uint64 {
 	clamp := func(v float64, bits uint) uint64 {
 		if v < 0 || math.IsNaN(v) {
@@ -68,15 +74,44 @@ func unpackL4(v uint64) (state, received int, rttMs, jitterMs, down, up float64)
 		float64(v & (1<<17 - 1))
 }
 
+// packL4V2 packs state (2b), phase (2b), received (4b), rtt*10 (12b),
+// jitter*10 (10b), down*10 (17b, 0.1 Mbps up to 13.1 Gbps), and up*10 (17b).
+func packL4V2(state, phase, received int, rttMs, jitterMs, down, up float64) uint64 {
+	clamp := func(v float64, bits uint) uint64 {
+		if v < 0 || math.IsNaN(v) {
+			return 0
+		}
+		return uint64(math.Min(math.Round(v), float64(uint64(1)<<bits-1)))
+	}
+	return uint64(state&3)<<62 |
+		uint64(phase&3)<<60 |
+		clamp(float64(received), 4)<<56 |
+		clamp(rttMs*10, 12)<<44 |
+		clamp(jitterMs*10, 10)<<34 |
+		clamp(down*10, 17)<<17 |
+		clamp(up*10, 17)
+}
+
+func unpackL4V2(v uint64) (state, phase, received int, rttMs, jitterMs, down, up float64) {
+	return int(v >> 62),
+		int(v >> 60 & 3),
+		int(v >> 56 & 15),
+		float64(v>>44&(1<<12-1)) / 10,
+		float64(v>>34&(1<<10-1)) / 10,
+		float64(v>>17&(1<<17-1)) / 10,
+		float64(v&(1<<17-1)) / 10
+}
+
 type l4Responder struct {
-	mu      sync.Mutex
-	cancel  context.CancelFunc
-	done    chan struct{}
-	stats   *l4.Stats
-	fwd     int
-	result  uint64
-	started map[uint32]bool
-	idle    *time.Timer
+	mu       sync.Mutex
+	cancel   context.CancelFunc
+	done     chan struct{}
+	stats    *l4.Stats
+	fwd      int
+	result   uint64
+	resultV2 uint64
+	started  map[uint32]bool
+	idle     *time.Timer
 
 	startNonce  uint32
 	startResult uint64
@@ -118,12 +153,17 @@ func (r *Responder) controlL4(cmd byte, arg uint16, nonce uint32, body []byte) u
 		}
 		t.started[nonce] = true
 		t.result = packL4(l4Running, 0, 0, 0, 0, 0)
+		t.resultV2 = packL4V2(l4Running, l4PhaseEcho, 0, 0, 0, 0, 0)
 		go r.measureL4(t.stats, t.fwd)
 		return 0
 	case ctlL4Read:
 		t.mu.Lock()
 		defer t.mu.Unlock()
 		return t.result
+	case ctlL4ReadV2:
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		return t.resultV2
 	}
 	return 0
 }
@@ -163,7 +203,7 @@ func (r *Responder) startL4(transport string, target int) error {
 	}
 	t := &r.l4
 	t.mu.Lock()
-	t.cancel, t.done, t.stats, t.fwd, t.result = cancel, done, st, fwd, 0
+	t.cancel, t.done, t.stats, t.fwd, t.result, t.resultV2 = cancel, done, st, fwd, 0, 0
 	t.idle = time.AfterFunc(l4Idle, r.stopL4)
 	t.mu.Unlock()
 	return nil
@@ -188,10 +228,13 @@ func (r *Responder) stopL4() {
 }
 
 func (r *Responder) measureL4(st *l4.Stats, fwd int) {
-	set := func(v uint64) {
+	set := func(state, phase, recv int, rttMs, jitMs, downMbps, upMbps float64) {
+		v1 := packL4(state, recv, rttMs, jitMs, downMbps, upMbps)
+		v2 := packL4V2(state, phase, recv, rttMs, jitMs, downMbps, upMbps)
 		r.l4.mu.Lock()
 		if r.l4.stats == st {
-			r.l4.result = v
+			r.l4.result = v1
+			r.l4.resultV2 = v2
 		}
 		r.l4.mu.Unlock()
 	}
@@ -200,7 +243,7 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	if st.Links.Load() == 0 {
-		set(packL4(l4Failed, 0, 0, 0, 0, 0))
+		set(l4Failed, l4PhaseEcho, 0, 0, 0, 0, 0)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), l4Measure)
@@ -208,34 +251,44 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(fwd))
 	rtts, _ := speedtest.EchoRTTsLive(addr, Probes, func(_ int, cur []float64) {
 		curRTT, curJit := stats(cur)
-		set(packL4(l4Running, len(cur), curRTT, curJit, 0, 0))
+		set(l4Running, l4PhaseEcho, len(cur), curRTT, curJit, 0, 0)
 	})
 	received := len(rtts)
 	rtt, jitter := stats(rtts)
 	var down, up float64
 	if received > 0 {
 		var liveDown, liveUp float64
-		emit := func(dir byte, mbps float64) {
-			if dir == 'D' {
-				liveDown = mbps
-			} else {
-				liveUp = mbps
-			}
-			set(packL4(l4Running, received, rtt, jitter, liveDown, liveUp))
-		}
 		// Run Iran 'D' first (= Kharej Upload), then Iran 'U' (= Kharej Download)
 		// so the Kharej panel consistently observes Upload → Download across all methods.
-		var err error
-		down, err = speedtest.MeasureDirection4Live(ctx, addr, 'D', 800*time.Millisecond, 3*time.Second, func(_ byte, mbps float64) {
-			emit('D', mbps)
+		// Measure both directions independently with 4 streams so one slow direction
+		// never cancels the other.
+		set(l4Running, l4PhaseUpload, received, rtt, jitter, 0, 0)
+		d, errD := speedtest.MeasureDirectionNLive(ctx, addr, 'D', l4SpeedStreams, 800*time.Millisecond, 3*time.Second, func(_ byte, mbps float64) {
+			liveDown = mbps
+			set(l4Running, l4PhaseUpload, received, rtt, jitter, liveDown, liveUp)
 		})
-		if err == nil {
-			up, _ = speedtest.MeasureDirection4Live(ctx, addr, 'U', 800*time.Millisecond, 3*time.Second, func(_ byte, mbps float64) {
-				emit('U', mbps)
-			})
+		if errD == nil {
+			down = d
+		} else if liveDown > 0 {
+			down = liveDown
+		}
+		// Let previous direction's streams close cleanly before opening the next set.
+		select {
+		case <-ctx.Done():
+		case <-time.After(150 * time.Millisecond):
+		}
+		set(l4Running, l4PhaseDownload, received, rtt, jitter, down, 0)
+		u, errU := speedtest.MeasureDirectionNLive(ctx, addr, 'U', l4SpeedStreams, 800*time.Millisecond, 3*time.Second, func(_ byte, mbps float64) {
+			liveUp = mbps
+			set(l4Running, l4PhaseDownload, received, rtt, jitter, down, liveUp)
+		})
+		if errU == nil {
+			up = u
+		} else if liveUp > 0 {
+			up = liveUp
 		}
 	}
-	set(packL4(l4Done, received, rtt, jitter, down, up))
+	set(l4Done, l4PhaseDownload, received, rtt, jitter, down, up)
 }
 
 func validL4(transport string) bool {
@@ -359,6 +412,7 @@ func (s *session) measureL4Live(ctx context.Context, l Link, transport string, o
 		row.Error = "the Iran server did not answer"
 		return row
 	}
+	useV2 := true
 	end := time.Now().Add(l4Measure + 15*time.Second)
 	for time.Now().Before(end) {
 		if !sleep(ctx, 200*time.Millisecond) {
@@ -372,21 +426,39 @@ func (s *session) measureL4Live(ctx context.Context, l Link, transport string, o
 			}
 		default:
 		}
-		v, ok := s.controlMsg(ctx, ctlL4Read, 0, 0, newNonce(), nil)
-		if !ok {
-			continue
+		var state, phaseCode, received int
+		var rtt, jitter, down, up float64
+		if useV2 {
+			v, ok := s.controlMsg(ctx, ctlL4ReadV2, 0, 0, newNonce(), nil)
+			if !ok {
+				useV2 = false
+			} else {
+				state, phaseCode, received, rtt, jitter, down, up = unpackL4V2(uint64(v))
+			}
 		}
-		state, received, rtt, jitter, down, up := unpackL4(uint64(v))
+		if !useV2 {
+			v, ok := s.controlMsg(ctx, ctlL4Read, 0, 0, newNonce(), nil)
+			if !ok {
+				continue
+			}
+			state, received, rtt, jitter, down, up = unpackL4(uint64(v))
+			if up > 0 {
+				phaseCode = l4PhaseDownload
+			} else if down > 0 {
+				phaseCode = l4PhaseUpload
+			}
+		}
 		switch state {
 		case l4Running:
 			if onLive != nil {
 				live := row
 				live.Received, live.RTTms, live.JitterMs, live.DownMbps, live.UpMbps = received, rtt, jitter, up, down
 				phase := "echo"
-				if up > 0 {
-					phase = "download"
-				} else if down > 0 {
+				switch phaseCode {
+				case l4PhaseUpload:
 					phase = "upload"
+				case l4PhaseDownload:
+					phase = "download"
 				}
 				onLive(phase, &live)
 			}

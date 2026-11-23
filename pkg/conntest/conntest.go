@@ -411,7 +411,7 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	}
 	body := pkt[o+8 : len(pkt)-tokenLen]
 	switch cmd {
-	case ctlL4Start, ctlL4Measure, ctlL4Read, ctlL4Stop:
+	case ctlL4Start, ctlL4Measure, ctlL4Read, ctlL4ReadV2, ctlL4Stop:
 		v := r.controlL4(cmd, binary.BigEndian.Uint16(pkt[o+2:o+4]), nonce, body)
 		reply := make([]byte, 0, len(ctlMagic)+16+tokenLen)
 		reply = append(reply, pkt[:o+8]...)
@@ -1469,7 +1469,14 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 				set(dci, func(r *Result) { r.Phase = "echo" })
 			}
 			emitLive(ci, "echo", 0, 0)
+			var l4UpPeak, l4DownPeak float64
 			measured := s.measureL4Live(ctx, l, base, func(phase string, r *Result) {
+				if r.UpMbps > l4UpPeak {
+					l4UpPeak = r.UpMbps
+				}
+				if r.DownMbps > l4DownPeak {
+					l4DownPeak = r.DownMbps
+				}
 				set(ci, func(dst *Result) {
 					dst.Phase = phase
 					if r.Sent > 0 {
@@ -1482,6 +1489,7 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 					if r.UpMbps > 0 {
 						dst.UpMbps = r.UpMbps
 					}
+					dst.UpPeakMbps, dst.DownPeakMbps = l4UpPeak, l4DownPeak
 				})
 				if hasDir {
 					set(dci, func(dst *Result) {
@@ -1496,10 +1504,13 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 						if r.UpMbps > 0 {
 							dst.UpMbps = r.UpMbps
 						}
+						dst.UpPeakMbps, dst.DownPeakMbps = l4UpPeak, l4DownPeak
 					})
 				}
 				emitLive(ci, phase, r.DownMbps, r.UpMbps)
 			})
+			measured.UpPeakMbps = max(measured.UpMbps, l4UpPeak)
+			measured.DownPeakMbps = max(measured.DownMbps, l4DownPeak)
 			set(ci, func(r *Result) { *r = measured })
 			if hasDir {
 				dm := measured
