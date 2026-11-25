@@ -378,14 +378,17 @@ if [[ "$url" == *mode=json* ]]; then cp "$FIXTURE/metadata" "$2"; else cp "$FIXT
         self.assertNotEqual(result.returncode,0)
         self.assertIn('wireguard-tools',result.stderr)
         self.assertFalse(marker.exists())
-    def test_installer_includes_wireguard_tools_dependency(self):
+    def test_installer_does_not_require_wireguard_tools(self):
         text=(ROOT/'install.sh').read_text()
         start=text.index('missing=()')
-        end=text.index('if ! command -v go',start)
+        end=text.index('if [[ "${#missing[@]}"',start)
         result=subprocess.run(['/bin/bash','-c',text[start:end]+'\nprintf "%s\\n" "${missing[@]}"'],
                               env=dict(self.env,PATH=str(self.bin)),capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
-        self.assertIn('wireguard-tools',result.stdout.splitlines())
+        deps = result.stdout.splitlines()
+        self.assertNotIn('wireguard-tools', deps)
+        self.assertNotIn('python3', deps)
+        self.assertIn('curl', deps)
     def watchdog_setup(self):
         (self.d/'config').mkdir()
         (self.d/'config'/'test.env').write_text('WATCH_UNIT=frpc.service\nTUNNEL_URL=http://tunnel/health\nORIGIN_URL=http://origin/health\nEXPECTED_BODY=ok\n')
