@@ -333,7 +333,7 @@ use_offline() {
     step "Installing C-Tunnel offline (linux/${ARCH})..."
     tr -d '\r' < "${bundle_dir}/SHA256SUMS" > "${WORK}/SHA256SUMS"
     for a in "${ASSETS[@]}"; do
-        [[ -f "${bundle_dir}/${a}" ]] || die "missing ${a} in offline bundle (${bundle_dir})"
+        [[ -f "${bundle_dir}/${a}" ]] || die "missing ${a} in offline bundle (this server is linux/${ARCH}; use ctunnel-offline-${ARCH}.zip or the universal ctunnel-offline.zip)"
         cp "${bundle_dir}/${a}" "${WORK}/${a}"
     done
 
@@ -380,6 +380,9 @@ for unit in ctunnel@.service ctunnel-engine@.service ctunnel-panel.service ctunn
     atomic_binary "${WORK}/unit-normalized" "/etc/systemd/system/${unit}" 0644
 done
 install -d -m 0700 /etc/ctunnel /etc/ctunnel/tunnels
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon -RF /usr/local/bin/ctunnel /usr/local/bin/ctunnel-engine /usr/local/bin/c-tunnel /usr/local/lib/ctunnel /etc/systemd/system/ctunnel*.service 2>/dev/null || true
+fi
 systemctl daemon-reload
 
 # Pick up the new engine and panel binaries on update.

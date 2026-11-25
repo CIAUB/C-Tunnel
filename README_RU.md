@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="#установка">⚡ Онлайн-установка</a> · <a href="#офлайн-установка">📦 Офлайн-установка (без GitHub)</a> · <a href="https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip">⬇️ Скачать офлайн ZIP</a>
+  <a href="#установка">⚡ Онлайн-установка</a> · <a href="#офлайн-установка">📦 Офлайн-установка (без GitHub)</a> · <a href="https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline-amd64.zip">⬇️ Скачать офлайн ZIP (~8.5 МБ)</a>
 </p>
 
 <p align="center">
@@ -165,48 +165,48 @@ sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/i
 
 ## Офлайн-установка
 
-Если у сервера нет доступа к GitHub (или ограничен интернет / `apt`), вы можете установить или обновить C-Tunnel **полностью офлайн** с помощью одного универсального архива, подходящего для **любых Linux-серверов** (`amd64`, `arm64`, `armv7` — Ubuntu, Debian, CentOS, AlmaLinux, Rocky, Fedora, Arch).
+Если у сервера нет доступа к GitHub (или ограничен интернет / `apt`), вы можете установить или обновить C-Tunnel **полностью офлайн** на **любых Linux-серверах** (Ubuntu, Debian, CentOS, AlmaLinux, Rocky, Fedora, Arch — включая SELinux Enforcing).
 
-**1. Скачайте универсальный офлайн-архив** на ПК, телефон или любой сервер с доступом к GitHub:
+**1. Скачайте офлайн-архив** на ПК, телефон или любой сервер с доступом к GitHub:
 
-- **Рекомендуемый (`.zip`):** [Скачать `ctunnel-offline.zip`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip)
-- **Для минимальных серверов без `unzip` / `python3` (`.tar.gz`):** [Скачать `ctunnel-offline.tar.gz`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.tar.gz)
+- **Рекомендуемый — x86_64 / Intel / AMD (`~8.5 МБ`):** [Скачать `ctunnel-offline-amd64.zip`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline-amd64.zip)
+- **Другие архитектуры и форматы:** [`arm64` (`~7.5 МБ`)](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline-arm64.zip) · [`armv7` (`~7.9 МБ`)](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline-armv7.zip) · [`amd64.tar.gz` (`~8.4 МБ`, без `unzip`/`python3`)](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline-amd64.tar.gz) · [Универсальный `.zip` для всех CPU (`~24 МБ`)](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip)
 
 **2. Загрузите архив на сервер** (через `scp`, Termius, WinSCP, MobaXterm или любой SFTP-клиент):
 
 ```bash
-scp ctunnel-offline.zip root@SERVER_IP:/root/
+scp ctunnel-offline-amd64.zip root@SERVER_IP:/root/
 ```
 
 **3. Выполните одну команду на сервере** (в папке, куда загрузили файл):
 
 ```bash
-(unzip -qo ctunnel-offline.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
+rm -rf /tmp/ctunnel-offline && (unzip -qo ctunnel-offline-amd64.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline-amd64.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
 ```
 
 <details>
-<summary><b>Дополнительные офлайн-варианты</b> (<code>.tar.gz</code>, автоподключение <code>--apply-link</code>, распакованная папка)</summary>
+<summary><b>Дополнительные офлайн-варианты</b> (<code>.tar.gz</code>, автоподключение <code>--apply-link</code>, распакованная папка, root без <code>sudo</code>)</summary>
 
-- **Установка из `ctunnel-offline.tar.gz`** (использует встроенный `tar`, работает даже без `unzip` и `python3`):
+- **Установка из `ctunnel-offline-amd64.tar.gz`** (использует встроенный `tar`, работает даже без `unzip` и `python3`):
   ```bash
-  tar -xzf ctunnel-offline.tar.gz -C /tmp && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
+  rm -rf /tmp/ctunnel-offline && tar -xzf ctunnel-offline-amd64.tar.gz -C /tmp && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
   ```
 - **Офлайн-установка + мгновенное подключение туннеля (`--apply-link`):**
   ```bash
-  (unzip -qo ctunnel-offline.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh --apply-link 'ctunnel://...' && rm -rf /tmp/ctunnel-offline
+  rm -rf /tmp/ctunnel-offline && (unzip -qo ctunnel-offline-amd64.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline-amd64.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh --apply-link 'ctunnel://...' && rm -rf /tmp/ctunnel-offline
   ```
-- **Если архив уже распакован вручную:**
+- **Если архив уже распакован вручную** (или вход под `root` без `sudo`):
   ```bash
-  sudo bash ctunnel-offline/install.sh
+  bash ctunnel-offline/install.sh
   ```
-- **Прямой флаг `--offline`** (принимает `.zip`, `.tar.gz` или папку):
+- **Прямой флаг `--offline`** (принимает любой `.zip`, `.tar.gz` или папку):
   ```bash
-  sudo bash install.sh --offline /root/ctunnel-offline.zip
+  sudo bash install.sh --offline /root/ctunnel-offline-amd64.zip
   ```
 
 </details>
 
-> **Ноль обращений к сети и полная проверка целостности:** `install.sh` автоматически определяет офлайн-архив, выбирает статический бинарник под архитектуру CPU (`amd64` / `arm64` / `armv7`), сверяет каждый файл по `SHA256SUMS`, не вызывает `apt-get` и GitHub, а при офлайн-обновлении сохраняет все работающие туннели и настройки.
+> **Ноль обращений к сети и полная проверка целостности:** `install.sh` автоматически определяет офлайн-архив, сверяет каждый файл по `SHA256SUMS`, применяет контексты SELinux при необходимости, не вызывает `apt-get` и GitHub, а при офлайн-обновлении сохраняет все работающие туннели и настройки.
 
 ## Быстрый старт
 
