@@ -15,6 +15,10 @@
 </p>
 
 <p align="center">
+  <a href="#installation">⚡ Online Install</a> · <a href="#offline-installation">📦 Offline Install (No GitHub Access)</a> · <a href="https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip">⬇️ Download Offline ZIP</a>
+</p>
+
+<p align="center">
   <a href="https://nowpayments.io/embeds/donation-widget?api_key=8373139c-0aec-4e38-b34c-88dd005cfc1c" target="_blank" rel="noreferrer noopener">
     <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments" />
   </a>
@@ -38,6 +42,7 @@
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+- [Offline installation (no GitHub access)](#offline-installation)
 - [Quick start](#quick-start)
 - [Choosing a method](#choosing-a-method)
 - [All methods](#all-methods)
@@ -157,6 +162,51 @@ sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/i
 ```
 
 `bash install.sh v2.0.1` and `CTUNNEL_VERSION=v2.0.1` are also supported. An explicit version argument takes precedence over the environment variable.
+
+## Offline installation
+
+If your server cannot reach GitHub (or has restricted internet / `apt` access), you can install or update C-Tunnel **100% offline** using one universal bundle that works on **all Linux servers** (`amd64`, `arm64`, and `armv7` — Ubuntu, Debian, CentOS, AlmaLinux, Rocky, Fedora, Arch).
+
+**1. Download the universal offline bundle** on your PC, phone, or any server with GitHub access:
+
+- **Recommended (`.zip`):** [Download `ctunnel-offline.zip`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip)
+- **Minimal servers without `unzip` / `python3` (`.tar.gz`):** [Download `ctunnel-offline.tar.gz`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.tar.gz)
+
+**2. Upload the file to your server** (via `scp`, Termius, WinSCP, MobaXterm, or any SFTP client):
+
+```bash
+scp ctunnel-offline.zip root@SERVER_IP:/root/
+```
+
+**3. Run one command on the server** (from the folder where you uploaded the file):
+
+```bash
+(unzip -qo ctunnel-offline.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
+```
+
+<details>
+<summary><b>More offline options</b> (<code>.tar.gz</code>, one-line <code>--apply-link</code>, already extracted)</summary>
+
+- **Using `ctunnel-offline.tar.gz`** (uses built-in `tar`, works even when `unzip` and `python3` are missing):
+  ```bash
+  tar -xzf ctunnel-offline.tar.gz -C /tmp && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
+  ```
+- **Offline install + immediately connect a tunnel (`--apply-link`):**
+  ```bash
+  (unzip -qo ctunnel-offline.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh --apply-link 'ctunnel://...' && rm -rf /tmp/ctunnel-offline
+  ```
+- **If you already extracted the folder manually:**
+  ```bash
+  sudo bash ctunnel-offline/install.sh
+  ```
+- **Direct `--offline` flag** (accepts a `.zip`, `.tar.gz`, or directory):
+  ```bash
+  sudo bash install.sh --offline /root/ctunnel-offline.zip
+  ```
+
+</details>
+
+> **Zero network calls & full integrity:** `install.sh` automatically detects the offline bundle, picks the right static binary for your CPU (`amd64` / `arm64` / `armv7`), verifies every file against `SHA256SUMS`, skips `apt-get` / GitHub completely, and preserves all existing tunnels on offline updates.
 
 ## Quick start
 

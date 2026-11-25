@@ -140,6 +140,75 @@ else exit '''+ ('1' if fail else '0') + '\nfi')
                            capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertFalse(marker.exists())
+    def test_installer_offline_flags_and_bundles(self):
+        import hashlib
+        import tarfile
+        import zipfile
+        script = (ROOT/'install.sh').read_text()
+        ver_fn = script[script.index('resolve_installer_version() {'):
+                        script.index('\nresolve_installer_version "$0"')]
+        code = ('set -euo pipefail\ndie() { echo "$*" >&2; exit 1; }\n' + ver_fn +
+                '\nresolve_installer_version "$0" "$INSTALLER_SOURCE" "$@"\nprintf "%s|%s|%s\\n" "$VERSION" "$OFFLINE_PATH" "$APPLY_LINK"\n')
+        base_env = dict(self.env, INSTALLER_SOURCE='')
+        for k in ('CTUNNEL_VERSION', 'CTUNNEL_OFFLINE', 'CTUNNEL_APPLY_LINK'):
+            base_env.pop(k, None)
+        r = subprocess.run(['bash', '-c', code, '--', '--offline', '/tmp/ctunnel-offline.zip', '--apply-link', 'ctunnel://AbC_1'],
+                           env=base_env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'latest|/tmp/ctunnel-offline.zip|ctunnel://AbC_1')
+        r = subprocess.run(['bash', '-c', code, '--offline=/tmp/a.tar.gz'], env=base_env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), 'latest|/tmp/a.tar.gz|')
+        for bad in (('--offline',), ('--offline', ''), ('--offline=',)):
+            res = subprocess.run(['bash', '-c', code, 'bash', *bad], env=base_env, capture_output=True, text=True)
+            self.assertNotEqual(res.returncode, 0)
+
+        # Build valid offline directory, .zip, and .tar.gz bundles and verify use_offline().
+        off_fn = script[script.index('verify_sha256_file() {'):script.index('\nWORK="$(mktemp -d)"')]
+        bundle = self.d / 'ctunnel-offline'
+        bundle.mkdir()
+        assets = {'ctunnel-linux-amd64': b'bin1', 'ctunnel-engine-linux-amd64': b'bin2', 'ctunnel-kernel.sh': b'#!/bin/sh\n'}
+        sums = ''.join(f"{hashlib.sha256(v).hexdigest()}  {k}\r\n" for k, v in assets.items())
+        for k, v in assets.items():
+            (bundle / k).write_bytes(v)
+        (bundle / 'SHA256SUMS').write_bytes(sums.encode())
+
+        zip_path = self.d / 'ctunnel-offline.zip'
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for p in sorted(bundle.iterdir()):
+                zf.write(p, f'ctunnel-offline/{p.name}')
+        tgz_path = self.d / 'ctunnel-offline.tar.gz'
+        with tarfile.open(tgz_path, 'w:gz') as tf:
+            tf.add(bundle, arcname='ctunnel-offline')
+
+        run_offline = (
+            'set -euo pipefail\n'
+            'die() { echo "$*" >&2; exit 1; }\n'
+            'step() { :; }\nok() { :; }\n'
+            'ARCH=amd64\n'
+            'ASSETS=(ctunnel-linux-amd64 ctunnel-engine-linux-amd64 ctunnel-kernel.sh)\n'
+            + off_fn + '\nuse_offline "$1"\n'
+        )
+        for src in (bundle, zip_path, tgz_path):
+            work = self.d / f'work-{src.name}'
+            work.mkdir()
+            res = subprocess.run(['bash', '-c', run_offline, 'test', str(src)],
+                                 env=dict(self.env, WORK=str(work)), capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f'{src}: {res.stderr}')
+            self.assertEqual((work / 'ctunnel-linux-amd64').read_bytes(), b'bin1')
+
+        # Corrupt bundle must be rejected before anything is installed.
+        bad_zip = self.d / 'bad.zip'
+        with zipfile.ZipFile(bad_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for p in sorted(bundle.iterdir()):
+                data = b'tampered' if p.name == 'ctunnel-linux-amd64' else p.read_bytes()
+                zf.writestr(f'ctunnel-offline/{p.name}', data)
+        work_bad = self.d / 'work-bad'
+        work_bad.mkdir()
+        res = subprocess.run(['bash', '-c', run_offline, 'test', str(bad_zip)],
+                             env=dict(self.env, WORK=str(work_bad)), capture_output=True, text=True)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn('checksum mismatch', res.stderr)
     def installer_menu(self, interactive=True, disabled=False):
         import pty
         import shlex

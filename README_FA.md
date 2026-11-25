@@ -15,6 +15,10 @@
 </p>
 
 <p align="center">
+  <a href="#نصب">⚡ نصب آنلاین</a> · <a href="#نصب-آفلاین">📦 نصب آفلاین (بدون دسترسی به گیت‌هاب)</a> · <a href="https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip">⬇️ دانلود مستقیم ZIP آفلاین</a>
+</p>
+
+<p align="center">
   <a href="https://nowpayments.io/embeds/donation-widget?api_key=8373139c-0aec-4e38-b34c-88dd005cfc1c" target="_blank" rel="noreferrer noopener">
     <img src="https://nowpayments.io/images/embeds/donation-button-black.svg" alt="Crypto donation button by NOWPayments" />
   </a>
@@ -40,6 +44,7 @@
 - [امکانات](#امکانات)
 - [پیش‌نیازها](#پیشنیازها)
 - [نصب](#نصب)
+- [نصب آفلاین (بدون دسترسی به گیت‌هاب)](#نصب-آفلاین)
 - [شروع سریع](#شروع-سریع)
 - [انتخاب روش](#انتخاب-روش)
 - [همه‌ی روش‌ها](#همهی-روشها)
@@ -161,6 +166,51 @@ sudo bash -c "$(curl -sL https://raw.githubusercontent.com/CIAUB/C-Tunnel/main/i
 ```
 
 اجرای `bash install.sh v2.0.1` و متغیر `CTUNNEL_VERSION=v2.0.1` هم پشتیبانی می‌شوند. آرگومان نسخه بر متغیر محیطی اولویت دارد.
+
+## نصب آفلاین
+
+اگر سرور شما به گیت‌هاب دسترسی ندارد (یا اینترنت بین‌الملل / `apt` محدود است)، می‌توانید C-Tunnel را **کاملاً آفلاین** با یک فایل جامع که روی **همه‌ی سرورهای لینوکس** (`amd64`، `arm64` و `armv7` — Ubuntu، Debian، CentOS، AlmaLinux، Rocky، Fedora و Arch) جواب می‌دهد نصب یا آپدیت کنید.
+
+**۱. دانلود بسته جامع آفلاین** روی سیستم شخصی، گوشی یا هر سروری که به گیت‌هاب دسترسی دارد:
+
+- **پیشنهادی (`.zip`):** [دانلود مستقیم `ctunnel-offline.zip`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.zip)
+- **سرورهای خیلی خام بدون `unzip` و `python3` (`.tar.gz`):** [دانلود مستقیم `ctunnel-offline.tar.gz`](https://github.com/CIAUB/C-Tunnel/releases/latest/download/ctunnel-offline.tar.gz)
+
+**۲. انتقال فایل به سرور** (با `scp`، Termius، WinSCP، MobaXterm یا هر ابزار SFTP):
+
+```bash
+scp ctunnel-offline.zip root@SERVER_IP:/root/
+```
+
+**۳. اجرای یک دستور روی سرور** (در همان پوشه‌ای که فایل را آپلود کردید):
+
+```bash
+(unzip -qo ctunnel-offline.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
+```
+
+<details>
+<summary><b>روش‌های دیگر نصب آفلاین</b> (<code>.tar.gz</code>، اتصال خودکار با <code>--apply-link</code>، پوشه استخراج‌شده)</summary>
+
+- **نصب با `ctunnel-offline.tar.gz`** (فقط با `tar` داخلی لینوکس؛ حتی بدون `unzip` و `python3`):
+  ```bash
+  tar -xzf ctunnel-offline.tar.gz -C /tmp && sudo bash /tmp/ctunnel-offline/install.sh && rm -rf /tmp/ctunnel-offline
+  ```
+- **نصب آفلاین + اتصال فوری تانل با لینک (`--apply-link`):**
+  ```bash
+  (unzip -qo ctunnel-offline.zip -d /tmp 2>/dev/null || python3 -m zipfile -e ctunnel-offline.zip /tmp) && sudo bash /tmp/ctunnel-offline/install.sh --apply-link 'ctunnel://...' && rm -rf /tmp/ctunnel-offline
+  ```
+- **اگر فایل را قبلاً دستی اکسترکت کرده‌اید:**
+  ```bash
+  sudo bash ctunnel-offline/install.sh
+  ```
+- **اجرا مستقیم با فلگ `--offline`** (پشتیبانی از `.zip`، `.tar.gz` یا مسیر پوشه):
+  ```bash
+  sudo bash install.sh --offline /root/ctunnel-offline.zip
+  ```
+
+</details>
+
+> **بدون هیچ درخواست اینترنتی + اعتبارسنجی کامل:** اسکریپت `install.sh` به‌طور خودکار حالت آفلاین را تشخیص می‌دهد، باینری استاتیک متناسب با معماری CPU سرور (`amd64` / `arm64` / `armv7`) را انتخاب می‌کند، تمام فایل‌ها را با `SHA256SUMS` بررسی می‌کند، هیچ درخواستی به GitHub یا `apt-get` نمی‌فرستد و در آپدیت آفلاین تمام تانل‌ها و تنظیمات فعلی را حفظ می‌کند.
 
 ## شروع سریع
 
