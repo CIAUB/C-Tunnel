@@ -39,8 +39,8 @@ import (
 const (
 	DefaultUDPPort = 7712
 	Probes         = 10
-	probeInterval  = 100 * time.Millisecond
-	replyWait      = 1500 * time.Millisecond
+	probeInterval  = 60 * time.Millisecond
+	replyWait      = 900 * time.Millisecond
 	bodyLen        = 480
 	tokenLen       = 16
 	trailerLen     = 1 + 1 + 2 + 8 + tokenLen // kind, method index, seq, send time (ns), token
@@ -1283,8 +1283,25 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			return nil, ctx.Err()
 		}
 	}
-	if udpOpen && anyProbeWanted && !sleep(ctx, replyWait) {
-		return nil, ctx.Err()
+	if udpOpen && anyProbeWanted {
+		waitEnd := time.Now().Add(replyWait)
+		for time.Now().Before(waitEnd) {
+			allDone := true
+			rowsMu.Lock()
+			for i := range s.ps {
+				if revRow[i] >= 0 && wanted(s.ps[i].method) && len(rtts[i]) < Probes {
+					allDone = false
+					break
+				}
+			}
+			rowsMu.Unlock()
+			if allDone {
+				break
+			}
+			if !sleep(ctx, 40*time.Millisecond) {
+				return nil, ctx.Err()
+			}
+		}
 	}
 	s.setHandler(nil)
 	for i := range s.ps {
@@ -1603,7 +1620,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 		r.Skipped = "no carrier probe"
 		return r
 	}
-	rtts := speedtest.CarrierPayloadRTTLive(ctx, addr, prefix, Probes, probeInterval, func(sent int, cur []float64) {
+	rtts := speedtest.CarrierPayloadRTTLive(ctx, addr, prefix, Probes, 40*time.Millisecond, func(sent int, cur []float64) {
 		avg, jit := stats(cur)
 		if onLive != nil {
 			onLive("echo", sent, len(cur), avg, jit, 0, 0)
@@ -1616,7 +1633,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 		return r
 	}
 	var lastRx, lastTx float64
-	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 400*time.Millisecond, 1600*time.Millisecond, func(dir byte, mbps float64) {
+	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 250*time.Millisecond, 1000*time.Millisecond, func(dir byte, mbps float64) {
 		phase := "download"
 		if dir == 'U' {
 			phase = "upload"
@@ -1636,7 +1653,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 }
 
 const (
-	speedDuration = 1500 * time.Millisecond
+	speedDuration = 1000 * time.Millisecond
 	speedPacket   = 1200
 )
 
@@ -1763,7 +1780,7 @@ func (s *session) throughputLiveDir(ctx context.Context, idx int, direct bool, o
 			}
 		}
 		tick.Stop()
-		_ = sleep(ctx, 250*time.Millisecond)
+		_ = sleep(ctx, 150*time.Millisecond)
 		if n, ok := s.control(ctx, ctlCountRead, idx, 0); ok {
 			up = toMbps(n)
 			if onSample != nil {
@@ -1819,7 +1836,7 @@ func (s *session) throughputLiveDir(ctx context.Context, idx int, direct bool, o
 		}
 	drain:
 		tick.Stop()
-		_ = sleep(ctx, 250*time.Millisecond)
+		_ = sleep(ctx, 150*time.Millisecond)
 		down = toMbps(got.Load())
 		if onSample != nil {
 			onSample("download", down)

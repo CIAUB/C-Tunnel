@@ -263,7 +263,7 @@ func (r *Responder) launchL4(cfg l4.Config, target int) error {
 			err = errors.New("the layer-4 test tunnel stopped at once")
 		}
 		return err
-	case <-time.After(300 * time.Millisecond):
+	case <-time.After(120 * time.Millisecond):
 	}
 	t := &r.l4
 	t.mu.Lock()
@@ -307,7 +307,7 @@ func (r *Responder) measureCarrierDirect(ctx context.Context, done chan struct{}
 	}
 	mctx, cancel := context.WithTimeout(ctx, l4Measure)
 	defer cancel()
-	rtts := speedtest.CarrierPayloadRTTLive(mctx, addr, prefix, Probes, probeInterval, func(_ int, cur []float64) {
+	rtts := speedtest.CarrierPayloadRTTLive(mctx, addr, prefix, Probes, 40*time.Millisecond, func(_ int, cur []float64) {
 		avg, jit := stats(cur)
 		set(l4Running, l4PhaseEcho, len(cur), avg, jit, 0, 0)
 	})
@@ -319,7 +319,7 @@ func (r *Responder) measureCarrierDirect(ctx context.Context, done chan struct{}
 		// On Iran dialing Kharej: 'U' sends Iran→Kharej (= Kharej Download, stored in up slot)
 		// and 'D' receives Kharej→Iran (= Kharej Upload, stored in down slot).
 		set(l4Running, l4PhaseDownload, received, rtt, jitter, 0, 0)
-		d, u, err := speedtest.MeasureCarrierPayloadLive(mctx, addr, prefix, 400*time.Millisecond, 1600*time.Millisecond, func(dir byte, mbps float64) {
+		d, u, err := speedtest.MeasureCarrierPayloadLive(mctx, addr, prefix, 250*time.Millisecond, 1000*time.Millisecond, func(dir byte, mbps float64) {
 			if dir == 'U' {
 				liveUp = mbps
 				set(l4Running, l4PhaseDownload, received, rtt, jitter, liveDown, liveUp)
@@ -375,9 +375,9 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 		}
 		r.l4.mu.Unlock()
 	}
-	deadline := time.Now().Add(12 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for st.Links.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 	}
 	if st.Links.Load() == 0 {
 		set(l4Failed, l4PhaseEcho, 0, 0, 0, 0, 0)
@@ -400,7 +400,7 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 		// Measure both directions independently with 4 streams so one slow direction
 		// never cancels the other.
 		set(l4Running, l4PhaseUpload, received, rtt, jitter, 0, 0)
-		d, errD := speedtest.MeasureDirectionNLive(ctx, addr, 'D', l4SpeedStreams, 600*time.Millisecond, 2500*time.Millisecond, func(_ byte, mbps float64) {
+		d, errD := speedtest.MeasureDirectionNLive(ctx, addr, 'D', l4SpeedStreams, 350*time.Millisecond, 1300*time.Millisecond, func(_ byte, mbps float64) {
 			liveDown = mbps
 			set(l4Running, l4PhaseUpload, received, rtt, jitter, liveDown, liveUp)
 		})
@@ -412,10 +412,10 @@ func (r *Responder) measureL4(st *l4.Stats, fwd int) {
 		// Let previous direction's streams close cleanly before opening the next set.
 		select {
 		case <-ctx.Done():
-		case <-time.After(150 * time.Millisecond):
+		case <-time.After(80 * time.Millisecond):
 		}
 		set(l4Running, l4PhaseDownload, received, rtt, jitter, down, 0)
-		u, errU := speedtest.MeasureDirectionNLive(ctx, addr, 'U', l4SpeedStreams, 600*time.Millisecond, 2500*time.Millisecond, func(_ byte, mbps float64) {
+		u, errU := speedtest.MeasureDirectionNLive(ctx, addr, 'U', l4SpeedStreams, 350*time.Millisecond, 1300*time.Millisecond, func(_ byte, mbps float64) {
 			liveUp = mbps
 			set(l4Running, l4PhaseDownload, received, rtt, jitter, down, liveUp)
 		})
@@ -559,7 +559,7 @@ func (s *session) measureL4Live(ctx context.Context, l Link, transport string, d
 			}
 			row.Error = "layer-4 listener: " + err.Error()
 			return row
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 		}
 		payload := []byte(strconv.Itoa(khPort) + "|" + transport)
 		v, ok := s.controlMsg(ctx, ctlL4StartDirect, 0xff, uint16(target), newNonce(), payload)
@@ -615,7 +615,7 @@ func (s *session) pollL4Result(ctx context.Context, row Result, cerr <-chan erro
 	useV2 := true
 	end := time.Now().Add(l4Measure + 15*time.Second)
 	for time.Now().Before(end) {
-		if !sleep(ctx, 200*time.Millisecond) {
+		if !sleep(ctx, 100*time.Millisecond) {
 			return row
 		}
 		if cerr != nil {
