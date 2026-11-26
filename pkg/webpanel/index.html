@@ -1048,7 +1048,11 @@ details[open] summary{margin-bottom:12px}
           <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
         </div>
         <div class="grid2" id="mtu-wrap">
-          <div><label for="f-mtu">MTU</label><input id="f-mtu" type="number" min="576" max="9000"></div>
+          <div>
+            <label for="f-mtu">MTU</label>
+            <input id="f-mtu" type="number" min="576" max="9000" placeholder="Auto">
+            <div class="ip-choices"><button class="btn sm ghost" type="button" id="b-detect-mtu">Detect optimal MTU</button><span id="mtu-hint" class="hint"></span></div>
+          </div>
           <div id="pad-wrap"><label for="f-padding">Random padding (bytes)</label><input id="f-padding" type="number" min="0" max="64" placeholder="default"></div>
         </div>
         <div class="grid2">
@@ -2317,6 +2321,10 @@ function syncForm() {
   $("f-l4port-l").textContent = method === "udp" || method === "udpmux" || method === "game-kcp" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
   $("tunip-wrap").hidden = l4;
   $("mtu-wrap").hidden = l4;
+  if (!l4 && m) {
+    const est = calcRecommendedMTU(m, 1500, num("f-port"), num("f-padding"), num("f-lanes") || 1, rev, carrierOn);
+    $("f-mtu").placeholder = est > 0 ? ("Auto (" + est + ")") : "Auto";
+  }
   $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";
   $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes(method);
   $("pad-wrap").hidden = !(m && isCryptMethod(m) && !l4);
@@ -2326,14 +2334,72 @@ function syncForm() {
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : passiveKharej ? "Optional (Iran dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
   renderProtoPicker();
 }
+function calcRecommendedMTU(m, pathMTU, port, padding, lanes, rev, carrier) {
+  if (!m || isL4(m.Name)) return 0;
+  const base = pathMTU > 0 ? pathMTU : 1500;
+  const floor = (m.IPv6Underlay || m.Name.startsWith("6to4") || m.Name === "sit") ? 1280 : 576;
+  const pad = padding > 0 ? padding : (isCryptMethod(m) ? 16 : 0);
+  const isTCPStream = isStreamStealth(m.Name) || ((rev || carrier) && supportsFRP(m));
+  let mtu;
+  if (isTCPStream) {
+    const tcpIPHdr = m.IPv6Underlay ? 60 : 40;
+    const streamOH = m.Name === "stealth-ws" ? 39 : (m.Family === "Kernel L2" ? 44 : 30);
+    mtu = base - tcpIPHdr - streamOH - pad;
+  } else {
+    let oh = m.Overhead || 0;
+    if (port > 0 && m.SupportsFOU && !rev && !carrier) oh += 8;
+    if (m.Name === "gre" && lanes > 1) oh += 4;
+    mtu = base - oh - pad;
+  }
+  return Math.max(floor, Math.min(9000, mtu));
+}
 $("f-role").onchange = syncForm;
 $("f-method").onchange = syncForm;
 $("f-reverse").onchange = syncForm;
 $("f-backup").onchange = syncForm;
+$("f-port").oninput = syncForm;
+$("f-padding").oninput = syncForm;
+$("f-lanes").oninput = syncForm;
+if ($("b-detect-mtu")) $("b-detect-mtu").onclick = async () => {
+  const btn = $("b-detect-mtu");
+  const method = $("f-method").value;
+  const m = methods.find(x => x.Name === method);
+  if (!m || isL4(method)) return;
+  const rev = $("f-reverse").value === "1";
+  const carrierOn = !rev && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
+  const qs = new URLSearchParams({
+    method,
+    local_ip: $("f-local").value.trim(),
+    remote_ip: $("f-remote").value.trim(),
+    reverse: rev ? "1" : "0",
+    carrier: carrierOn ? "1" : "0",
+    port: String(num("f-port") || 0),
+    padding: String(num("f-padding") || 0),
+    lanes: String(num("f-lanes") || 1),
+    probe: "1"
+  });
+  btn.disabled = true;
+  if ($("mtu-hint")) $("mtu-hint").textContent = "Probing path MTU…";
+  try {
+    const res = await api("/api/mtu?" + qs.toString());
+    if (res && res.tunnel_mtu > 0) {
+      $("f-mtu").value = res.tunnel_mtu;
+      const srcLabel = res.source === "path" ? "Measured Path MTU" : res.source === "interface" ? "NIC MTU" : "Default Path MTU";
+      if ($("mtu-hint")) $("mtu-hint").textContent = srcLabel + " " + res.path_mtu + " B → " + res.tunnel_mtu + " B";
+      toast(srcLabel + " " + res.path_mtu + " B → Tunnel MTU " + res.tunnel_mtu, true);
+    }
+  } catch (e) {
+    if ($("mtu-hint")) $("mtu-hint").textContent = "";
+    toast(e.message || "MTU detection failed", false);
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 function openCreate(t) {
   const form = $("create-form");
   form.reset(); form.saved = null; form.edit = t ? t.name : null;
+  if ($("mtu-hint")) $("mtu-hint").textContent = "";
   editingLegacyMethod = "";
   $("create-error").hidden = true;
   $("f-name").disabled = !!t;
@@ -3439,8 +3505,13 @@ function deployFromRow(r) {
   $("f-local").value = $("t-local").value.trim();
   $("f-token").value = $("t-secret").value.trim();
   $("f-ports").value = $("t-forwards").value.trim();
-  if (lastKharejJob && lastKharejJob.best_settings && lastKharejJob.best_settings.tunnel_mtu > 0) {
-    $("f-mtu").value = lastKharejJob.best_settings.tunnel_mtu;
+  const rowM = methods.find(x => x.Name === base);
+  const pathMTU = (lastKharejJob && lastKharejJob.best_settings && lastKharejJob.best_settings.path_mtu > 0) ? lastKharejJob.best_settings.path_mtu : 0;
+  if (!l4 && rowM && pathMTU > 0) {
+    const rowMTU = calcRecommendedMTU(rowM, pathMTU, 0, 0, 1, rev, !rev && (r.method || "").startsWith("turbo+"));
+    if (rowMTU > 0) $("f-mtu").value = rowMTU;
+  } else {
+    $("f-mtu").value = "";
   }
   syncForm();
   toast("Pre-filled tunnel form with " + r.method + " (" + r.mode + ")", true);

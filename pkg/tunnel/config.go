@@ -366,12 +366,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		tc.SNI = ""
 	}
 
-	floor := minMTU
-	if m.IPv6Underlay || strings.HasPrefix(m.Name, "6to4") || m.Name == "sit" {
-		floor = minMTUIPv6
-	}
+	floor := MinMTU(m)
 	if tc.MTU == 0 && !m.L4() {
-		tc.MTU = DefaultMTU(m, tc.Port, tc.Padding)
+		tc.MTU = DefaultMTUForConfig(*tc, m, defaultInternetMTU)
 	}
 	if !m.L4() && (tc.MTU < floor || tc.MTU > 9000) {
 		return fmt.Errorf("MTU must be %d-9000", floor)
@@ -499,16 +496,6 @@ func defaultPort(m catalog.MethodSpec, index int) int {
 		return baseL4Port + index
 	}
 	return baseUDPPort + index
-}
-
-// DefaultMTU leaves room for the encapsulation, FOU header and the largest padding,
-// assuming a 1500-byte path.
-func DefaultMTU(m catalog.MethodSpec, port, padding int) int {
-	mtu := 1500 - m.Overhead - padding
-	if port > 0 && m.SupportsFOU {
-		mtu -= 8
-	}
-	return mtu
 }
 
 func checkIP(what, s string, wantV6 bool) error {

@@ -31,11 +31,11 @@ func PathMTU(ctx context.Context, l Link) int {
 	try := func(mtu int) bool {
 		pkt := make([]byte, mtu-28) // IPv4 + UDP headers
 		copy(pkt[len(pkt)-tokenLen:], token)
-		for attempt := 0; attempt < 2; attempt++ {
+		for attempt := 0; attempt < 3; attempt++ {
 			if _, err := c.WriteToUDP(pkt, dst); err != nil {
 				return false
 			}
-			_ = c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			_ = c.SetReadDeadline(time.Now().Add(450 * time.Millisecond))
 			for {
 				n, _, err := c.ReadFromUDP(buf)
 				if err != nil {

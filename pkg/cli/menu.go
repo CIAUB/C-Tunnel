@@ -437,18 +437,31 @@ func setupWizard(role string) {
 		}
 		tc.Ports = tunnel.ParsePorts(Ask("Forward ports (blank = none)", ""))
 	}
-	if !m.L4() {
-		probe.Port, probe.Padding = tc.Port, tc.Padding
-		tc.MTU = askInt("Tunnel MTU", tunnel.DefaultMTU(m, tc.Port, probe.Padding))
-	}
 	if !askPerformanceProfile(&tc, m) {
 		return
 	}
-	if !tc.Reverse && m.SupportsFRP && (tc.Profile == catalog.ProfileTurbo || tc.Profile == catalog.ProfileHyper) && tc.Port == 0 {
-		carrierProbe := tc
-		carrierProbe.Carrier = true
-		_ = tunnel.Normalize(&carrierProbe, nil)
-		tc.Port = askInt("BBR TCP Carrier port ("+catalog.ProfileLabel(tc.Profile)+" mode)", carrierProbe.Port)
+	if !tc.Reverse && m.SupportsFRP && (tc.Profile == catalog.ProfileTurbo || tc.Profile == catalog.ProfileHyper) {
+		tc.Carrier = true
+		if tc.Port == 0 {
+			carrierProbe := tc
+			_ = tunnel.Normalize(&carrierProbe, nil)
+			tc.Port = askInt("BBR TCP Carrier port ("+catalog.ProfileLabel(tc.Profile)+" mode)", carrierProbe.Port)
+		}
+	}
+	if !m.L4() {
+		pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
+		pathMTU, src := tunnel.ProbePathMTU(pctx, tc.LocalIP, tc.RemoteIP)
+		pcancel()
+		recMTU := tunnel.DefaultMTUForConfig(tc, m, pathMTU)
+		switch src {
+		case "path":
+			Subtle(fmt.Sprintf("Measured Path MTU: %d B → recommended Tunnel MTU: %d", pathMTU, recMTU))
+		case "interface":
+			Subtle(fmt.Sprintf("Detected NIC MTU: %d B → recommended Tunnel MTU: %d", pathMTU, recMTU))
+		default:
+			Subtle(fmt.Sprintf("Recommended Tunnel MTU for %s: %d (1500 B path)", m.Name, recMTU))
+		}
+		tc.MTU = askInt("Tunnel MTU", recMTU)
 	}
 	askTunnelLimits(&tc)
 

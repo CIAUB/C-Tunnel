@@ -6,6 +6,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -651,7 +652,21 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		case 4:
 			t.Port = askInt("Tunnel port (0 = none)", t.Port)
 		case 5:
-			t.MTU = askInt("MTU", t.MTU)
+			if m, ok := catalog.LookupMethod(t.Method); ok && !m.L4() {
+				pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
+				pathMTU, src := tunnel.ProbePathMTU(pctx, t.LocalIP, t.RemoteIP)
+				pcancel()
+				recMTU := tunnel.DefaultMTUForConfig(t, m, pathMTU)
+				Subtle(fmt.Sprintf("Recommended MTU: %d (from %s MTU %d B; enter 0 to apply recommended)", recMTU, src, pathMTU))
+				got := askInt("MTU", t.MTU)
+				if got == 0 {
+					t.MTU = recMTU
+				} else {
+					t.MTU = got
+				}
+			} else {
+				t.MTU = askInt("MTU", t.MTU)
+			}
 		case 6:
 			t.RateMbps = askInt("Bandwidth limit Mbit/s (0 = none)", t.RateMbps)
 		case 7:

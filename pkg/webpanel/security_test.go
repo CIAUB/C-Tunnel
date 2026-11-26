@@ -20,7 +20,7 @@ var protectedRoutes = [][2]string{
 	{"POST", "/api/tunnels/x/quota/reset"}, {"POST", "/api/tunnels/x/quota/add"},
 	{"GET", "/api/tunnels/x/logs"}, {"POST", "/api/restart-all"}, {"GET", "/api/health"},
 	{"GET", "/api/backup"}, {"POST", "/api/backup/restore"}, {"POST", "/api/import"},
-	{"GET", "/api/hostips"}, {"POST", "/api/linktest"}, {"POST", "/api/linktest/server/start"},
+	{"GET", "/api/hostips"}, {"GET", "/api/mtu"}, {"POST", "/api/linktest"}, {"POST", "/api/linktest/server/start"},
 	{"GET", "/api/linktest/server"}, {"POST", "/api/linktest/server/stop"}, {"POST", "/api/linktest/jobs"},
 	{"GET", "/api/linktest/jobs/x"}, {"GET", "/api/linktest/jobs/x/stream"}, {"POST", "/api/linktest/jobs/x/stop"}, {"POST", "/api/optimize"},
 	{"GET", "/api/auto-refresh"}, {"POST", "/api/auto-refresh"}, {"GET", "/api/proxy"}, {"POST", "/api/proxy"},

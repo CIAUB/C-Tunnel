@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ctunnel/pkg/catalog"
+	"ctunnel/pkg/tunnel"
 )
 
 func dot(r Result) string {
@@ -227,19 +228,24 @@ type Best struct {
 }
 
 func tunnelMTU(method string, pathMTU int) int {
-	m, ok := catalog.LookupMethod(strings.TrimPrefix(strings.TrimPrefix(method, "frp+"), "rev+"))
-	switch {
-	case !ok:
+	m, ok := catalog.LookupMethod(stripMethodPrefix(method))
+	if !ok || m.L4() {
 		return 0
-	case strings.HasPrefix(method, "frp+"):
-		return 1500 - m.Overhead // the carrier is TCP: no path MTU limit
-	case pathMTU <= 0:
-		return 0
-	case m.Crypt():
-		return pathMTU - m.Overhead - 16
-	default:
-		return pathMTU - m.Overhead
 	}
+	isFRP := strings.HasPrefix(method, "frp+")
+	isRev := isFRP || strings.HasPrefix(method, "rev+")
+	if !isFRP && !m.StreamStealth() && pathMTU <= 0 {
+		return 0
+	}
+	effPath := pathMTU
+	if effPath <= 0 {
+		effPath = 1500
+	}
+	pad := 0
+	if m.Crypt() {
+		pad = tunnel.DefaultPad
+	}
+	return tunnel.RecommendedMTU(m, effPath, 0, pad, 1, isRev, false)
 }
 
 func BestSettings(rows []Result, pathMTU int) Best {

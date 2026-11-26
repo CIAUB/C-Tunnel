@@ -117,6 +117,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/backup/restore", s.auth(s.handleRestore))
 	mux.HandleFunc("POST /api/import", s.auth(s.handleImport))
 	mux.HandleFunc("GET /api/hostips", s.auth(s.handleHostIPs))
+	mux.HandleFunc("GET /api/mtu", s.auth(s.handleMTU))
 	mux.HandleFunc("POST /api/linktest", s.auth(s.handleLinkTest))
 	mux.HandleFunc("POST /api/linktest/server/start", s.auth(s.handleTestServerStart))
 	mux.HandleFunc("GET /api/linktest/server", s.auth(s.handleTestServerStatus))
@@ -610,6 +611,13 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(tc.LocalIP) == "" {
 		tc.LocalIP = defaultLocalIP(tc)
+	}
+	if tc.MTU == 0 {
+		if m, ok := catalog.LookupMethod(tc.Method); ok && !m.L4() {
+			if underlay, detected := tunnel.DetectUnderlayMTU(tc.LocalIP, tc.RemoteIP); detected && underlay < 1500 {
+				tc.MTU = tunnel.DefaultMTUForConfig(tc, m, underlay)
+			}
+		}
 	}
 	if tc.Role == "kharej" && strings.TrimSpace(tc.Token) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "a kharej tunnel needs the iran server's secret token (or use Add from link)"})
