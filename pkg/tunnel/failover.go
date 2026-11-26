@@ -51,6 +51,11 @@ func BackupConfig(tc catalog.TunnelConfig) (catalog.TunnelConfig, error) {
 	b := tc
 	b.Method, b.Port, b.MTU = tc.BackupMethod, tc.BackupPort, 0
 	b.BackupMethod, b.BackupPort = "", 0
+	if tc.InterfaceLess() {
+		if bm, ok := catalog.LookupMethod(b.Method); ok && bm.SupportsNoInterface() {
+			b.NoInterface = true
+		}
+	}
 	if err := Normalize(&b, nil); err != nil {
 		return tc, fmt.Errorf("backup method %s: %w", tc.BackupMethod, err)
 	}

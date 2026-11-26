@@ -25,7 +25,7 @@ load_env() {
     source "${f}"
     : "${NAME:?}" "${DEV:?}" "${KIND:?}" "${ROLE:?}" "${LOCAL_IP:?}" "${REMOTE_IP:?}" "${MTU:?}"
     INDEX="${INDEX:-1}" PORT="${PORT:-0}" LANES="${LANES:-1}" GRE_KEY="${GRE_KEY:-0}" RATE_MBIT="${RATE_MBIT:-0}"
-    REVERSE="${REVERSE:-0}" CARRIER="${CARRIER:-0}" PROFILE="${PROFILE:-eco}" FORWARDS="${FORWARDS:-}"
+    REVERSE="${REVERSE:-0}" CARRIER="${CARRIER:-0}" NO_INTERFACE="${NO_INTERFACE:-0}" PROFILE="${PROFILE:-eco}" FORWARDS="${FORWARDS:-}"
 }
 
 profile_txq() {
@@ -73,9 +73,10 @@ uses_fou() {
     return 1
 }
 
-# Layer-4 reverse transports: ctunnel-engine listens and forwards by itself,
-# with no interface, routes or firewall rules here.
+# Layer-4 and zero-interface transports: ctunnel-engine listens and forwards by
+# itself, with no network interface, routes or firewall rules here.
 is_l4() {
+    [[ "${NO_INTERFACE:-0}" == "1" ]] && return 0
     case "${KIND}" in
         tcp|tcpmux|pck|ws|wsmux|wss|wssmux|udp|udpmux|game-kcp) return 0 ;;
     esac

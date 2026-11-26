@@ -23,7 +23,7 @@ func IranRoutes(storeDir string) []Route {
 			continue
 		}
 		ports := Ports(tc.Token)
-		if m, ok := catalog.LookupMethod(tc.Method); ok && m.L4() {
+		if tc.InterfaceLess() {
 			if tunnel.L4Links(tc.Name) <= 0 {
 				continue
 			}

@@ -136,7 +136,7 @@ func Import(st *catalog.Store, tc *catalog.TunnelConfig) error {
 			tc.LocalIP = ip
 		}
 	}
-	isL4 := catalog.IsL4(tc.Method)
+	isL4 := tc.InterfaceLess()
 	if old, exists := st.Find(tc.Name); exists && old.RemoteIP != tc.RemoteIP {
 		if isL4 {
 			tc.Name = "" // DefaultName will pick a unique kh-t<N> name below
@@ -321,14 +321,15 @@ func statusFor(tc catalog.TunnelConfig, state string) Status {
 	if s.Service = strings.TrimSpace(s.Service); s.Service == "" || len(s.Service) > 16 || strings.ContainsAny(s.Service, " \n") {
 		s.Service = "unknown"
 	}
-	if catalog.IsL4(tc.Method) {
+	eff := Effective(tc)
+	if eff.InterfaceLess() {
 		// No interface: the link is up while the servers hold a connection.
 		s.LinkUp = s.Service == "active" && L4Links(tc.Name) > 0
 	} else if ifc, err := net.InterfaceByName(Dev(tc.Name)); err == nil {
 		s.LinkUp = ifc.Flags&net.FlagUp != 0
 	}
 	s.RxBytes, s.TxBytes = TrafficTotal(tc.Name)
-	s.Method = Effective(tc).Method
+	s.Method = eff.Method
 	s.OnBackup = tc.BackupMethod != "" && OnBackup(tc.Name)
 	return s
 }

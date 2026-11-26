@@ -200,6 +200,15 @@ func (m MethodSpec) L4() bool { return m.Family == FamilyReverseL4 || m.Name == 
 // Stealth tunnel (stealth-tcp or stealth-ws).
 func (m MethodSpec) StreamStealth() bool { return m.Name == "stealth-tcp" || m.Name == "stealth-ws" }
 
+// SupportsNoInterface reports whether m is a userspace transport that can run
+// through the zero-interface port-forward engine (no per-tunnel TUN device in
+// `ip a`), carrying forwarded TCP and UDP ports over its encrypted/stealth wire.
+func (m MethodSpec) SupportsNoInterface() bool {
+	return m.StreamStealth() ||
+		m.Name == "game-dtls" || m.Name == "game-udp" || m.Name == "game-fec" || m.Name == "game-dup" ||
+		m.Name == "wg-stealth" || m.Name == "rudp-fec"
+}
+
 // IsStreamStealth reports whether method names a stream-based Stealth transport.
 func IsStreamStealth(method string) bool {
 	m, ok := LookupMethod(method)
@@ -268,11 +277,12 @@ type TunnelConfig struct {
 	Lanes          int      `json:"lanes,omitempty"`
 	RateMbps       int      `json:"rate_mbps,omitempty"`
 	Padding        int      `json:"padding,omitempty"`
-	Reverse        bool     `json:"reverse,omitempty"`   // kharej initiates the connection to iran
-	Carrier        bool     `json:"carrier,omitempty"`   // multi-stream BBR TCP carrier in Direct mode (enabled by TURBO/HYPER on core L3)
-	DirectL4       bool     `json:"direct_l4,omitempty"` // Layer-4 in Direct mode (iran dials kharej)
-	Profile        string   `json:"profile,omitempty"`   // performance profile: "eco", "turbo", or "hyper"
-	Ports          []string `json:"ports,omitempty"`     // forwarded on the iran side: "443" or "2053=8443"
+	Reverse        bool     `json:"reverse,omitempty"`      // kharej initiates the connection to iran
+	Carrier        bool     `json:"carrier,omitempty"`      // multi-stream BBR TCP carrier in Direct mode (enabled by TURBO/HYPER on core L3)
+	DirectL4       bool     `json:"direct_l4,omitempty"`    // Layer-4 in Direct mode (iran dials kharej)
+	NoInterface    bool     `json:"no_interface,omitempty"` // run supported userspace transport with zero TUN interface
+	Profile        string   `json:"profile,omitempty"`      // performance profile: "auto", "eco", "turbo", or "hyper"
+	Ports          []string `json:"ports,omitempty"`        // forwarded on the iran side: "443" or "2053=8443"
 	// SNI is the TLS server name and WebSocket Host of the ws/wss transports;
 	// empty means the Iran IP.
 	SNI string `json:"sni,omitempty"`
@@ -288,6 +298,18 @@ type TunnelConfig struct {
 	QuotaGB       float64 `json:"quota_gb,omitempty"`
 	QuotaOverride bool    `json:"quota_override,omitempty"`
 	QuotaStopped  bool    `json:"quota_stopped,omitempty"`
+}
+
+// InterfaceLess reports whether tc runs through the zero-interface port-forward
+// engine (either a native Layer-4 transport, or a Stealth/Gaming/UDP-Crypt
+// tunnel created with NoInterface enabled). Existing TUN tunnels omit
+// NoInterface (false) and keep their dedicated TUN device untouched.
+func (tc TunnelConfig) InterfaceLess() bool {
+	m, ok := LookupMethod(tc.Method)
+	if !ok {
+		return false
+	}
+	return m.L4() || (tc.NoInterface && m.SupportsNoInterface())
 }
 
 func PeerRole(role string) string {

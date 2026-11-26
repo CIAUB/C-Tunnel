@@ -652,7 +652,11 @@ func editMenu(st *catalog.Store, t catalog.TunnelConfig) {
 		case 4:
 			t.Port = askInt("Tunnel port (0 = none)", t.Port)
 		case 5:
-			if m, ok := catalog.LookupMethod(t.Method); ok && !m.L4() {
+			if t.InterfaceLess() {
+				Warn("Zero-interface / Layer-4 tunnels do not create a TUN interface and do not use TUN MTU.")
+				changed = false
+				Pause()
+			} else if m, ok := catalog.LookupMethod(t.Method); ok && !m.L4() {
 				pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
 				pathMTU, src := tunnel.ProbePathMTU(pctx, t.LocalIP, t.RemoteIP)
 				pcancel()

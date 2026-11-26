@@ -1043,6 +1043,9 @@ details[open] summary{margin-bottom:12px}
         <div id="token-wrap"><label for="f-token">Secret token (same on both servers)</label>
           <input id="f-token" class="num" autocomplete="off" placeholder="empty = random; required on kharej without a link">
           <p class="hint">64 hex characters, or any phrase of 8+ characters.</p></div>
+        <div id="noiface-wrap" hidden>
+          <label class="chk"><input id="f-noiface" type="checkbox" checked> Zero-interface mode (forward TCP/UDP without creating a TUN interface in <code>ip a</code>)</label>
+        </div>
         <div class="grid2" id="tunip-wrap">
           <div><label for="f-tun-iran">Iran local tunnel IPv4</label><input id="f-tun-iran" class="num" placeholder="10.77.N.1"></div>
           <div><label for="f-tun-kharej">Kharej local tunnel IPv4</label><input id="f-tun-kharej" class="num" placeholder="10.77.N.2"></div>
@@ -2302,9 +2305,12 @@ function syncForm() {
   $("bport-wrap").hidden = !$("f-backup").value;
   const m = methods.find(x => x.Name === $("f-method").value);
   const method = $("f-method").value;
-  const carrierOn = !rev && !l4 && m && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
+  const canNoIface = supportsNoInterface(method);
+  if ($("noiface-wrap")) $("noiface-wrap").hidden = !canNoIface;
+  const noIface = l4 || (canNoIface && $("f-noiface") && $("f-noiface").checked);
+  const carrierOn = !rev && !noIface && m && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
   const iran = $("f-role").value === "iran", revIran = rev && iran;
-  const passiveKharej = !rev && !iran && (l4 || carrierOn || isStreamStealth(method));
+  const passiveKharej = !rev && !iran && (noIface || carrierOn || isStreamStealth(method));
   $("f-remote").required = !(revIran || passiveKharej);
   $("kharej-hint").hidden = iran;
   ($("f-role").value === "kharej" ? $("token-slot") : $("adv-stack")).prepend($("token-wrap"));
@@ -2319,13 +2325,13 @@ function syncForm() {
   $("port-wrap").hidden = l4 || method === "icmp";
   $("f-port-l").textContent = method === "faketcp" ? "Port (TCP look)" : isStreamStealth(method) ? "Stealth TCP/WS Port" : carrierOn ? "BBR Carrier TCP Port (" + tunnelProfile.toUpperCase() + ")" : "Port (UDP or Reverse TCP)";
   $("f-l4port-l").textContent = method === "udp" || method === "udpmux" || method === "game-kcp" ? "Tunnel port (UDP)" : "Tunnel port (TCP)";
-  $("tunip-wrap").hidden = l4;
-  $("mtu-wrap").hidden = l4;
-  if (!l4 && m) {
+  $("tunip-wrap").hidden = noIface;
+  $("mtu-wrap").hidden = noIface;
+  if (!noIface && m) {
     const est = calcRecommendedMTU(m, 1500, num("f-port"), num("f-padding"), num("f-lanes") || 1, rev, carrierOn);
     $("f-mtu").placeholder = est > 0 ? ("Auto (" + est + ")") : "Auto";
   }
-  $("fwd-hint").textContent = l4 ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1." : "listen=target. Leave empty to forward nothing.";
+  $("fwd-hint").textContent = noIface ? "TCP and UDP. listen=target: users connect to the first port here and reach the second on the Kharej server's 127.0.0.1 (no TUN interface)." : "listen=target. Leave empty to forward nothing.";
   $("fwd-wrap").hidden = !iran || ["sit", "ip6ip6"].includes(method);
   $("pad-wrap").hidden = !(m && isCryptMethod(m) && !l4);
   $("lanes-wrap").hidden = !(m && m.SupportsLanes);
@@ -2333,6 +2339,9 @@ function syncForm() {
   if ($("prof-hint")) $("prof-hint").textContent = profileHintText(m, rev, l4, tunnelProfile);
   if (m) $("f-remote").placeholder = revIran ? "Optional in reverse mode (Kharej dials in)" : passiveKharej ? "Optional (Iran dials in)" : (m.IPv6Underlay ? "IPv6 address" : "203.0.113.10");
   renderProtoPicker();
+}
+function supportsNoInterface(name) {
+  return ["stealth-tcp", "stealth-ws", "game-dtls", "game-udp", "game-fec", "game-dup", "wg-stealth", "rudp-fec"].includes(name);
 }
 function calcRecommendedMTU(m, pathMTU, port, padding, lanes, rev, carrier) {
   if (!m || isL4(m.Name)) return 0;
@@ -2360,6 +2369,7 @@ $("f-backup").onchange = syncForm;
 $("f-port").oninput = syncForm;
 $("f-padding").oninput = syncForm;
 $("f-lanes").oninput = syncForm;
+if ($("f-noiface")) $("f-noiface").onchange = syncForm;
 if ($("b-detect-mtu")) $("b-detect-mtu").onclick = async () => {
   const btn = $("b-detect-mtu");
   const method = $("f-method").value;
@@ -2423,9 +2433,11 @@ function openCreate(t) {
     $("f-backup").value = t.backup_method || ""; $("f-bport").value = t.backup_port || "";
     $("f-tun-iran").value = t.role === "iran" ? (t.tun_local4 || "") : (t.tun_remote4 || "");
     $("f-tun-kharej").value = t.role === "iran" ? (t.tun_remote4 || "") : (t.tun_local4 || "");
+    if ($("f-noiface")) $("f-noiface").checked = !!t.no_interface;
   } else {
     $("f-reverse").value = "1";
     tunnelProfile = "auto";
+    if ($("f-noiface")) $("f-noiface").checked = true;
     document.querySelectorAll("[data-prof]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.prof === "auto")));
     setLimitMode("none");
     protoFamFilter = "all";
@@ -2560,11 +2572,13 @@ $("create-form").addEventListener("submit", async e => {
   const method = $("f-method").value;
   const m = methods.find(x => x.Name === method);
   const rev = $("f-reverse").value === "1", l4 = isL4(method);
-  const carrierOn = !rev && !l4 && m && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
+  const noIface = supportsNoInterface(method) && !!($("f-noiface") && $("f-noiface").checked);
+  const carrierOn = !rev && !l4 && !noIface && m && supportsFRP(m) && (tunnelProfile === "turbo" || tunnelProfile === "hyper");
   const body = {
     role: $("f-role").value, method, reverse: rev,
     carrier: carrierOn,
     direct_l4: !rev && l4,
+    no_interface: noIface,
     profile: tunnelProfile,
     token: $("f-token").value.trim(), remote_ip: $("f-remote").value.trim(), local_ip: $("f-local").value.trim(), name: $("f-name").value.trim(),
     tun_local4: iran ? a : b, tun_remote4: iran ? b : a,

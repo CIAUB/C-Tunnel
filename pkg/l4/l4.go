@@ -33,6 +33,9 @@ var Transports = []string{"tcp", "tcpmux", "pck", "ws", "wsmux", "wss", "wssmux"
 
 // Mux reports whether transport multiplexes streams over a few connections.
 func Mux(transport string) bool {
+	if m, ok := catalog.LookupMethod(transport); ok && m.SupportsNoInterface() {
+		return true
+	}
 	return transport == "tcpmux" || transport == "wsmux" || transport == "wssmux" || transport == "pck" || transport == "udpmux" || transport == "game-kcp"
 }
 
@@ -42,7 +45,8 @@ func validTransport(t string) bool {
 			return true
 		}
 	}
-	return false
+	m, ok := catalog.LookupMethod(t)
+	return ok && m.SupportsNoInterface()
 }
 
 // Forward is one forwarded port: the Iran server listens on Listen (TCP and
@@ -93,6 +97,8 @@ type Config struct {
 	StrictAuth bool
 	// RateMbps caps per-direction throughput on this L4 tunnel (0 = unlimited).
 	RateMbps int
+	// Padding sets max random padding bytes for Stealth/Gaming/UDP-Crypt transports.
+	Padding int
 	// Profile selects the resource/speed tier: "eco", "turbo", or "hyper".
 	// Empty defaults to "eco" (lowest footprint, standard speed).
 	Profile     string
@@ -184,7 +190,7 @@ func (c *Config) check() error {
 	}
 	if c.Conns <= 0 {
 		c.Conns = prof.conns
-		if c.Transport == "pck" || c.Transport == "udpmux" {
+		if c.Transport == "pck" || c.Transport == "udpmux" || isDPIUDPTransport(c.Transport) {
 			c.Conns = prof.pckConns
 		}
 	}

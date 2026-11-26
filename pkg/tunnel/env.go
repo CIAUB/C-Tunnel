@@ -58,6 +58,9 @@ func Env(tc catalog.TunnelConfig) string {
 	if tc.DirectL4 {
 		put("DIRECT_L4", 1)
 	}
+	if tc.NoInterface {
+		put("NO_INTERFACE", 1)
+	}
 	put("PROFILE", LiveProfile(tc))
 	put("FORWARDS", strings.Join(tc.Ports, " "))
 	if tc.SNI != "" {

@@ -298,12 +298,18 @@ func setupWizard(role string) {
 	Title("Setup " + role + " — " + modeLabel)
 
 	tc := catalog.TunnelConfig{
-		Role:     role,
-		Method:   m.Name,
-		Reverse:  rev,
-		DirectL4: m.L4() && !rev,
-		Index:    tunnel.NextIndex(st.Tunnels),
+		Role:        role,
+		Method:      m.Name,
+		Reverse:     rev,
+		DirectL4:    m.L4() && !rev,
+		NoInterface: m.SupportsNoInterface(),
+		Index:       tunnel.NextIndex(st.Tunnels),
 	}
+	if m.SupportsNoInterface() {
+		Subtle("Zero-interface mode forwards TCP & UDP ports directly without creating a TUN interface in `ip a`.")
+		tc.NoInterface = Confirm("Use zero-interface mode (recommended, keeps interfaces clean)?", true)
+	}
+	noIface := tc.InterfaceLess()
 	if m.IPv6Underlay {
 		tc.LocalIP = Ask("This server IPv6", publicIP(true))
 		remPrompt := "Remote server IPv6"
@@ -313,25 +319,25 @@ func setupWizard(role string) {
 		tc.RemoteIP = Ask(remPrompt, "")
 	} else {
 		defLocal := bindIP()
-		if m.L4() || tc.Reverse || m.StreamStealth() {
+		if noIface || tc.Reverse || m.StreamStealth() {
 			defLocal = publicIP(false)
 		}
 		tc.LocalIP = Ask("This server IP", defLocal)
 		remPrompt := "Remote server IP"
 		if tc.Reverse && role == "iran" {
 			remPrompt = "Remote server IP (optional in reverse mode, Enter = Kharej dials in)"
-		} else if (tc.DirectL4 || (m.StreamStealth() && !tc.Reverse)) && role == "kharej" {
+		} else if ((noIface && !tc.Reverse) || (m.StreamStealth() && !tc.Reverse)) && role == "kharej" {
 			remPrompt = "Iran server IP (optional, Enter = Iran dials in)"
 		} else if role == "kharej" {
 			remPrompt = "Iran server IP"
 		}
-		if !(m.L4() && tc.Reverse && role == "iran") && !(m.L4() && tc.DirectL4 && role == "kharej") {
+		if !(noIface && tc.Reverse && role == "iran") && !(noIface && !tc.Reverse && role == "kharej") {
 			tc.RemoteIP = Ask(remPrompt, "")
 		}
 	}
 	indexPrompt := "Subnet index 1-250 (10.77.N.0/30 — change if Kharej already uses this index)"
-	if m.L4() {
-		indexPrompt = "Tunnel index 1-250 (default port = 3080+N; change if needed)"
+	if noIface {
+		indexPrompt = "Tunnel index 1-250 (no TUN interface; change if needed)"
 	}
 	for {
 		idx := askInt(indexPrompt, tc.Index)
@@ -370,7 +376,7 @@ func setupWizard(role string) {
 		tc.Token = in
 		break
 	}
-	if !tunnel.IPv6Only(m.Name) && !m.L4() {
+	if !tunnel.IPv6Only(m.Name) && !noIface {
 		defIran := fmt.Sprintf("10.77.%d.1", tc.Index)
 		defKharej := fmt.Sprintf("10.77.%d.2", tc.Index)
 		iranTun := Ask("Iran local tunnel IPv4", defIran)
@@ -432,8 +438,8 @@ func setupWizard(role string) {
 	if role == "iran" && !tunnel.IPv6Only(m.Name) {
 		Subtle("Ports users connect to on this server, sent to the kharej server.")
 		Subtle("Example: 443, 8080, 2053=8443 (listen=target)")
-		if m.L4() {
-			Subtle("TCP and UDP; the target is a port on the kharej server's 127.0.0.1.")
+		if noIface {
+			Subtle("TCP and UDP; the target is a port on the kharej server's 127.0.0.1 (no TUN interface).")
 		}
 		tc.Ports = tunnel.ParsePorts(Ask("Forward ports (blank = none)", ""))
 	}
@@ -448,7 +454,7 @@ func setupWizard(role string) {
 			tc.Port = askInt("BBR TCP Carrier port ("+catalog.ProfileLabel(tc.Profile)+" mode)", carrierProbe.Port)
 		}
 	}
-	if !m.L4() {
+	if !noIface {
 		pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
 		pathMTU, src := tunnel.ProbePathMTU(pctx, tc.LocalIP, tc.RemoteIP)
 		pcancel()
@@ -582,7 +588,7 @@ func setupKharejLink(raw string) {
 	KV("Peer", tc.RemoteIP)
 	KV("This server", tc.LocalIP)
 	KV("Index", strconv.Itoa(tc.Index))
-	if catalog.IsL4(tc.Method) {
+	if tc.InterfaceLess() {
 		KV("Tunnel port", strconv.Itoa(tc.Port))
 	} else {
 		KV("Tunnel IPv4", tc.TunLocal4+" -> "+tc.TunRemote4)
@@ -591,7 +597,7 @@ func setupKharejLink(raw string) {
 		tc.Name = Ask("Name "+tc.Name+" is taken here, new local name", "")
 	}
 	reassignedIndex := false
-	if !catalog.IsL4(tc.Method) {
+	if !tc.InterfaceLess() {
 		var conflict *catalog.TunnelConfig
 		for i := range st.Tunnels {
 			o := st.Tunnels[i]
@@ -682,8 +688,8 @@ func PrintTunnelConnected(tc catalog.TunnelConfig) {
 	if tc.RemoteIP != "" {
 		row("◆", "Peer Server", fmt.Sprintf("%s%s%s", White, tc.RemoteIP, Reset))
 	}
-	if catalog.IsL4(tc.Method) {
-		row("◆", "Tunnel Port", fmt.Sprintf("%s%d%s", White, tc.Port, Reset))
+	if tc.InterfaceLess() {
+		row("◆", "Tunnel Port", fmt.Sprintf("%s%d%s  %s(0-interface)%s", White, tc.Port, Reset, Gray, Reset))
 	} else if tc.TunLocal4 != "" {
 		row("◆", "Tunnel IPv4", fmt.Sprintf("%s%s%s %s⇄%s %s%s%s", White, tc.TunLocal4, Reset, BGreen, Reset, White, tc.TunRemote4, Reset))
 	}
@@ -694,7 +700,7 @@ func PrintTunnelConnected(tc catalog.TunnelConfig) {
 			if dst == "" {
 				dst = src
 			}
-			if catalog.IsL4(tc.Method) {
+			if tc.InterfaceLess() {
 				row("↳", "Forward", fmt.Sprintf("%s:%s%s %s→%s %s127.0.0.1:%s%s", White, src, Reset, BGreen, Reset, White, dst, Reset))
 			} else {
 				row("↳", "Forward", fmt.Sprintf("%s:%s%s %s→%s %s%s:%s%s", White, src, Reset, BGreen, Reset, White, tc.TunRemote4, dst, Reset))
@@ -709,7 +715,7 @@ func PrintTunnelConnected(tc catalog.TunnelConfig) {
 		BCyan, Reset, Gray, Reset, White, unit, Reset)
 	fmt.Printf(" %s╰%s╯%s\n\n", BCyan, bar, Reset)
 
-	if catalog.IsL4(tc.Method) && tc.Role == "iran" && len(tc.Ports) == 0 {
+	if tc.InterfaceLess() && tc.Role == "iran" && len(tc.Ports) == 0 {
 		Warn("No forwarded ports set — add ports in Manage -> Edit -> Forwarded Ports so user traffic can pass.")
 	}
 }

@@ -249,7 +249,7 @@ func tunnelChecksFor(storeDir string, t catalog.TunnelConfig) []Check {
 	g := "Tunnel: " + t.Name + " (" + MethodLabel(t) + ", " + t.Role + ")"
 	var out []Check
 	s := tunnel.GetStatus(t)
-	l4 := catalog.IsL4(t.Method)
+	l4 := t.InterfaceLess()
 	switch {
 	case l4 && s.Up():
 		out = append(out, Check{Group: g, Name: "State", Level: OK, Detail: fmt.Sprintf("running, %d connection(s) to the other server", tunnel.L4Links(t.Name))})

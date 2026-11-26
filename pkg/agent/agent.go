@@ -98,7 +98,7 @@ func (m *Monitor) Check() {
 	now := m.Now()
 	seen := map[string]bool{}
 	for _, tc := range st.Tunnels {
-		l4 := layer4(tc.Method)
+		l4 := tc.InterfaceLess()
 		if tc.BackupMethod == "" || (!l4 && tc.TunRemote4 == "") {
 			continue
 		}
@@ -240,7 +240,7 @@ func Run(ctx context.Context, storeDir string) {
 	m := NewMonitor(storeDir)
 	n := notify.New(storeDir, func(tc catalog.TunnelConfig) bool {
 		eff := tunnel.Effective(tc)
-		if layer4(eff.Method) {
+		if eff.InterfaceLess() {
 			return tunnel.L4Links(tc.Name) > 0
 		}
 		return eff.TunRemote4 == "" || ping(eff.TunRemote4)
@@ -270,7 +270,7 @@ func relayTunnels(storeDir string) []tgrelay.Tunnel {
 		if tc.Role != "kharej" || tc.Token == "" {
 			continue
 		}
-		if m, ok := catalog.LookupMethod(tc.Method); ok && m.L4() {
+		if tc.InterfaceLess() {
 			out = append(out, tgrelay.Tunnel{Name: tc.Name, BindIP: "127.0.0.1", Token: tc.Token})
 			continue
 		}

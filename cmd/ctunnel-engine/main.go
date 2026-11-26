@@ -29,7 +29,8 @@ type config struct {
 	profile           string
 	reverse           bool
 	carrier           bool
-	forwards, sni     string // layer-4 transports and stealth-ws
+	noInterface       bool
+	forwards, sni     string // layer-4 transports, zero-interface mode, and stealth-ws
 }
 
 func isStreamStealth(kind string) bool {
@@ -46,7 +47,7 @@ func (c config) isPassive() bool {
 	if c.carrier && !c.reverse {
 		return c.role == "kharej"
 	}
-	if catalog.IsL4(c.kind) && !c.reverse {
+	if (catalog.IsL4(c.kind) || c.noInterface) && !c.reverse {
 		return c.role == "kharej"
 	}
 	return c.reverse && c.role == "iran"
@@ -79,7 +80,7 @@ func main() {
 	log.Printf("ctunnel-engine %s: %s [%s] tunnel %s, role %s, peer %s", version.Version, cfg.kind, catalog.ProfileLabel(cfg.profile), cfg.dev, cfg.role, cfg.remoteIP)
 
 	switch {
-	case catalog.IsL4(cfg.kind):
+	case catalog.IsL4(cfg.kind) || cfg.noInterface:
 		err = runL4(cfg)
 	case isStreamStealth(cfg.kind) || ((cfg.reverse || cfg.carrier) && !isUDPCrypt(cfg.kind) && cfg.kind != "wireguard"):
 		err = runReverseCarrier(cfg)
@@ -101,9 +102,13 @@ func loadConfig(path string) (config, error) {
 	rev := env["REVERSE"] == "1" || env["REVERSE"] == "true"
 	car := env["CARRIER"] == "1" || env["CARRIER"] == "true"
 	directL4 := env["DIRECT_L4"] == "1" || env["DIRECT_L4"] == "true"
+	noInterface := env["NO_INTERFACE"] == "1" || env["NO_INTERFACE"] == "true"
 	m, ok := catalog.LookupMethod(env["KIND"])
 	if !ok || (!m.Userspace && !rev && !car) {
 		return config{}, fmt.Errorf("%s: KIND %q is not an engine transport", path, env["KIND"])
+	}
+	if noInterface && !m.SupportsNoInterface() {
+		noInterface = false
 	}
 	port, _ := strconv.Atoi(env["PORT"])
 	tid, _ := strconv.Atoi(env["TUNNEL_ID"])
@@ -118,22 +123,23 @@ func loadConfig(path string) (config, error) {
 		}
 	}
 	cfg := config{
-		kind:     m.Name,
-		name:     env["NAME"],
-		role:     env["ROLE"],
-		dev:      env["DEV"],
-		localIP:  env["LOCAL_IP"],
-		remoteIP: env["REMOTE_IP"],
-		port:     port,
-		secret:   env["SECRET"],
-		tunnelID: uint16(tid),
-		padding:  uint8(min(max(pad, 0), 255)),
-		rateMbps: max(rateMbps, 0),
-		profile:  prof,
-		reverse:  rev || (m.L4() && !directL4),
-		carrier:  car,
-		forwards: env["FORWARDS"],
-		sni:      env["SNI"],
+		kind:        m.Name,
+		name:        env["NAME"],
+		role:        env["ROLE"],
+		dev:         env["DEV"],
+		localIP:     env["LOCAL_IP"],
+		remoteIP:    env["REMOTE_IP"],
+		port:        port,
+		secret:      env["SECRET"],
+		tunnelID:    uint16(tid),
+		padding:     uint8(min(max(pad, 0), 255)),
+		rateMbps:    max(rateMbps, 0),
+		profile:     prof,
+		reverse:     rev || (m.L4() && !directL4),
+		carrier:     car,
+		noInterface: noInterface,
+		forwards:    env["FORWARDS"],
+		sni:         env["SNI"],
 	}
 	if cfg.dev == "" || (cfg.remoteIP == "" && !cfg.isPassive()) || (cfg.role != "iran" && cfg.role != "kharej") {
 		return config{}, fmt.Errorf("%s: DEV, REMOTE_IP and ROLE are required", path)

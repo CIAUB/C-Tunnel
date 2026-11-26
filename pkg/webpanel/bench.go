@@ -2,7 +2,6 @@ package webpanel
 
 import (
 	"context"
-	"ctunnel/pkg/catalog"
 	"net"
 	"net/http"
 	"sort"
@@ -91,7 +90,7 @@ func (s *Server) handleBench(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			for i, tc := range tunnels {
 				// Layer-4 tunnels have no tunnel IP for the agent to answer on.
-				if !statuses[i].Up() || tc.TunRemote4 == "" || catalog.IsL4(tc.Method) {
+				if !statuses[i].Up() || tc.TunRemote4 == "" || tc.InterfaceLess() {
 					b.mu.Lock()
 					b.Skipped = append(b.Skipped, tc.Name)
 					b.mu.Unlock()

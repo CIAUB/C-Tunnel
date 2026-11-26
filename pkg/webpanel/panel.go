@@ -612,7 +612,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(tc.LocalIP) == "" {
 		tc.LocalIP = defaultLocalIP(tc)
 	}
-	if tc.MTU == 0 {
+	if tc.MTU == 0 && !tc.InterfaceLess() {
 		if m, ok := catalog.LookupMethod(tc.Method); ok && !m.L4() {
 			if underlay, detected := tunnel.DetectUnderlayMTU(tc.LocalIP, tc.RemoteIP); detected && underlay < 1500 {
 				tc.MTU = tunnel.DefaultMTUForConfig(tc, m, underlay)

@@ -93,3 +93,98 @@ func TestRecommendedMTUModesAndFloors(t *testing.T) {
 		t.Fatalf("DetectUnderlayMTU(127.0.0.1) = (%d, %v), want (1500, true)", u, ok)
 	}
 }
+
+func TestNoInterfacePreservesLegacyTUNBackups(t *testing.T) {
+	// 1. New zero-interface game-dtls tunnel: InterfaceLess=true, MTU=0, NO_INTERFACE=1 in env, mirrored in Peer.
+	newTC := catalog.TunnelConfig{
+		Role:        "iran",
+		Method:      "game-dtls",
+		LocalIP:     "198.51.100.1",
+		Reverse:     true,
+		NoInterface: true,
+		Ports:       []string{"443"},
+	}
+	if err := Normalize(&newTC, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !newTC.InterfaceLess() || newTC.MTU != 0 || !newTC.NoInterface {
+		t.Fatalf("expected zero-interface tunnel: %+v", newTC)
+	}
+	if env := Env(newTC); env == "" || !containsLine(env, `NO_INTERFACE="1"`) {
+		t.Fatalf("missing NO_INTERFACE in env:\n%s", env)
+	}
+	peer := catalog.PeerConfig(newTC)
+	if !peer.NoInterface || !peer.InterfaceLess() {
+		t.Fatalf("peer lost NoInterface flag: %+v", peer)
+	}
+	link, err := catalog.EncodeSetupLink(newTC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decPeer, err := catalog.DecodeSetupLink(link)
+	if err != nil || !decPeer.NoInterface || !decPeer.InterfaceLess() {
+		t.Fatalf("setup link lost NoInterface: %+v %v", decPeer, err)
+	}
+
+	// 2. Old TUN backup (no_interface omitted + legacy wireguard tunnel) restores intact without setting NoInterface.
+	prevRun := Run
+	Run = func(string, ...string) (string, error) { return "", nil }
+	defer func() { Run = prevRun }()
+	dir := t.TempDir()
+	oldBackup := []byte(`{
+		"format": "ctunnel-backup/2",
+		"version": "2.0.1",
+		"created": "2026-11-20T00:00:00Z",
+		"tunnels": [
+			{"name":"ir-old","role":"iran","method":"game-dtls","index":1,"local_ip":"198.51.100.1","remote_ip":"203.0.113.5","port":24001,"mtu":1418,"token":"` + catalog.GenerateToken() + `","ports":["443"]},
+			{"name":"ir-wg","role":"iran","method":"wireguard","index":2,"local_ip":"198.51.100.1","remote_ip":"203.0.113.6","port":51822,"mtu":1440,"token":"` + catalog.GenerateToken() + `","ports":["8443"]}
+		]
+	}`)
+	res, err := RestoreBackup(dir, oldBackup, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Created) != 2 || len(res.Failed) != 0 {
+		t.Fatalf("restore failed: %+v", res)
+	}
+	st, err := catalog.LoadStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"ir-old", "ir-wg"} {
+		got, ok := st.Find(name)
+		if !ok {
+			t.Fatalf("missing restored tunnel %s", name)
+		}
+		if got.NoInterface || got.InterfaceLess() || got.MTU == 0 {
+			t.Fatalf("restored TUN tunnel %s unexpectedly turned interface-less: %+v", name, got)
+		}
+		if containsLine(Env(got), `NO_INTERFACE="1"`) {
+			t.Fatalf("restored TUN tunnel %s wrote NO_INTERFACE=1", name)
+		}
+	}
+}
+
+func containsLine(s, line string) bool {
+	for _, l := range splitLines(s) {
+		if l == line {
+			return true
+		}
+	}
+	return false
+}
+
+func splitLines(s string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			out = append(out, s[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(s) {
+		out = append(out, s[start:])
+	}
+	return out
+}

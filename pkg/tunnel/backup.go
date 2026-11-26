@@ -149,7 +149,9 @@ func RestoreBackup(storeDir string, data []byte, overwrite bool) (RestoreResult,
 			}
 			res.Overwritten = append(res.Overwritten, tc.Name)
 		} else {
-			if err := Create(st, &tc); err != nil {
+			// Use Save (not Create) so older backups containing legacy methods or
+			// TUN-interface tunnels restore seamlessly without breaking existing peers.
+			if err := Save(st, &tc); err != nil {
 				res.Failed = append(res.Failed, origName+": "+err.Error())
 				continue
 			}

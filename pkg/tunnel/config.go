@@ -112,6 +112,12 @@ func isDialOnlyPort(tc catalog.TunnelConfig, m catalog.MethodSpec) bool {
 		}
 		return tc.Role == "kharej"
 	}
+	if tc.NoInterface && m.SupportsNoInterface() {
+		if tc.Reverse {
+			return tc.Role == "kharej"
+		}
+		return tc.Role == "iran"
+	}
 	if m.StreamStealth() {
 		if tc.Reverse {
 			return tc.Role == "kharej"
@@ -198,6 +204,9 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	if err := checkIP("this server IP", tc.LocalIP, m.IPv6Underlay); err != nil {
 		return err
 	}
+	if tc.NoInterface && !m.SupportsNoInterface() {
+		tc.NoInterface = false
+	}
 	if m.L4() {
 		if tc.DirectL4 {
 			tc.Reverse = false
@@ -207,6 +216,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	} else {
 		tc.DirectL4 = false
 	}
+	noIface := m.L4() || (tc.NoInterface && m.SupportsNoInterface())
 	if strings.TrimSpace(tc.Profile) == "" {
 		tc.Profile = catalog.EffectiveProfile(*tc)
 	} else {
@@ -365,12 +375,15 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 	} else {
 		tc.SNI = ""
 	}
+	if noIface {
+		tc.MTU, tc.Lanes = 0, 1
+	}
 
 	floor := MinMTU(m)
-	if tc.MTU == 0 && !m.L4() {
+	if tc.MTU == 0 && !noIface {
 		tc.MTU = DefaultMTUForConfig(*tc, m, defaultInternetMTU)
 	}
-	if !m.L4() && (tc.MTU < floor || tc.MTU > 9000) {
+	if !noIface && (tc.MTU < floor || tc.MTU > 9000) {
 		return fmt.Errorf("MTU must be %d-9000", floor)
 	}
 	if tc.RateMbps < 0 {
@@ -392,12 +405,13 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 		if !ok {
 			return fmt.Errorf("unknown backup method %q", tc.BackupMethod)
 		}
-		// A layer-4 tunnel forwards ports and the others carry packets between
-		// tunnel IPs; failover swaps the transport, not what the tunnel is.
-		if m.L4() && !bm.L4() {
-			return fmt.Errorf("a %s tunnel needs a %s backup method (tcp, tcpmux, pck, ws, wsmux, wss, wssmux, udp, udpmux)", catalog.FamilyReverseL4, catalog.FamilyReverseL4)
+		// A zero-interface tunnel forwards ports directly and a TUN tunnel carries
+		// packets between tunnel IPs; failover swaps the transport within the same mode.
+		bmCanNoIface := bm.L4() || bm.SupportsNoInterface()
+		if noIface && !bmCanNoIface {
+			return fmt.Errorf("a zero-interface tunnel needs a layer-4 or zero-interface backup method")
 		}
-		if !m.L4() && bm.L4() {
+		if !noIface && bm.L4() {
 			return fmt.Errorf("%s forwards ports without a tunnel IP; the backup of a %s tunnel must carry packets too", bm.Name, m.Name)
 		}
 		tc.BackupMethod = bm.Name
@@ -423,7 +437,7 @@ func Normalize(tc *catalog.TunnelConfig, others []catalog.TunnelConfig) error {
 			return err
 		}
 		listen := strings.SplitN(norm, "=", 2)[0]
-		if m.L4() && listen == strconv.Itoa(tc.Port) {
+		if noIface && listen == strconv.Itoa(tc.Port) {
 			return fmt.Errorf("port %s is the tunnel port; forward other ports", listen)
 		}
 		if seenForward[listen] {

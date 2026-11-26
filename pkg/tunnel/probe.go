@@ -42,14 +42,14 @@ func ProbeAlive(tc catalog.TunnelConfig) bool {
 	}
 	rxBefore, _ := TrafficTotal(tc.Name)
 
-	if catalog.IsL4(eff.Method) {
+	if eff.InterfaceLess() {
 		if probeL4Echo(tc.Name, 3*time.Second) {
 			return true
 		}
 		if L4Links(tc.Name) > 0 {
 			// Verify peer port reachability when we are the dialer side.
 			if eff.RemoteIP != "" && eff.RemoteIP != "0.0.0.0" && eff.RemoteIP != "::" && eff.Port > 0 {
-				if eff.Method != "udp" && eff.Method != "udpmux" && eff.Method != "pck" {
+				if isTCPDialableL4(eff.Method) {
 					c, err := net.DialTimeout("tcp", net.JoinHostPort(eff.RemoteIP, strconv.Itoa(eff.Port)), 2*time.Second)
 					if err == nil {
 						_ = c.Close()
@@ -93,8 +93,16 @@ func MeasurePing(tc catalog.TunnelConfig) PingResult {
 	return measurePingFor(eff)
 }
 
+func isTCPDialableL4(method string) bool {
+	switch method {
+	case "tcp", "tcpmux", "ws", "wsmux", "wss", "wssmux", "stealth-tcp", "stealth-ws":
+		return true
+	}
+	return false
+}
+
 func measurePingFor(eff catalog.TunnelConfig) PingResult {
-	if catalog.IsL4(eff.Method) {
+	if eff.InterfaceLess() {
 		target := eff.RemoteIP
 		if ip := net.ParseIP(strings.TrimSpace(target)); ip == nil || ip.IsUnspecified() {
 			target = readL4PeerIP(eff.Name)
@@ -105,8 +113,7 @@ func measurePingFor(eff catalog.TunnelConfig) PingResult {
 		if rtt, jit, ok := measureL4Probe(eff.Name, 3, 1200*time.Millisecond); ok {
 			return PingResult{OK: true, RTTMs: rtt, JitterMs: jit, LossPct: 0, Probe: "l4-stream"}
 		}
-		if ip := net.ParseIP(strings.TrimSpace(eff.RemoteIP)); ip != nil && !ip.IsUnspecified() && eff.Port > 0 &&
-			eff.Method != "udp" && eff.Method != "udpmux" && eff.Method != "pck" {
+		if ip := net.ParseIP(strings.TrimSpace(eff.RemoteIP)); ip != nil && !ip.IsUnspecified() && eff.Port > 0 && isTCPDialableL4(eff.Method) {
 			if rtt, jit, loss, ok := probeTCPConnect(net.JoinHostPort(ip.String(), strconv.Itoa(eff.Port)), 3, 1200*time.Millisecond); ok {
 				return PingResult{OK: true, RTTMs: rtt, JitterMs: jit, LossPct: loss, Probe: "l4-tcp"}
 			}

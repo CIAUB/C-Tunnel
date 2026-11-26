@@ -10,7 +10,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/binary"
-	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -43,8 +42,16 @@ func listen(cfg *Config) (listener, error) {
 		return listenPCK(cfg)
 	case "udp", "udpmux", "game-kcp":
 		return listenKCP(cfg, addr)
+	case "stealth-tcp":
+		return listenStealthTCP(cfg, addr)
+	case "stealth-ws":
+		return listenStealthWS(cfg, addr)
+	default:
+		if isDPIUDPTransport(cfg.Transport) {
+			return listenDPIKCP(cfg, addr)
+		}
 	}
-	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
+	return nil, errUnknownTransport(cfg.Transport)
 }
 
 func dial(ctx context.Context, cfg *Config) (net.Conn, error) {
@@ -59,8 +66,16 @@ func dial(ctx context.Context, cfg *Config) (net.Conn, error) {
 		return dialPCK(cfg)
 	case "udp", "udpmux", "game-kcp":
 		return dialKCP(cfg, addr)
+	case "stealth-tcp":
+		return dialStealthTCP(ctx, cfg, addr)
+	case "stealth-ws":
+		return dialStealthWS(ctx, cfg, addr)
+	default:
+		if isDPIUDPTransport(cfg.Transport) {
+			return dialDPIKCP(cfg, addr)
+		}
 	}
-	return nil, fmt.Errorf("unknown transport %q", cfg.Transport)
+	return nil, errUnknownTransport(cfg.Transport)
 }
 
 func tlsTransport(t string) bool { return t == "wss" || t == "wssmux" }
