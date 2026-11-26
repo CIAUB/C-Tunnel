@@ -16,6 +16,7 @@ const (
 	kcpUDPMTU          = 1350
 	kcpSocketBuffer    = 8 << 20
 	kcpMaxFrame        = 65534
+	kcpWriteChunk      = 16 << 10
 	kcpPing            = 0xffff
 	kcpLinger          = 10 * time.Second
 	kcpFastInterval    = 10
@@ -53,9 +54,10 @@ type kcpConn struct {
 	closeOnce sync.Once
 	done      chan struct{}
 
-	tmu      sync.Mutex
-	slow     bool
-	lastData atomic.Int64
+	tmu        sync.Mutex
+	slow       bool
+	lastData   atomic.Int64
+	lastTxData atomic.Int64
 }
 
 func newKCPConn(s *kcp.UDPSession) *kcpConn {
@@ -232,8 +234,14 @@ func (c *kcpConn) idle() time.Duration {
 	return time.Since(c.lastRx)
 }
 
+func (c *kcpConn) txActive() bool {
+	last := c.lastTxData.Load()
+	return last != 0 && time.Since(time.Unix(0, last)) < 250*time.Millisecond
+}
+
 func (c *kcpConn) Write(p []byte) (int, error) {
 	c.active()
+	c.lastTxData.Store(time.Now().UnixNano())
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	if c.wclosed {
@@ -241,7 +249,10 @@ func (c *kcpConn) Write(p []byte) (int, error) {
 	}
 	n := 0
 	for len(p) > 0 {
-		k := min(len(p), kcpMaxFrame)
+		// Cap each WriteBuffers call to 16 KiB (~12 KCP segments) so flushing
+		// never holds the KCP session mutex long enough to starve incoming
+		// packets or reverse ACKs on bidirectional streams.
+		k := min(len(p), kcpWriteChunk)
 		binary.BigEndian.PutUint16(c.whdr[:], uint16(k))
 		if _, err := c.UDPSession.WriteBuffers([][]byte{c.whdr[:], p[:k]}); err != nil {
 			return n, err

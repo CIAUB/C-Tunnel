@@ -66,3 +66,36 @@ func TestBatchingHysteresis(t *testing.T) {
 		t.Fatal("hysteresis did not preserve false")
 	}
 }
+
+type fakeSession struct {
+	srtt       int32
+	snd, rcv   int
+	writeDelay bool
+}
+
+func (f *fakeSession) GetSRTT() int32         { return f.srtt }
+func (f *fakeSession) SetWindowSize(s, r int) { f.snd, f.rcv = s, r }
+func (f *fakeSession) SetACKNoDelay(bool)     {}
+func (f *fakeSession) SetWriteDelay(d bool)   { f.writeDelay = d }
+
+func TestControllerHoldsWindowWhileIdle(t *testing.T) {
+	s := &fakeSession{srtt: 20}
+	ctl := New(Config{
+		Ceiling:      1024,
+		Rcv:          1024,
+		Tick:         10 * time.Millisecond,
+		WantBatching: true,
+		Active:       func() bool { return false },
+		Sessions:     func() ([]Session, uint64, uint64) { return []Session{s}, 0, 0 },
+	})
+	done := make(chan struct{})
+	go ctl.Run(done)
+	time.Sleep(100 * time.Millisecond)
+	close(done)
+	if got := ctl.Window(); got != startWindow {
+		t.Fatalf("idle window grew from %d to %d", startWindow, got)
+	}
+	if s.writeDelay {
+		t.Fatal("expected WriteDelay to remain disabled")
+	}
+}

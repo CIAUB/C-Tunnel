@@ -25,6 +25,10 @@ type Config struct {
 	// Sessions returns the active KCP sessions and cumulative local transmit
 	// queue drop/sent counters (zero if the carrier does not report them).
 	Sessions func() (ss []Session, txDrops, txSent uint64)
+	// Active, when non-nil, reports whether the sessions are actively sending.
+	// While inactive (e.g. sitting idle in a connection pool), the controller
+	// holds the current send window instead of ramping it to Ceiling.
+	Active func() bool
 }
 
 // Controller adjusts the send window and ACK batching of KCP sessions sharing
@@ -75,6 +79,10 @@ func (c *Controller) Run(done <-chan struct{}) {
 		now := time.Now()
 		dt := now.Sub(lastTick)
 		lastTick = now
+
+		if c.cfg.Active != nil && !c.cfg.Active() {
+			continue
+		}
 
 		ks, tx, sent := c.cfg.Sessions()
 		if len(ks) == 0 {
@@ -138,7 +146,10 @@ func (c *Controller) Run(done <-chan struct{}) {
 				prev, ok := appliedBatch[kc]
 				if !ok || prev != batching {
 					kc.SetACKNoDelay(!batching)
-					kc.SetWriteDelay(batching)
+					// Keep WriteDelay disabled: with WriteDelay(true), kcp-go queues
+					// up to snd_wnd segments and flushes thousands of packets under one
+					// session mutex hold, starving incoming reads and reverse ACKs.
+					kc.SetWriteDelay(false)
 					appliedBatch[kc] = batching
 				}
 			}

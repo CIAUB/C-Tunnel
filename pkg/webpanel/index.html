@@ -828,7 +828,7 @@ details[open] summary{margin-bottom:12px}
                 </svg>
               </div>
               <div class="ct-mcell">
-                <div class="ct-mtop"><span>Path MTU &amp; Probes</span><span id="st-probes" class="pk">0/10</span></div>
+                <div class="ct-mtop"><span>Path MTU &amp; Probes</span><span id="st-probes" class="pk">0/15</span></div>
                 <div class="ct-mval"><b id="st-mtu-val" class="num">1420 B</b><small id="st-loss" class="ct-probe-sub">Ready</small></div>
                 <div id="st-leds" class="ct-probes" aria-label="Echo probes"></div>
               </div>
@@ -3117,7 +3117,7 @@ $("settings-form").addEventListener("submit", async e => {
 
 /* ---------- connection test ---------- */
 function testBadge(r) {
-  if (r.phase === "echo") return ["ECHO " + (r.sent || 0) + "/10", "warn", "Probing RTT"];
+  if (r.phase === "echo") return ["ECHO " + (r.sent || 0) + "/15", "warn", "Probing RTT"];
   if (r.phase === "download") return ["DOWNLOAD…", "warn", "Measuring download stream"];
   if (r.phase === "upload") return ["UPLOAD…", "warn", "Measuring upload stream"];
   if (r.phase === "speed") return ["SPEED…", "warn", "Measuring bidirectional throughput"];
@@ -3287,7 +3287,7 @@ function setConsoleIdle() {
   if ($("st-rtt")) $("st-rtt").textContent = "—";
   if ($("st-jitter")) $("st-jitter").textContent = "Jitter —";
   if ($("st-mtu-val")) $("st-mtu-val").textContent = "1420 B";
-  if ($("st-probes")) $("st-probes").textContent = "0/10";
+  if ($("st-probes")) $("st-probes").textContent = "0/15";
   if ($("st-loss")) $("st-loss").textContent = "Ready";
 }
 

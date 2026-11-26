@@ -183,9 +183,9 @@ func TestBestSelectionAndDeployAreMeasuredAndIdempotent(t *testing.T) {
 	defer func() { runMethodTest = original }()
 	runMethodTest = func(context.Context, conntest.Link, conntest.Progress) ([]conntest.Result, error) {
 		return []conntest.Result{
-			{Method: "gre", Mode: "DIRECT", Sent: 10, Received: 10, RTTms: 300, DownMbps: 300, UpMbps: 300},
-			{Method: "rev+dtls-1.3", Mode: "REVERSE", Sent: 10, Received: 10, RTTms: 5, DownMbps: 100, UpMbps: 100},
-			{Method: "frp+ipip", Mode: "REVERSE", Sent: 10, Received: 9, DownMbps: 1000, UpMbps: 1000},
+			{Method: "gre", Mode: "DIRECT", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 300, DownMbps: 300, UpMbps: 300},
+			{Method: "rev+dtls-1.3", Mode: "REVERSE", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 5, DownMbps: 100, UpMbps: 100},
+			{Method: "frp+ipip", Mode: "REVERSE", Sent: conntest.Probes, Received: conntest.Probes - 1, DownMbps: 1000, UpMbps: 1000},
 		}, nil
 	}
 	link := conntest.EncodeLink(conntest.Link{Host: "203.0.113.8", UDPPort: 7712, TCPPort: 7711, TokenHex: conntest.NewToken()})
@@ -240,7 +240,7 @@ func TestMethodTestSurvivesPanelPathChange(t *testing.T) {
 		c.server.configMu.Lock()
 		c.server.panelConfig.BasePath = "/panel-changed-during-test"
 		c.server.configMu.Unlock()
-		return []conntest.Result{{Method: "gre", Mode: "DIRECT", Sent: 10, Received: 10, RTTms: 5, DownMbps: 100, UpMbps: 100}}, nil
+		return []conntest.Result{{Method: "gre", Mode: "DIRECT", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 5, DownMbps: 100, UpMbps: 100}}, nil
 	}
 	link := conntest.EncodeLink(conntest.Link{Host: "203.0.113.8", UDPPort: 7712, TCPPort: 7711, TokenHex: conntest.NewToken()})
 	response, result := c.do("POST", "/api/linktest", map[string]any{"link": link, "role": "iran"})
@@ -375,8 +375,8 @@ func TestLinkTestJobStoresDirectAndReverse(t *testing.T) {
 	defer func() { runMethodTest, runPathMTU = originalRun, originalMTU }()
 	runMethodTest = func(context.Context, conntest.Link, conntest.Progress) ([]conntest.Result, error) {
 		return []conntest.Result{
-			{Method: "gre", Mode: "DIRECT", Family: "L3-Direct", Sent: 10, Received: 10, RTTms: 4, DownMbps: 200, UpMbps: 180},
-			{Method: "rev+dtls-1.3", Mode: "REVERSE", Family: "UDP-Crypt", Sent: 10, Received: 10, RTTms: 6, DownMbps: 120, UpMbps: 110},
+			{Method: "gre", Mode: "DIRECT", Family: "L3-Direct", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 4, DownMbps: 200, UpMbps: 180},
+			{Method: "rev+dtls-1.3", Mode: "REVERSE", Family: "UDP-Crypt", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 6, DownMbps: 120, UpMbps: 110},
 		}, nil
 	}
 	runPathMTU = func(context.Context, conntest.Link) int { return 1500 }
@@ -427,8 +427,8 @@ func TestLinkTestJobWithoutDeploymentToken(t *testing.T) {
 	defer func() { runMethodTest, runPathMTU = originalRun, originalMTU }()
 	runMethodTest = func(context.Context, conntest.Link, conntest.Progress) ([]conntest.Result, error) {
 		return []conntest.Result{
-			{Method: "gre", Mode: "DIRECT", Family: "L3-Direct", Sent: 10, Received: 10, RTTms: 5, DownMbps: 100, UpMbps: 90},
-			{Method: "rev+quic-v1", Mode: "REVERSE", Family: "UDP-Crypt", Sent: 10, Received: 10, RTTms: 7, DownMbps: 80, UpMbps: 70},
+			{Method: "gre", Mode: "DIRECT", Family: "L3-Direct", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 5, DownMbps: 100, UpMbps: 90},
+			{Method: "rev+quic-v1", Mode: "REVERSE", Family: "UDP-Crypt", Sent: conntest.Probes, Received: conntest.Probes, RTTms: 7, DownMbps: 80, UpMbps: 70},
 		}, nil
 	}
 	runPathMTU = func(context.Context, conntest.Link) int { return 0 }

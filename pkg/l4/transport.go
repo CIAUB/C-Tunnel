@@ -207,6 +207,7 @@ func kcpBlock(token string) (kcp.BlockCrypt, error) {
 
 const (
 	kcpDefaultWindow = 4096
+	kcpPooledWindow  = 1024
 	kcpPCKWindow     = 8192
 )
 
@@ -247,7 +248,7 @@ type pckMetrics interface {
 	QueueSent() uint64
 }
 
-func startSessionPathCtl(s *kcp.UDPSession, pc net.PacketConn, ceiling int) func() {
+func startSessionPathCtl(s *kcp.UDPSession, pc net.PacketConn, ceiling int, active func() bool) func() {
 	done := make(chan struct{})
 	var pm pckMetrics
 	if pc != nil {
@@ -258,6 +259,7 @@ func startSessionPathCtl(s *kcp.UDPSession, pc net.PacketConn, ceiling int) func
 		Rcv:          ceiling,
 		Tick:         10 * time.Millisecond,
 		WantBatching: true,
+		Active:       active,
 		Sessions: func() ([]pathctl.Session, uint64, uint64) {
 			var drops, sent uint64
 			if pm != nil {
@@ -266,6 +268,9 @@ func startSessionPathCtl(s *kcp.UDPSession, pc net.PacketConn, ceiling int) func
 			return []pathctl.Session{s}, drops, sent
 		},
 	})
+	// Apply initial slow-start send window immediately so the first burst does
+	// not flood the peer with a full Ceiling window before pathctl probes RTT.
+	s.SetWindowSize(ctl.Window(), ceiling)
 	go ctl.Run(done)
 	var once sync.Once
 	return func() { once.Do(func() { close(done) }) }
@@ -362,7 +367,11 @@ func listenKCP(cfg *Config, addr string) (listener, error) {
 	}
 	_ = ln.SetReadBuffer(prof.kcpSockBuf)
 	_ = ln.SetWriteBuffer(prof.kcpSockBuf)
-	return &kcpListener{ln: ln, mtu: kcpUDPMTU, window: prof.kcpWindow, interval: prof.kcpInterval, frame: cfg.Transport == "udp"}, nil
+	win := prof.kcpWindow
+	if cfg.Transport == "udp" {
+		win = min(win, kcpPooledWindow)
+	}
+	return &kcpListener{ln: ln, mtu: kcpUDPMTU, window: win, interval: prof.kcpInterval, frame: cfg.Transport == "udp"}, nil
 }
 
 func (k *kcpListener) Accept() (net.Conn, error) {
@@ -375,10 +384,12 @@ func (k *kcpListener) Accept() (net.Conn, error) {
 		return &managedKCPConn{Conn: s}, nil
 	}
 	tuneKCP(s, k.mtu, k.window, k.interval)
-	stop := startSessionPathCtl(s, k.conn, k.window)
 	if k.frame {
-		return &managedKCPConn{Conn: newKCPConn(s), stop: stop}, nil
+		kc := newKCPConn(s)
+		stop := startSessionPathCtl(s, k.conn, k.window, kc.txActive)
+		return &managedKCPConn{Conn: kc, stop: stop}, nil
 	}
+	stop := startSessionPathCtl(s, k.conn, k.window, nil)
 	return &managedKCPConn{Conn: s, stop: stop}, nil
 }
 
@@ -415,7 +426,7 @@ func dialPCK(cfg *Config) (net.Conn, error) {
 	}
 	prof := cfg.tuning()
 	tuneKCP(s, pck.KCPMTU(pc, pck.DefaultKCPMTU), prof.kcpPCKWindow, prof.kcpInterval)
-	stop := startSessionPathCtl(s, pc, prof.kcpPCKWindow)
+	stop := startSessionPathCtl(s, pc, prof.kcpPCKWindow, nil)
 	return &managedKCPConn{Conn: s, stop: stop}, nil
 }
 
@@ -456,10 +467,16 @@ func dialKCP(cfg *Config, addr string) (net.Conn, error) {
 	}
 	_ = s.SetReadBuffer(prof.kcpSockBuf)
 	_ = s.SetWriteBuffer(prof.kcpSockBuf)
-	tuneKCP(s, kcpUDPMTU, prof.kcpWindow, prof.kcpInterval)
-	stop := startSessionPathCtl(s, nil, prof.kcpWindow)
+	win := prof.kcpWindow
 	if cfg.Transport == "udp" {
-		return &managedKCPConn{Conn: newKCPConn(s), stop: stop}, nil
+		win = min(win, kcpPooledWindow)
 	}
+	tuneKCP(s, kcpUDPMTU, win, prof.kcpInterval)
+	if cfg.Transport == "udp" {
+		kc := newKCPConn(s)
+		stop := startSessionPathCtl(s, nil, win, kc.txActive)
+		return &managedKCPConn{Conn: kc, stop: stop}, nil
+	}
+	stop := startSessionPathCtl(s, nil, win, nil)
 	return &managedKCPConn{Conn: s, stop: stop}, nil
 }

@@ -38,9 +38,9 @@ import (
 
 const (
 	DefaultUDPPort = 7712
-	Probes         = 10
-	probeInterval  = 60 * time.Millisecond
-	replyWait      = 900 * time.Millisecond
+	Probes         = 15
+	probeInterval  = 40 * time.Millisecond
+	replyWait      = 650 * time.Millisecond
 	bodyLen        = 480
 	tokenLen       = 16
 	trailerLen     = 1 + 1 + 2 + 8 + tokenLen // kind, method index, seq, send time (ns), token
@@ -148,8 +148,9 @@ type Responder struct {
 	counts     map[int]int64
 	nonces     map[uint32]bool
 	rows       []Result
-	probeRow   []int // probe index → DIRECT row
-	revRow     []int // probe index → REVERSE row, -1 if the method has none
+	only       map[string]bool // selected base methods from kharej's ctlPing (nil = all)
+	probeRow   []int           // probe index → DIRECT row, -1 if unselected/unusable
+	revRow     []int           // probe index → REVERSE row, -1 if the method has none or is unselected
 	seenEcho   map[[2]int]bool
 	pingRTT    map[int][]float64
 	pingSeen   map[[2]int]bool
@@ -170,7 +171,64 @@ func (r *Responder) SetCallbacks(onUpdate Progress, onReport func(Report)) {
 
 func (r *Responder) resetRowsLocked() {
 	r.seenEcho, r.pingSeen, r.pingRTT = map[[2]int]bool{}, map[[2]int]bool{}, map[int][]float64{}
-	r.rows, r.probeRow, r.revRow = newRows(r.ps, r.usable)
+	allRows, allDir, allRev := newRows(r.ps, r.usable)
+	if len(r.only) == 0 {
+		r.rows, r.probeRow, r.revRow = allRows, allDir, allRev
+		return
+	}
+	// Filter the Iran board so it matches Kharej's selected methods 1:1 from second 0.
+	indexMap := make([]int, len(allRows))
+	filtered := make([]Result, 0, len(allRows))
+	for i, row := range allRows {
+		if r.only[stripMethodPrefix(row.Method)] {
+			indexMap[i] = len(filtered)
+			filtered = append(filtered, row)
+		} else {
+			indexMap[i] = -1
+		}
+	}
+	dir := make([]int, len(allDir))
+	rev := make([]int, len(allRev))
+	for i := range allDir {
+		if allDir[i] >= 0 {
+			dir[i] = indexMap[allDir[i]]
+		} else {
+			dir[i] = -1
+		}
+		if allRev[i] >= 0 {
+			rev[i] = indexMap[allRev[i]]
+		} else {
+			rev[i] = -1
+		}
+	}
+	r.rows, r.probeRow, r.revRow = filtered, dir, rev
+}
+
+func parseOnlyPayload(body []byte) map[string]bool {
+	s := strings.TrimSpace(string(body))
+	if s == "" || len(s) > 1024 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if m, ok := catalog.LookupMethod(stripMethodPrefix(part)); ok && !m.Legacy {
+			out[m.Name] = true
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	if out["faketcp"] {
+		out["pck"] = true
+	}
+	if out["stealth-ws"] {
+		out["ws"] = true
+	}
+	return out
 }
 
 func (r *Responder) usable(i int) bool { return r.ps[i].proto == 0 || r.raw[r.ps[i].proto] != nil }
@@ -420,10 +478,13 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		_, _ = r.udp.WriteTo(reply, from)
 		return
 	case ctlPing:
+		pingPort := int(binary.BigEndian.Uint16(pkt[o+2 : o+4]))
+		pingIP := append(net.IP(nil), from.IP...)
 		r.mu.Lock()
 		fresh := !r.nonces[nonce]
 		r.nonces[nonce] = true
 		if fresh {
+			r.only = parseOnlyPayload(body)
 			r.resetRowsLocked() // a new test begins
 			r.notifyLocked()
 		}
@@ -432,7 +493,7 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 		if fresh {
 			select {
 			case r.busy <- struct{}{}:
-				go func() { defer func() { <-r.busy }(); r.ping(from.IP, int(binary.BigEndian.Uint16(pkt[o+2:o+4]))) }()
+				go func() { defer func() { <-r.busy }(); r.ping(pingIP, pingPort) }()
 			default:
 			}
 		}
@@ -569,15 +630,24 @@ func (r *Responder) control(pkt []byte, from *net.UDPAddr) {
 	_, _ = r.udp.WriteTo(reply, from)
 }
 
-// ping sends Probes packets of every method to kharej, started from iran, the way a
-// DIRECT tunnel starts. Kharej answers each with kindPong.
+// ping sends Probes packets of every selected method to kharej, started from
+// iran, the way a DIRECT tunnel starts. Kharej answers each with kindPong.
 func (r *Responder) ping(host net.IP, port int) {
+	r.mu.Lock()
+	active := make([]int, 0, len(r.ps))
+	for i := range r.ps {
+		if r.usable(i) && r.probeRow[i] >= 0 && r.probeRow[i] < len(r.rows) && r.rows[r.probeRow[i]].Skipped == "" {
+			active = append(active, i)
+		}
+	}
+	r.mu.Unlock()
+	if len(active) == 0 {
+		return
+	}
 	body := make([]byte, bodyLen)
 	for seq := 0; seq < Probes; seq++ {
-		for i, p := range r.ps {
-			if !r.usable(i) {
-				continue
-			}
+		for _, i := range active {
+			p := r.ps[i]
 			_, _ = rand.Read(body)
 			pkt := buildProbe(p, kindPing, i, uint16(seq), body, r.token)
 			if p.proto == 0 {
@@ -586,8 +656,8 @@ func (r *Responder) ping(host net.IP, port int) {
 				_, _ = r.raw[p.proto].WriteTo(pkt, &net.IPAddr{IP: host})
 			}
 			r.mu.Lock()
-			if row := &r.rows[r.probeRow[i]]; row.Skipped == "" {
-				row.Phase, row.Sent = "echo", seq+1
+			if ri := r.probeRow[i]; ri >= 0 && ri < len(r.rows) && r.rows[ri].Skipped == "" {
+				r.rows[ri].Phase, r.rows[ri].Sent = "echo", seq+1
 			}
 			r.mu.Unlock()
 		}
@@ -1101,10 +1171,15 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		rowsMu.Unlock()
 	}
 	liveCb := liveSink(ctx)
-	estPathMTU := PathMTU(ctx, l)
-	if estPathMTU <= 0 {
-		estPathMTU = 1500
-	}
+	pmtuCtx, cancelPMTU := context.WithCancel(ctx)
+	defer cancelPMTU()
+	var estPathMTU atomic.Int32
+	estPathMTU.Store(1500)
+	go func() {
+		if m := PathMTU(pmtuCtx, l); m > 0 {
+			estPathMTU.Store(int32(m))
+		}
+	}()
 	totalWanted := 0
 	for i := range rows {
 		if wanted(rows[i].Method) {
@@ -1135,7 +1210,7 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		if phase == "done" {
 			idxPos, pct = totalWanted, 100
 		}
-		mtuVal := tunnelMTU(r.Method, estPathMTU)
+		mtuVal := tunnelMTU(r.Method, int(estPathMTU.Load()))
 		if mtuVal <= 0 {
 			mtuVal = 1420
 		}
@@ -1188,12 +1263,21 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 		}
 	}
 
-	// Phase 1, DIRECT: iran starts every method toward kharej, the way a DIRECT
-	// tunnel starts. This runs first, before kharej has sent anything that a
-	// stateful middlebox could treat as an open session.
+	// Phase 1, DIRECT: iran starts every selected method toward kharej, the way
+	// a DIRECT tunnel starts. Pass the selected method list in ctlPing's payload
+	// so Iran filters its live board and only probes the chosen methods.
+	var pingPayload []byte
+	if len(want) > 0 {
+		names := make([]string, 0, len(want))
+		for k := range want {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		pingPayload = []byte(strings.Join(names, ","))
+	}
 	var nonce [4]byte
 	_, _ = rand.Read(nonce[:])
-	if _, ok := s.controlMsg(ctx, ctlPing, 0, uint16(s.ping.LocalAddr().(*net.UDPAddr).Port), nonce, nil); !ok {
+	if _, ok := s.controlMsg(ctx, ctlPing, 0, uint16(s.ping.LocalAddr().(*net.UDPAddr).Port), nonce, pingPayload); !ok {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -1223,12 +1307,29 @@ func RunOnly(ctx context.Context, l Link, progress Progress, only []string) ([]R
 			return nil, ctx.Err()
 		}
 	}
+	if udpOpen && anyProbeWanted {
+		// Poll Iran early so clean links don't sit idle for the full replyWait.
+		waitEnd := time.Now().Add(replyWait)
+		var firstIdx = -1
+		for i := range s.ps {
+			if usable(i) && wanted(s.ps[i].method) {
+				firstIdx = i
+				break
+			}
+		}
+		for firstIdx >= 0 && time.Now().Before(waitEnd) {
+			if !sleep(ctx, 80*time.Millisecond) {
+				return nil, ctx.Err()
+			}
+			v, ok := s.control(ctx, ctlPingRead, firstIdx, 0)
+			if ok && int(uint64(v)>>56) >= Probes {
+				break
+			}
+		}
+	}
 	for i := range s.ps {
 		if !udpOpen || !anyProbeWanted {
 			break
-		}
-		if i == 0 && !sleep(ctx, replyWait) {
-			return nil, ctx.Err()
 		}
 		if !usable(i) || !wanted(s.ps[i].method) {
 			continue
@@ -1620,7 +1721,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 		r.Skipped = "no carrier probe"
 		return r
 	}
-	rtts := speedtest.CarrierPayloadRTTLive(ctx, addr, prefix, Probes, 40*time.Millisecond, func(sent int, cur []float64) {
+	rtts := speedtest.CarrierPayloadRTTLive(ctx, addr, prefix, Probes, 20*time.Millisecond, func(sent int, cur []float64) {
 		avg, jit := stats(cur)
 		if onLive != nil {
 			onLive("echo", sent, len(cur), avg, jit, 0, 0)
@@ -1633,7 +1734,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 		return r
 	}
 	var lastRx, lastTx float64
-	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 250*time.Millisecond, 1000*time.Millisecond, func(dir byte, mbps float64) {
+	down, up, err := speedtest.MeasureCarrierPayloadLive(ctx, addr, prefix, 200*time.Millisecond, 800*time.Millisecond, func(dir byte, mbps float64) {
 		phase := "download"
 		if dir == 'U' {
 			phase = "upload"
@@ -1653,7 +1754,7 @@ func measureCarrierLive(ctx context.Context, addr, method string, onLive func(ph
 }
 
 const (
-	speedDuration = 1000 * time.Millisecond
+	speedDuration = 850 * time.Millisecond
 	speedPacket   = 1200
 )
 
@@ -1780,7 +1881,7 @@ func (s *session) throughputLiveDir(ctx context.Context, idx int, direct bool, o
 			}
 		}
 		tick.Stop()
-		_ = sleep(ctx, 150*time.Millisecond)
+		_ = sleep(ctx, 120*time.Millisecond)
 		if n, ok := s.control(ctx, ctlCountRead, idx, 0); ok {
 			up = toMbps(n)
 			if onSample != nil {
@@ -1836,7 +1937,7 @@ func (s *session) throughputLiveDir(ctx context.Context, idx int, direct bool, o
 		}
 	drain:
 		tick.Stop()
-		_ = sleep(ctx, 150*time.Millisecond)
+		_ = sleep(ctx, 120*time.Millisecond)
 		down = toMbps(got.Load())
 		if onSample != nil {
 			onSample("download", down)

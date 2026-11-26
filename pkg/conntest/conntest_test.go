@@ -333,6 +333,14 @@ func TestRunOnlyLimitsTheRows(t *testing.T) {
 	_, port, _ := net.SplitHostPort(resp.UDPAddr)
 	l.UDPPort = atoi(port)
 
+	var iranMu sync.Mutex
+	var iranSnapshots [][]Result
+	resp.SetCallbacks(func(r []Result) {
+		iranMu.Lock()
+		iranSnapshots = append(iranSnapshots, r)
+		iranMu.Unlock()
+	}, nil)
+
 	start := time.Now()
 	rows, err := RunOnly(ctx, l, nil, []string{"game-dtls", "udp"})
 	if err != nil {
@@ -345,10 +353,28 @@ func TestRunOnlyLimitsTheRows(t *testing.T) {
 	if len(got) != 4 {
 		t.Fatalf("rows %v, want game-dtls, rev+game-dtls, udp and direct+udp", got)
 	}
-	for _, m := range []string{"game-dtls", "rev+game-dtls", "udp", "direct+udp"} {
-		if r, ok := got[m]; !ok || r.Status() != "ok" || r.DownMbps <= 0 {
+	allowed := map[string]bool{"game-dtls": true, "rev+game-dtls": true, "udp": true, "direct+udp": true}
+	for m := range allowed {
+		if r, ok := got[m]; !ok || r.Status() != "ok" || r.DownMbps <= 0 || r.Sent != Probes {
 			t.Fatalf("%s: %+v", m, r)
 		}
 	}
-	t.Logf("four rows in %v", time.Since(start).Round(time.Second))
+	// Verify Iran responder synced Kharej's selection and never tested unselected rows.
+	iranMu.Lock()
+	snaps := append([][]Result(nil), iranSnapshots...)
+	iranMu.Unlock()
+	if len(snaps) == 0 {
+		t.Fatal("iran responder received no live board updates")
+	}
+	for _, snap := range snaps {
+		if len(snap) != len(allowed) {
+			t.Fatalf("iran live board had %d rows, want only %d selected rows: %+v", len(snap), len(allowed), snap)
+		}
+		for _, r := range snap {
+			if !allowed[r.Method] {
+				t.Fatalf("iran responder tested unselected method %q", r.Method)
+			}
+		}
+	}
+	t.Logf("four rows (%d probes each) in %v", Probes, time.Since(start).Round(time.Second))
 }

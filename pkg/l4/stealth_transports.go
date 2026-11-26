@@ -502,7 +502,7 @@ func dialDPIKCP(cfg *Config, addr string) (net.Conn, error) {
 		return &managedKCPConn{Conn: s}, nil
 	}
 	tuneKCP(s, mtu, prof.kcpWindow, prof.kcpInterval)
-	stop := startSessionPathCtl(s, pc, prof.kcpWindow)
+	stop := startSessionPathCtl(s, pc, prof.kcpWindow, nil)
 	return &managedKCPConn{Conn: s, stop: stop}, nil
 }
 

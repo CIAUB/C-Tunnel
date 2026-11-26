@@ -1,5 +1,29 @@
 # Changelog
 
+## [2.1.1]
+
+### Added — Zero-Interface Mode for Stealth, Gaming & UDP-Crypt Tunnels
+- **Zero-Interface Port-Forward Mode (`NoInterface`, `pkg/l4/stealth_transports.go`, `pkg/catalog`, `pkg/tunnel`, `cmd/ctunnel-engine`, `scripts/ctunnel-kernel.sh`):**
+  - New `stealth-tcp`, `stealth-ws`, `game-dtls`, `game-udp`, `game-fec`, `game-dup`, `wg-stealth`, and `rudp-fec` tunnels now default to **zero-interface mode** (`NoInterface: true`) in both CLI and Web Panel, forwarding TCP & UDP ports directly over their exact AES-256-GCM + DPI/TLS/WebSocket/FEC/Dual-Send wire framing with **0 TUN devices in `ip a`** and **0 `iptables` NAT rules**.
+  - **100% Backward Compatible with Existing Tunnels & Backups:** Existing TUN tunnels and restored older backups omit `no_interface` (`false`) and keep running on their dedicated `ct-<name>` interfaces untouched; `RestoreBackup` also restores older backups containing legacy methods cleanly.
+
+### Added — Universal & Lightweight Offline Installation
+- **Offline Release Bundles (`scripts/build-release.sh`, `install.sh`, `README.md`, `README_FA.md`, `README_RU.md`):**
+  - Every GitHub Release now ships lightweight per-arch offline bundles (`ctunnel-offline-amd64.zip` ~8.5 MB, `arm64` ~7.6 MB, `armv7` ~7.9 MB, `amd64.tar.gz` ~8.6 MB) plus universal all-arch `ctunnel-offline.zip` / `.tar.gz`.
+  - `install.sh` auto-detects extracted offline bundles (and supports `--offline <path>`), verifies `SHA256SUMS` with zero GitHub/`apt-get` calls, applies SELinux `restorecon` on RHEL/Rocky/Alma/CentOS/Fedora, and drops the obsolete mandatory `wireguard-tools` apt requirement.
+
+### Fixed & Improved — Precision MTU Selection & Faster, More Accurate Connection Test
+- **Exact Wire Overheads & Live MTU Discovery (`pkg/catalog`, `pkg/tunnel/mtu*.go`, `pkg/cli`, `pkg/webpanel`):**
+  - Fixed underestimated wire overheads for `game-udp` (`48 → 57`), `game-fec` (`56 → 65` including 4B XOR parity header), and `game-dup` (`52 → 59`) to eliminate `DF=1` `EMSGSIZE` packet drops at full MTU.
+  - Aligned TCP-stream carriers (`stealth-tcp`, `stealth-ws`, `frp+`, TURBO/HYPER BBR carriers) to fit cleanly inside 1 TCP MSS segment.
+  - Added `DetectUnderlayMTU` (reads real cloud NIC MTU like `1450`) and fast Linux `DF=1` ICMP `ProbePathMTU` (with RFC 1191 Next-Hop MTU support), exposed via CLI wizard/Edit and Web Panel `GET /api/mtu` + **Detect optimal MTU** button.
+- **Connection Test v2.1.1 (`pkg/conntest`):**
+  - **Independent Direct & Reverse Tests:** Layer-4 (`direct+<t>` vs `<t>`), `stealth-tcp` vs `rev+stealth-tcp`, `stealth-ws` vs `rev+stealth-ws`, and UDP-Crypt/Gaming rows now run completely separate real tests (Iran actually dials Kharej for `direct+<L4>` and Direct `stealth-tcp`).
+  - **Iran-Side Method Filter Sync:** When Kharej selects specific methods (`--only` / Web Panel checkboxes), `ctlPing` sends the selected list so Iran's live board and probe loop test **only** the selected methods instead of probing everything.
+  - **50% More Echo Probes & ~2× Faster Total Runtime:** Raised `Probes` from `10` to **`15`** for sharper RTT, jitter, and packet-loss accuracy while running `PathMTU` in parallel with Phase 1, exiting echo wait early, and tightening L4/carrier measurement & polling windows.
+- **Pooled KCP (`udp`) Bidirectional Stability (`pkg/l4/kcpconn.go`, `pkg/l4/transport.go`, `pkg/pathctl`):**
+  - Prevented idle pooled `udp` sessions from ramping `pathctl` send windows to full ceiling before traffic begins, capped per-stream pooled `udp` windows and write chunks (`16 KiB`), and kept KCP `WriteDelay` off so heavy outbound bursts never starve incoming packets or reverse ACKs (~8× fewer UDP socket drops under load).
+
 ## [2.1.0]
 
 ### Added — Adaptive & 3-Tier Performance Profiles (`AUTO` / `ECO` / `TURBO` / `HYPER`)
